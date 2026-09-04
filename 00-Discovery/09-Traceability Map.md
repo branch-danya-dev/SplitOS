@@ -72,7 +72,8 @@ Specification / Verification
 ├── 03-States/
 ├── 04-Behavior/
 ├── 05-Data/
-└── 06-Interfaces/
+├── 06-Interfaces/
+└── 07-Integrations/
 ```
 
 ### 3.1 Boundaries
@@ -212,15 +213,36 @@ SplitOS Game Profile
 | payment/checkout evidence | `EXT-PAY-001/002` |
 | Builder Windows source | `EXT-MS-SOURCE-001` |
 
-Interface semantics are canonical in:
+### 3.8 Integrations
+
+| Interface / capability | Integration mechanism / status |
+|---|---|
+| Windows user/session context | WTS / Win32 session APIs — VERIFIED |
+| UI/runtime → privileged machine operations | Runtime Host ↔ secured Named Pipe ↔ Privileged Broker — CANDIDATE baseline |
+| display topology/capabilities | `QueryDisplayConfig` / `DisplayConfigGetDeviceInfo` — VERIFIED |
+| display apply | `SetDisplayConfig` + read-back verification — VERIFIED |
+| audio endpoint discovery/events | Core Audio / MMDevice / `IMMNotificationClient` — VERIFIED |
+| system default audio switching | supported public mechanism not established — OPEN |
+| power plan | PowrProf `PowerGet/SetActiveScheme` — VERIFIED |
+| process evidence | Win32 process enumeration / handles — VERIFIED/CANDIDATE |
+| service lifecycle | Service Control Manager APIs — VERIFIED |
+| Game Client semantics | per-client adapter architecture — CANDIDATE |
+| Steam local metadata | version-sensitive best-effort evidence, not canonical public contract |
+| Epic/Xbox/Battle.net exact local integration | OPEN/CANDIDATE until validation |
+| SplitOS Account | HTTPS backend boundary — CANDIDATE baseline |
+| payment | hosted checkout + backend validated provider evidence — CANDIDATE baseline |
+| Builder servicing | versioned Build Manifest + DISM/offline servicing where applicable — VERIFIED/CANDIDATE |
+| SplitOS/Windows update | compatibility-gated controlled update orchestration — CANDIDATE; exact update technology OPEN |
+
+Canonical integration artifacts:
 
 ```text
-06-Interfaces/Interface Model.md
-06-Interfaces/Internal Runtime Contracts.md
-06-Interfaces/External Boundary Contracts.md
+07-Integrations/Integration Architecture.md
+07-Integrations/Windows Runtime Integration.md
+07-Integrations/Game Client Integration.md
+07-Integrations/Account Payment Builder and Update Integration.md
+07-Integrations/integration-map.mmd
 ```
-
-Concrete API/IPC/SDK implementation remains deferred to `07-Integrations`.
 
 ---
 
@@ -237,7 +259,8 @@ DEC-035..043
 → WindowsUserAccountAssociation / Entitlement / ManagedRuntimeAccessDecision
 → IF-ID-001/002 + IF-ACCESS-001/002
 → EXT-ID-001..003 + EXT-PAY-001/002
-→ future Account/Payment integrations + Trust rules
+→ HTTPS Account Backend + hosted checkout/payment evidence integration
+→ future First Run / Upgrade Flow + Trust rules
 ```
 
 ### Work XOR Game
@@ -250,6 +273,8 @@ DEC-002 + DEC-037
 → Work to Game Behavior / Game to Work Behavior
 → OperationalModeState
 → IF-MODE-001..003 + IF-TRANS-001..004
+→ Runtime Host + user-session Windows integrations + Privileged Broker where required
+→ future Work→Game / Game→Work flows
 ```
 
 ### Safe Work → Game transition
@@ -262,7 +287,8 @@ DEC-016/017
 → Work to Game Behavior
 → ModeTransitionRecord
 → IF-TRANS-* + IF-POLICY-* + IF-APP-* + system-context interfaces
-→ future Integrations / Failures / Verification
+→ process/service/window/device integration mechanisms
+→ future Work→Game Flow / Failure / Verification
 ```
 
 ### Build-time Windows preparation
@@ -274,7 +300,8 @@ DEC-028..032
 → SplitOS Build Pipeline + Component Classification Model
 → SplitOSRelease / BuildManifest / ComponentClassificationDecision
 → EXT-MS-SOURCE-001
-→ future Builder/source integration
+→ source validation + manifest executor + DISM/offline servicing
+→ future Builder Flow / Verification
 ```
 
 ### Managed game launch
@@ -285,15 +312,15 @@ DEC-006/007/008/009/011..014
 → Game Library + Profiles + Hardware + Optimization + Launch Orchestration
 → Game / GameClient / GameInstallationProjection / GameProfile / HardwareSnapshot
 → IF-LIB-* / IF-PROFILE-* / IF-HW-* / IF-OPT-* / IF-LAUNCH-*
-→ EXT-GC-* + Windows/device evidence boundaries
-→ future Game Client integrations and end-to-end Game Launch Flow
+→ per-client Game Client Adapter + Windows process/display/input evidence
+→ future Managed Game Launch Flow
 ```
 
 ---
 
 ## 5. Next traceability extensions
 
-Следующие слои должны продолжить цепочку:
+Следующий слой должен продолжить цепочку:
 
 ```text
 Requirement ID
@@ -302,7 +329,8 @@ Requirement ID
 → State / Behavior
 → Data concept
 → Interface / Contract
-→ Integration / Flow
+→ Integration mechanism
+→ End-to-end Flow
 → Failure behavior
 → Trust rule
 → Verification case
@@ -310,4 +338,4 @@ Requirement ID
 
 Трассировка не заменяет сами модели. Её задача — позволить ответить:
 
-> Почему существует это требование, какое решение его породило, какая аналитическая модель его объясняет и где проверяется его реализация?
+> Почему существует это требование, какое решение его породило, какая аналитическая модель его объясняет, каким механизмом оно интегрируется и где проверяется его реализация?
