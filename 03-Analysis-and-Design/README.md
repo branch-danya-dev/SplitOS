@@ -1,6 +1,6 @@
 # SplitOS — Analysis & Design
 
-Этот каталог содержит канонические аналитические модели SplitOS после Discovery, Concept и Requirements.
+Этот каталог содержит канонический Analysis & Design baseline SplitOS после Discovery, Concept и Requirements.
 
 ## Canonical sequence
 
@@ -30,7 +30,7 @@
 11-Synthesis
 ```
 
-Порядок отражает reasoning dependency, а не жёсткий waterfall.
+Порядок отражает reasoning dependency, а не жёсткий waterfall. Новое VERIFIED evidence может потребовать возврата к предыдущему owner layer.
 
 ---
 
@@ -38,18 +38,23 @@
 
 | Layer | Status | Canonical artifacts |
 |---|---|---|
-| `00-Boundaries` | READY | System Boundary Analysis, Build Pipeline, Installed Runtime Boundary, Component Classification |
+| `00-Boundaries` | READY | System Boundary, Build Pipeline, Installed Runtime, Component Classification |
 | `01-Responsibilities` | READY | Responsibility Model |
 | `02-Ownership` | READY | Ownership Model |
-| `03-States` | READY | System State, Runtime Access, Mode Transition, Game Session |
-| `04-Behavior` | READY | First Run/Runtime Access, Startup, Work→Game, Game Launch, Game→Work |
-| `05-Data` | READY | Domain Model, Identity & Runtime Access, Configuration Model, Data Ownership and Lifecycle |
-| `06-Interfaces` | READY | Interface Model, Internal Runtime Contracts, External Boundary Contracts, interface map |
-| `07-Integrations` | READY | Integration Architecture, Windows Runtime Integration, Game Client Integration, Account/Payment/Builder/Update Integration |
-| `08-Flows` | READY | First Run/Subscription, Work→Game, Managed Game Launch, Game→Work, Update/Recovery + sequence diagrams |
-| `09-Failures` | READY | Failure Model, Runtime Failure Scenarios, Update/Recovery Failure Scenarios, Failure Handling Matrix, failure map |
-| `10-Trust` | READY | Trust Model, Local Privilege & IPC, Identity/Entitlement/Secrets, Artifact/Build/Update Trust, External Evidence Trust, Security Control Matrix, trust map |
-| `11-Synthesis` | NEXT | not started |
+| `03-States` | READY | System, Runtime Access, Mode Transition, Game Session |
+| `04-Behavior` | READY | First Run, Startup, Work→Game, Game Launch, Game→Work |
+| `05-Data` | READY | Domain, Identity/Access, Configuration, Ownership/Lifecycle |
+| `06-Interfaces` | READY | Interface Model, Internal/External contracts |
+| `07-Integrations` | READY | Windows, Game Clients, Account/Payment, Builder/Update mechanisms |
+| `08-Flows` | READY | First Run, Work→Game, Launch/Exit, Game→Work, Update/Recovery |
+| `09-Failures` | READY | Failure taxonomy, runtime/update/recovery scenarios, handling matrix |
+| `10-Trust` | READY | IPC/privilege, identity/entitlement/secrets, artifact/update trust, external evidence |
+| `11-Synthesis` | READY | System Synthesis, Logical Components, Deployment, Data Placement, Baseline Matrix, Specification Handoff |
+
+```text
+Analysis & Design baseline = COMPLETE
+Next phase = Detailed Specification
+```
 
 ---
 
@@ -61,7 +66,7 @@
 00-Boundaries/
 ```
 
-Defines build/runtime/external ownership boundaries.
+Defines product/build/runtime/external boundaries.
 
 ## Responsibility truth
 
@@ -77,7 +82,7 @@ Defines what the system must own semantically.
 02-Ownership/Ownership Model.md
 ```
 
-Defines authority, writers, consumers and evidence sources.
+Defines decision authority, canonical writers, consumers and evidence sources.
 
 ## State truth
 
@@ -85,11 +90,11 @@ Defines authority, writers, consumers and evidence sources.
 03-States/
 ```
 
-Important invariant:
+Core invariant:
 
 ```text
-FREE  → ManagedRuntime = DISABLED, OperationalMode = NONE
-PRO   → ManagedRuntime = ENABLED, WORK xor GAME
+FREE → ManagedRuntime=DISABLED, OperationalMode=NONE
+PRO  → ManagedRuntime=ENABLED, WORK xor GAME
 ```
 
 ## Behavior truth
@@ -106,16 +111,7 @@ Defines trigger → rules → state consequences.
 05-Data/
 ```
 
-Separates:
-
-```text
-Canonical product truth
-Policy / user intent
-External projections
-Runtime evidence
-Transaction / recovery state
-Diagnostics
-```
+Separates canonical product truth, user policy/intent, external projections, runtime evidence, transaction/recovery state and diagnostics.
 
 ## Interface truth
 
@@ -123,14 +119,7 @@ Diagnostics
 06-Interfaces/
 ```
 
-Core contract rule:
-
-```text
-Consumer
-→ request/query/event
-→ canonical owner
-→ semantic result
-```
+Defines semantic provider/consumer contracts without assuming transport.
 
 ## Integration truth
 
@@ -138,15 +127,7 @@ Consumer
 07-Integrations/
 ```
 
-Mechanisms are classified explicitly:
-
-```text
-VERIFIED
-CANDIDATE
-BEST_EFFORT
-OPEN
-REJECTED
-```
+Mechanisms remain explicitly classified as `VERIFIED / CANDIDATE / BEST_EFFORT / OPEN / REJECTED`.
 
 ## Flow truth
 
@@ -154,29 +135,18 @@ REJECTED
 08-Flows/
 ```
 
-Canonical end-to-end pattern:
+Canonical temporal pattern:
 
 ```text
 Trigger
 → Preconditions
-→ Requests / Evidence
+→ Request/Evidence
 → Owner decision
 → Integration operation
 → Actual-state evidence
 → Verification
-→ Commit / result
+→ Commit/result
 → User-visible outcome
-```
-
-Critical distinction:
-
-```text
-command sent
-!= command accepted
-!= operation submitted
-!= target observed
-!= verification passed
-!= canonical commit
 ```
 
 ## Failure truth
@@ -185,123 +155,196 @@ command sent
 09-Failures/
 ```
 
-Core failure rule:
-
-```text
-Failure evidence
-→ owning responsibility
-→ classify impact
-→ choose response
-→ apply response
-→ verify resulting state
-→ commit fallback/recovery result if proven
-```
-
-Failure handlers must not invent canonical state.
+Failure handlers never invent canonical state; safe convergence must be verified.
 
 ## Trust truth
 
-Canonical trust semantics belong to:
-
 ```text
 10-Trust/
-├── Trust Model.md
-├── Local Privilege and IPC Trust.md
-├── Identity Entitlement and Secret Trust.md
-├── Artifact Build and Update Trust.md
-├── External Evidence Trust.md
-├── Security Control Matrix.md
-└── trust-map.mmd
 ```
 
-Trust answers:
+Core trust chain:
 
 ```text
-who is the subject/issuer
-→ how identity/provenance is established
-→ how integrity/freshness/context are validated
-→ what capability is authorized
-→ what action may follow
+Claim/Request
+→ Identity/Issuer
+→ Integrity
+→ Freshness
+→ Context binding
+→ Capability authorization
+→ Semantic owner decision
+→ Sensitive operation
+→ Verification
 ```
 
-Core rule:
+## Synthesis truth
+
+Canonical final architecture belongs to:
 
 ```text
-trusted for one claim/capability
-!= globally trusted component
+11-Synthesis/
+├── System Synthesis.md
+├── Logical Component Architecture.md
+├── Deployment and Process Topology.md
+├── Data and State Placement.md
+├── Architecture Baseline Matrix.md
+├── Specification Handoff.md
+├── system-architecture.mmd
+└── deployment-topology.mmd
 ```
+
+Synthesis maps established owners/contracts into logical components and deployment boundaries. It must not silently override earlier canonical layers.
 
 ---
 
-# Current core system model
+# Final architecture summary
+
+## Build-time
 
 ```text
 Microsoft-authorized Windows source
-        +
-SplitOS Media Builder
-        +
-SplitOS Build Manifest / Packages
-        +
++
+Signed/versioned SplitOS Build Manifest
++
+SplitOS packages
++
 Windows Component Matrix
-        ↓
-Prepared SplitOS Baseline
-        ↓
-Clean Installation
-        ↓
-Windows User
-        ↓
-SplitOS Account
-        ↓
-Entitlement
-   ┌────┴────┐
-   │         │
- FREE       PRO
-   │         │
-Windows     Managed Runtime
-Desktop     ↓
-            WORK xor GAME
+↓
+SplitOS Media Builder
+↓
+Typed supported transformations
+↓
+Baseline verification
+↓
+Prepared SplitOS Windows baseline
 ```
 
-Runtime topology:
+## Installed runtime
 
 ```text
-Interactive user session
+Windows User Session
 ├── SplitOS Manager
-├── Game Launcher
+├── SplitOS Game Launcher
 └── SplitOS Runtime Host
-        │
-        ├── user-session Windows APIs
-        ├── Game Client adapters
-        ├── HTTPS → Account Backend
-        └── authenticated + authorized local IPC
+        ├── runtime semantic modules
+        ├── Windows Context Adapters
+        ├── Game Client Adapters
+        ├── Local State/Persistence
+        ├── HTTPS → SplitOS Backend
+        └── authenticated/authorized IPC
                  ↓
          SplitOS Privileged Broker
-         Windows Service / Session 0
+                 ↓
+         bounded privileged Windows operations
 ```
 
-The Privileged Broker is a narrow machine-mutation boundary, not a general administrator API.
+External authorities remain external:
+
+```text
+Windows / Drivers / Devices
+Steam / Epic / Xbox / Battle.net
+Payment Provider
+Microsoft Windows source ecosystem
+Release signing/trust authority
+```
 
 ---
 
-# Current canonical flows
+# Product/runtime invariant
 
 ```text
-FL-01 First Run / FREE-PRO / Upgrade
-FL-02 Work → Game
-FL-03 Managed Game Launch and Exit
-FL-04 Game → Work
-FL-05 Update and Recovery
+Installed SplitOS
+!= Paid entitlement
 ```
 
-Direct managed launch from Work is composition:
+### FREE
 
 ```text
-FL-02 Work → Game
-+
-FL-03 Managed Game Launch
+SplitOS Account
+→ Entitlement FREE
+→ ManagedRuntime=DISABLED
+→ OperationalMode=NONE
+→ normal Windows Desktop on SplitOS baseline
 ```
 
-Major mutation coordination:
+### PRO
+
+```text
+SplitOS Account
+→ entitlement permits managed runtime
+→ ManagedRuntime=ENABLED
+→ WORK xor GAME
+```
+
+Premium runtime failure or entitlement uncertainty must not intentionally make base Windows unusable.
+
+---
+
+# Final logical component families
+
+```text
+Build Plane
+├── Media Builder
+├── Source Validator
+├── Manifest Executor
+└── Baseline Verifier
+
+UX Plane
+├── Manager / First Run
+└── Game Launcher
+
+Runtime Orchestration Plane
+├── Runtime Access
+├── Mode State / Transition / Policy
+├── Application Lifecycle
+├── System Contexts
+├── Hardware
+├── Game Library / Profiles / Optimization
+├── Game Launch / Session / Shared Apps
+├── Compatibility
+├── Update / Recovery
+├── Mutation Coordination
+└── Observability
+
+Adapter Plane
+├── Windows adapters
+└── per-Game-Client adapters
+
+Privileged Plane
+└── narrow Privileged Broker + allowlisted handlers
+
+Persistence Plane
+├── canonical/user state
+├── durable transaction journal
+├── projection caches
+├── protected secrets
+└── diagnostics
+
+Backend Plane
+├── Account/Auth
+├── Entitlement
+├── Subscription reconciliation
+└── optional offline entitlement/release metadata services
+```
+
+---
+
+# Core runtime rules
+
+```text
+User intent
+!= committed state
+!= transition state
+!= actual Windows/device evidence
+```
+
+```text
+command sent
+!= command accepted
+!= target observed
+!= verification passed
+!= canonical commit
+```
 
 ```text
 Mode Transition
@@ -309,141 +352,50 @@ or Update
 or Recovery
 ```
 
-must not independently mutate conflicting machine state at the same time.
+must not independently execute conflicting machine mutations without coordination.
+
+Direct game launch from Work remains composition:
+
+```text
+Work→Game
+→ only after GAME commit
+→ Managed Game Launch
+```
+
+`HANDOFF_ACCEPTED != GAME_RUNNING`.
 
 ---
 
-# Failure model summary
+# Failure/safety baseline
 
-## Failure classes
-
-```text
-Request / precondition failure
-Dependency unavailable
-Unsupported capability
-Missing/stale/contradictory external evidence
-Operation rejected / technical failure
-Partial application
-Verification failure
-Component crash / runtime loss
-Persistence / durability failure
-Interruption / reboot / power loss
-Recovery failure
-Trust / integrity validation failure
-```
-
-## Response classes
-
-```text
-Reject
-Defer
-Retry
-Controlled fallback
-Degraded continuation
-Cancel to source state
-Rollback
-Recovery
-Manual recovery / support required
-```
-
-Canonical safety priority:
+Safety priority:
 
 ```text
 1. User data integrity
-2. Windows bootability and base usability
+2. Windows bootability/base usability
 3. Known coherent system state
-4. Correct SplitOS canonical state
+4. Correct canonical SplitOS state
 5. Managed runtime restoration
 6. UX convenience
 ```
 
----
+Rollback/recovery are themselves operations requiring actual-state verification.
 
-# Trust model summary
-
-## Trust zones
-
-```text
-Windows Platform Authority
-Interactive User Session
-Privileged Broker
-Local Persistent SplitOS State
-SplitOS Backend
-Release / Build Trust Domain
-External Authorities
-```
-
-## Local privilege
-
-```text
-UI
-→ Runtime Host semantic owner
-→ bounded privileged capability
-→ explicit Named Pipe ACL / caller token-session validation candidate
-→ Privileged Broker
-→ bounded OS mutation
-→ actual-state verification
-```
-
-No generic `RunCommand`, arbitrary PowerShell, raw registry/service mutation contract is allowed.
-
-## Identity / entitlement
-
-```text
-Windows User
-→ SplitOS Account auth via external browser/native-app flow candidate
-→ server-issued tokens
-→ protected local secret storage (DPAPI candidate)
-→ server/offline entitlement evidence
-→ ManagedRuntimeAccessDecision
-```
-
-```text
-FREE/PRO
-!= editable local setting
-```
-
-Offline premium access requires bounded verifiable evidence, not `cachedPro=true`.
-
-## Artifact trust
-
-```text
-release authority
-→ signed manifest / signed or digest-bound artifact
-→ compatibility validation
-→ protected staging
-→ privileged apply
-→ read-back verification
-→ baseline commit
-```
-
-Authenticode/WinVerifyTrust is the current Windows-native binary-signature mechanism family. Structured manifests require a separate versioned signed format.
-
-## External evidence
-
-```text
-External source
-→ bounded adapter/parser
-→ validate + normalize + freshness metadata
-→ semantic owner interpretation
-→ canonical state/projection only if justified
-```
-
-Game Client/browser/device evidence never becomes direct privileged command input.
+A mixed partial Windows state is degraded evidence, not a new `HYBRID` operational mode.
 
 ---
 
-# Security invariants
+# Trust baseline
 
 ```text
 ordinary user process
-!= privileged Broker authority
+!= Broker authority
 
 signed executable
 != authorized capability
 
 browser callback
-!= authenticated account/payment/entitlement result
+!= account/payment/entitlement authority
 
 HTTPS download
 != trusted release artifact
@@ -451,87 +403,61 @@ HTTPS download
 valid old signature
 != downgrade authorization
 
-external client metadata
+external metadata
 != privileged command
-
-trust validation failure
-→ deny sensitive capability
-→ preserve base Windows usability where possible
 ```
 
-v1 explicitly does not promise resistance to an unrestricted hostile local Administrator/kernel/firmware compromise.
+Privileged Broker is deliberately narrow and exposes no generic arbitrary admin-command product contract.
 
 ---
 
-# Current mechanism/security baseline
+# Remaining explicit engineering decisions
 
-### Windows
+Major OPEN items carried into Specification:
 
-```text
-User/session            → WTS / Win32 session APIs
-Display read/apply      → QueryDisplayConfig / SetDisplayConfig family
-Audio read/events       → Core Audio / MMDevice APIs
-Default audio switching → OPEN
-Power schemes           → PowrProf APIs
-Process/service evidence→ Win32 / SCM
-Privileged local IPC    → Named Pipe candidate + explicit ACL/caller validation
-Local user secret       → DPAPI candidate
-Binary provenance       → Authenticode / WinVerifyTrust candidate
-```
+- local physical storage engine/schema/migrations;
+- exact Runtime Host physical module packaging;
+- IPC protocol/serialization/SDDL/caller checks/service account;
+- OAuth/OIDC provider and redirect strategy;
+- offline entitlement assertion format/TTL/device binding/clock handling;
+- release manifest envelope/key hierarchy/rotation/revocation;
+- update package/snapshot/rollback technology;
+- supported system-wide default audio switching mechanism;
+- exact Epic/Xbox/Battle.net mechanisms and stable Steam metadata strategy;
+- Windows Component Matrix empirical classification;
+- Microsoft-authorized Windows source acquisition/provenance model;
+- performance thresholds and diagnostic retention;
+- exact major-mutation concurrency primitive.
 
-### Game Clients
-
-```text
-stable SplitOS semantic contract
-→ bounded per-client adapter/parser
-→ external client evidence
-```
-
-Version-sensitive local metadata remains BEST_EFFORT/CANDIDATE and is never promoted to privileged authority.
-
-### Account / payment
-
-```text
-Runtime / Manager
-→ external browser auth candidate + PKCE
-→ HTTPS SplitOS Account Backend
-→ hosted checkout
-→ Payment Provider
-→ backend-validated payment evidence
-→ Entitlement
-```
-
-### Builder / update
-
-```text
-validated Windows source
-→ signed Build/Update Manifest
-→ exact artifact binding
-→ supported servicing mechanism
-→ verification
-→ supported baseline identity
-```
+These remain explicit research/specification work and must not be silently resolved by implementation assumptions.
 
 ---
 
-# Next analytical target
+# Next phase
 
-После `10-Trust` следующим и финальным A&D layer является `11-Synthesis`.
-
-Synthesis должен собрать предыдущие решения в целостную implementable architecture view:
+Detailed Specification should proceed using:
 
 ```text
-system/component decomposition
-runtime deployment topology
-process/service boundaries
-canonical component responsibilities
-owned state/data
-internal/external contracts
-trust boundaries
-major end-to-end flows
-failure/recovery paths
-build/update architecture
-open implementation decisions
+11-Synthesis/Specification Handoff.md
 ```
 
-Synthesis не должен заново придумывать ownership/state. Его задача — собрать уже доказанные слои в единую архитектурную модель, пригодную для Specification и дальнейшей реализации.
+Recommended specification families include:
+
+```text
+Runtime Process/Modules
+Local IPC & Privileged Broker
+Local Data/Persistence
+Account/Auth/Entitlement
+Mode Runtime
+Windows Context Integrations
+Game Client Adapters
+Game Profile/Optimization
+Game Launcher/Shared Apps UX
+Builder/Component Matrix
+Update/Recovery
+Release Security/Key Management
+Observability
+Verification/Acceptance
+```
+
+If new engineering evidence contradicts the architecture, update the owning earlier A&D layer first and then re-synthesize; do not let detailed implementation become a hidden source of truth.
