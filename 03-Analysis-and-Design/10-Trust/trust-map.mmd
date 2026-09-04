@@ -1,0 +1,84 @@
+flowchart LR
+    User[User]
+    Win[Windows Security Authority\nSID / Logon Session / OS Trust]
+
+    subgraph Session[Interactive User Session]
+      Manager[SplitOS Manager]
+      Launcher[Game Launcher]
+      Runtime[SplitOS Runtime Host]
+      Adapters[Game Client Adapters]
+    end
+
+    subgraph Privileged[Privileged Zone]
+      Broker[SplitOS Privileged Broker\nWindows Service]
+    end
+
+    subgraph LocalState[Local Persistent State]
+      Assoc[Account Association]
+      Secrets[Protected Account Secrets]
+      EntCache[Offline Entitlement Evidence]
+      Tx[Mode / Update / Recovery Transactions]
+      Profiles[Game Profiles]
+    end
+
+    subgraph Backend[SplitOS Backend Trust Domain]
+      Auth[Account / Authorization]
+      Ent[Entitlement Authority]
+      ReleaseMeta[Release Metadata Distribution]
+    end
+
+    subgraph Release[Release / Build Trust Domain]
+      Signing[Release Signing Authority\nPrivate keys stay here]
+      Manifest[Signed Build / Update Manifest]
+      Packages[Signed / Digest-bound Packages]
+    end
+
+    subgraph External[External Authorities]
+      Payment[Payment Provider]
+      Clients[Steam / Epic / Xbox / Battle.net]
+      MS[Microsoft Windows Source / Updates]
+      Devices[Windows Drivers / Devices]
+    end
+
+    User --> Manager
+    User --> Launcher
+    Win --> Runtime
+    Manager --> Runtime
+    Launcher --> Runtime
+
+    Runtime -->|authenticated + authorized IPC\nexplicit ACL / caller validation| Broker
+    Win -->|token / session evidence| Broker
+
+    Runtime --> Assoc
+    Runtime --> Secrets
+    Runtime --> EntCache
+    Runtime --> Tx
+    Runtime --> Profiles
+
+    Runtime -->|HTTPS + account token| Auth
+    Auth --> Ent
+    Ent -->|server / bounded offline evidence| Runtime
+
+    Manager -->|hosted checkout start| Auth
+    Auth --> Payment
+    Payment -->|authenticated payment evidence| Auth
+    Auth --> Ent
+
+    Adapters -->|bounded parsing / normalization| Clients
+    Clients -->|install / auth / launch evidence| Adapters
+    Adapters --> Runtime
+
+    Devices -->|actual state evidence| Runtime
+
+    Signing --> Manifest
+    Signing --> Packages
+    Manifest --> ReleaseMeta
+    Packages --> ReleaseMeta
+    ReleaseMeta -->|signed metadata + exact artifact binding| Runtime
+    MS -->|validated external source/update input| Runtime
+
+    Manifest -->|validated Build input| Runtime
+    Packages -->|verified artifact ref| Broker
+
+    classDef trust fill:#fff,stroke:#111,stroke-width:1px;
+    class User,Win,Manager,Launcher,Runtime,Adapters,Broker,Assoc,Secrets,EntCache,Tx,Profiles,Auth,Ent,ReleaseMeta,Signing,Manifest,Packages,Payment,Clients,MS,Devices trust;
