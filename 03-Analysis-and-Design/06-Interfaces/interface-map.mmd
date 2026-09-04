@@ -1,0 +1,75 @@
+flowchart LR
+
+  UI[SplitOS Manager / Mode UX / Game Launcher]
+
+  ID[Product Identity & Entitlement]
+  ACCESS[Managed Runtime Access]
+  MODE[Mode Intent & Active Mode State]
+  TRANS[Mode Transition Coordination]
+  POLICY[Mode Policy]
+  APP[Application Lifecycle Policy]
+  DISPLAY[Display Context]
+  AUDIO[Audio Context]
+  INPUT[Input Context]
+  POWER[Power / Resource Context]
+  HW[Hardware Context Evaluation]
+  LIB[Game Library Representation]
+  PROFILE[Game Profiles]
+  OPT[Game Optimization Policy]
+  LAUNCH[Game Launch Orchestration]
+  SHARED[Shared App Experience]
+  COMPAT[Compatibility Management]
+  UPDATE[Update Orchestration]
+  RECOVERY[Recovery Coordination]
+  OBS[Observability & Diagnostics]
+
+  WIN[Windows / Drivers / Devices]
+  GC[External Game Clients]
+  BACKEND[SplitOS Account Backend]
+  PAY[Payment Provider]
+  MS[Microsoft Windows Source / Updates]
+
+  UI -->|IF-ID / IF-ACCESS| ID
+  ID --> ACCESS
+  UI -->|IF-MODE-001| MODE
+  MODE -->|IF-TRANS-001| TRANS
+  TRANS -->|IF-POLICY-001| POLICY
+  TRANS -->|IF-APP-002| APP
+  TRANS --> DISPLAY
+  TRANS --> AUDIO
+  TRANS --> INPUT
+  TRANS --> POWER
+
+  LAUNCH -->|IF-PROFILE-001| PROFILE
+  LAUNCH -->|IF-HW-001| HW
+  LAUNCH -->|IF-OPT-001| OPT
+  LAUNCH -->|IF-LIB-002| LIB
+  LAUNCH --> DISPLAY
+  LAUNCH --> INPUT
+
+  UI -->|IF-LAUNCH-001| LAUNCH
+  UI -->|IF-SHARED-001| SHARED
+
+  ID <-->|EXT-ID-*| BACKEND
+  BACKEND <-->|EXT-PAY-*| PAY
+
+  LIB <-->|EXT-GC-002| GC
+  LAUNCH <-->|EXT-GC-004/005| GC
+
+  DISPLAY <-->|EXT-WIN-DISPLAY-*| WIN
+  AUDIO <-->|EXT-WIN-AUDIO-*| WIN
+  INPUT <-->|EXT-WIN-INPUT-*| WIN
+  POWER <-->|EXT-WIN-POWER-*| WIN
+  HW <-->|platform evidence| WIN
+  APP <-->|process/app evidence| WIN
+
+  COMPAT <-->|EXT-MS-UPDATE-001| MS
+  UPDATE -->|IF-COMPAT-001| COMPAT
+  RECOVERY --> MODE
+  RECOVERY --> UPDATE
+
+  ID -.diagnostics.-> OBS
+  TRANS -.diagnostics.-> OBS
+  LAUNCH -.diagnostics.-> OBS
+  UPDATE -.diagnostics.-> OBS
+  RECOVERY -.diagnostics.-> OBS

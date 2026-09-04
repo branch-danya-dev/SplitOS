@@ -44,8 +44,8 @@
 | `03-States` | READY | System State, Runtime Access, Mode Transition, Game Session |
 | `04-Behavior` | READY | First Run/Runtime Access, Startup, Work→Game, Game Launch, Game→Work |
 | `05-Data` | READY | Domain Model, Identity & Runtime Access, Configuration Model, Data Ownership and Lifecycle |
-| `06-Interfaces` | NEXT | not started |
-| `07-Integrations` | NOT STARTED | — |
+| `06-Interfaces` | READY | Interface Model, Internal Runtime Contracts, External Boundary Contracts, interface map |
+| `07-Integrations` | NEXT | not started |
 | `08-Flows` | NOT STARTED | — |
 | `09-Failures` | NOT STARTED | — |
 | `10-Trust` | NOT STARTED | — |
@@ -130,6 +130,39 @@ Diagnostics
 
 Physical tables, storage engine, API schemas and concrete serialization formats are not yet canonical.
 
+### Interface truth
+
+Canonical semantic contracts belong to:
+
+```text
+06-Interfaces/
+├── Interface Model.md
+├── Internal Runtime Contracts.md
+├── External Boundary Contracts.md
+└── interface-map.mmd
+```
+
+Interface layer defines:
+
+```text
+Provider / semantic owner
+Consumer
+Request / query / event meaning
+Input / output semantics
+Errors / rejection reasons
+Temporal / verification semantics
+Ownership boundary
+```
+
+It does **not** decide transport technology automatically.
+
+```text
+Interface
+!= REST endpoint
+!= Integration implementation
+!= end-to-end Flow
+```
+
 ---
 
 ## Current core system model
@@ -181,7 +214,7 @@ Game Session Lifecycle
 Recovery Lifecycle
 ```
 
-Data is not one settings object. It is modeled as owned semantic layers:
+Data is modeled as owned semantic layers:
 
 ```text
 Release/Baseline knowledge
@@ -199,27 +232,41 @@ External projections/evidence
 Transaction/Recovery data
 ```
 
+Interfaces preserve these ownership boundaries:
+
+```text
+Consumer
+→ request/query/event contract
+→ canonical owner
+→ validated semantic result
+```
+
+External evidence follows:
+
+```text
+External authority
+→ adapter/interface boundary
+→ SplitOS owner interpretation
+→ canonical state or projection
+```
+
 ---
 
 ## Next analytical target
 
-После `05-Data` следующим слоем является `06-Interfaces`.
+После `06-Interfaces` следующим слоем является `07-Integrations`.
 
-Interfaces должны проектироваться от ownership boundaries:
+Integration analysis должен определить конкретные mechanisms за уже существующими semantic contracts:
 
 ```text
-Provider
-Consumer
-Contract owner
-Purpose
-Input
-Output
-Errors
-Temporal semantics
-Versioning / compatibility
-Failure behavior
+Windows APIs / services / privileged operations
+Game Client adapters
+Account authentication/backend channel
+Payment checkout/evidence path
+Microsoft source/update inputs
+local IPC/process boundaries
 ```
 
-`Interface != Integration != Flow`.
+При этом Integration не должна менять semantic ownership только потому, что конкретная технология удобнее.
 
-На этом шаге ещё нельзя автоматически предполагать REST: SplitOS interfaces могут быть IPC, Windows API boundary, client adapter contract, file/config contract, command/event boundary или другим типом интерфейса.
+После Integrations `08-Flows` свяжет отдельные contracts/integrations в end-to-end последовательности.
