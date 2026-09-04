@@ -1,0 +1,83 @@
+flowchart TB
+    subgraph BUILD["Build / Release Plane"]
+        MS["Microsoft-authorized Windows source"]
+        RA["Release Signing Authority"]
+        BM["Signed Build Manifest"]
+        PKG["SplitOS Packages"]
+        MB["SplitOS Media Builder"]
+        BV["Baseline Verifier"]
+        BASE["Prepared SplitOS Baseline"]
+
+        MS --> MB
+        RA --> BM
+        BM --> MB
+        PKG --> MB
+        MB --> BV
+        BV --> BASE
+    end
+
+    subgraph MACHINE["Installed Windows Machine"]
+        subgraph USER["Interactive Windows User Session"]
+            MGR["SplitOS Manager"]
+            GL["Game Launcher"]
+            RH["SplitOS Runtime Host"]
+
+            RAC["Runtime Access"]
+            MODE["Mode State / Transition / Policy"]
+            GAME["Library / Profile / Launch / Session"]
+            CTX["Display / Audio / Input / Power / Hardware"]
+            UPD["Update / Recovery / Mutation Coordination"]
+            ADP["Windows + Game Client Adapters"]
+            STORE["Local State / Transaction / Projection Stores"]
+
+            MGR --> RH
+            GL --> RH
+            RH --> RAC
+            RH --> MODE
+            RH --> GAME
+            RH --> CTX
+            RH --> UPD
+            RH --> ADP
+            RH --> STORE
+        end
+
+        subgraph PRIV["Privileged Service Domain"]
+            BROKER["SplitOS Privileged Broker"]
+            HANDLERS["Allowlisted Capability Handlers"]
+            BROKER --> HANDLERS
+        end
+
+        WIN["Windows / Drivers / Devices"]
+
+        RH -->|"authenticated + authorized IPC"| BROKER
+        HANDLERS --> WIN
+        ADP --> WIN
+    end
+
+    subgraph REMOTE["Remote / External Authorities"]
+        BE["SplitOS Account Backend"]
+        AUTH["Account / Auth / Entitlement"]
+        PAY["Payment Provider"]
+        CLIENTS["Steam / Epic / Xbox / Battle.net"]
+        ART["Release / Artifact Distribution"]
+
+        BE --> AUTH
+        PAY --> BE
+        ART --> UPD
+    end
+
+    BASE --> MACHINE
+    RH -->|"HTTPS"| BE
+    ADP --> CLIENTS
+    GAME --> ADP
+
+    FREE["FREE\nManagedRuntime=DISABLED\nOperationalMode=NONE"]
+    PRO["PRO\nManagedRuntime=ENABLED\nWORK xor GAME"]
+
+    RAC --> FREE
+    RAC --> PRO
+    PRO --> MODE
+    MODE --> GL
+
+    classDef ext stroke-dasharray: 5 5
+    class MS,WIN,PAY,CLIENTS ext
