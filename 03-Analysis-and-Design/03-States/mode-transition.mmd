@@ -1,0 +1,25 @@
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> REQUESTED: transition requested
+    REQUESTED --> INSPECTING
+    INSPECTING --> RESOLVING: no blockers
+    INSPECTING --> AWAITING_USER: confirmation required
+    INSPECTING --> BLOCKED: hard blocker
+    AWAITING_USER --> RESOLVING: continue
+    AWAITING_USER --> CANCELLED: cancel
+    BLOCKED --> INSPECTING: blocker resolved
+    BLOCKED --> CANCELLED: abort
+    RESOLVING --> APPLYING: preconditions resolved
+    RESOLVING --> CANCELLED: safe abort
+    RESOLVING --> ROLLING_BACK: partial inconsistency
+    APPLYING --> VERIFYING: target policy applied
+    APPLYING --> ROLLING_BACK: apply failure
+    VERIFYING --> COMMITTING: mandatory state verified
+    VERIFYING --> ROLLING_BACK: verification mismatch
+    VERIFYING --> FAILED_WITH_SAFE_FALLBACK: safe degraded state
+    COMMITTING --> COMPLETED: canonical mode committed
+    ROLLING_BACK --> CANCELLED: source mode restored
+    ROLLING_BACK --> FAILED_WITH_SAFE_FALLBACK: safe fallback established
+    COMPLETED --> IDLE
+    CANCELLED --> IDLE
+    FAILED_WITH_SAFE_FALLBACK --> IDLE: after recovery ownership accepts state
