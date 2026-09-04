@@ -1,0 +1,62 @@
+sequenceDiagram
+    actor U as User
+    participant M as SplitOS Manager
+    participant UP as Update Orchestration
+    participant ID as Identity & Entitlement
+    participant CM as Compatibility Management
+    participant RH as Runtime Host
+    participant PB as Privileged Broker
+    participant WIN as Windows/Servicing
+    participant BI as Installed Baseline Identity
+    participant RC as Recovery Coordination
+
+    U->>M: Check / Apply update
+    M->>UP: Discover update
+    UP->>ID: Check update entitlement
+    ID-->>UP: Entitlement result
+    UP->>CM: Evaluate target compatibility
+    CM-->>UP: Compatibility decision
+
+    alt Not entitled or incompatible
+        UP-->>M: Not applicable / blocked
+    else Applicable
+        UP->>RH: Acquire major mutation window
+        RH-->>UP: Granted / deferred
+        UP->>UP: Create durable UpdateTransaction
+        UP->>PB: Apply privileged update operations
+        PB->>WIN: Servicing/update mechanism
+        WIN-->>PB: Technical result
+        PB-->>UP: Technical result
+
+        opt Reboot required
+            UP->>UP: Persist transaction state
+            Note over WIN,UP: Reboot / runtime resumes transaction
+        end
+
+        UP->>WIN: Read actual target state
+        WIN-->>UP: Version/runtime/baseline evidence
+        UP->>CM: Verify target compatibility/health
+        CM-->>UP: Verification result
+
+        alt Verification passed
+            UP->>BI: Commit target baseline/release identity
+            UP-->>M: UPDATE_COMPLETED
+        else Apply/verification failed
+            UP->>RC: Start recovery with failed transaction
+            RC->>BI: Read source baseline identity
+            BI-->>RC: Last committed baseline
+            RC->>WIN: Observe current actual state
+            WIN-->>RC: Recovery evidence
+            RC->>PB: Apply recovery target
+            PB->>WIN: Privileged recovery operations
+            WIN-->>PB: Technical result
+            RC->>WIN: Re-read actual state
+            WIN-->>RC: Actual recovery state
+            alt Recovery verified
+                RC-->>RH: Release mutation window / stable startup path
+                RC-->>M: RECOVERY_COMPLETED
+            else Recovery incomplete
+                RC-->>M: SAFE_FALLBACK / USER_ACTION_REQUIRED
+            end
+        end
+    end
