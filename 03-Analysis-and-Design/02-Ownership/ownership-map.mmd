@@ -1,0 +1,97 @@
+flowchart LR
+    U[User Intent]
+    MS[Microsoft / Vendor Evidence]
+    W[Windows / Driver / Device Evidence]
+    GC[External Game Client Evidence]
+    PAY[Payment / Identity Evidence]
+
+    subgraph DE[Distribution Engineering]
+        CMX[Windows Component Matrix]
+        BM[Build Manifest]
+    end
+
+    subgraph IE[Product Identity & Entitlement]
+        ACC[SplitOS Account]
+        ENT[SplitOS Entitlement]
+    end
+
+    subgraph RT[Runtime Ownership]
+        MODE[Committed Mode State]
+        TRANS[Transition State / Outcome]
+        MP[Mode Policy]
+        APP[Application Classification / Lifecycle]
+        DISP[Desired Display Context]
+        AUD[Desired Audio Context]
+        INP[Selected Input Context]
+        PWR[Power / Resource Policy]
+    end
+
+    subgraph GAME[Game Experience Ownership]
+        LIB[Unified Game Library]
+        GP[Game Profiles]
+        HW[SplitOS Hardware Snapshot]
+        OPT[Optimization Recommendation]
+        LAUNCH[Managed Game Launch]
+        GUX[Game Mode UX State]
+        SHARED[Shared App Representation]
+    end
+
+    subgraph LIFE[Lifecycle / Compatibility / Recovery]
+        COMP[Compatibility Decision]
+        UPD[Update Execution State]
+        REC[Recovery Target / Result]
+    end
+
+    OBS[Observability / Diagnostic Projection]
+
+    MS --> COMP
+    W --> HW
+    GC --> LIB
+    PAY --> ACC
+    PAY --> ENT
+    U --> TRANS
+
+    COMP --> BM
+    COMP --> UPD
+    CMX --> BM
+
+    TRANS --> MODE
+    MODE --> MP
+    MP --> APP
+    MP --> DISP
+    MP --> AUD
+    MP --> INP
+    MP --> PWR
+
+    HW --> GP
+    DISP --> GP
+    LIB --> GP
+    GP --> OPT
+    HW --> OPT
+
+    MODE --> LAUNCH
+    LIB --> LAUNCH
+    GP --> LAUNCH
+    OPT --> LAUNCH
+    DISP --> LAUNCH
+    INP --> LAUNCH
+
+    MODE --> GUX
+    LIB --> GUX
+    GP --> GUX
+    SHARED --> GUX
+
+    ENT --> GUX
+    ENT --> UPD
+
+    TRANS --> REC
+    UPD --> REC
+
+    MODE -.evidence.-> OBS
+    TRANS -.evidence.-> OBS
+    LAUNCH -.evidence.-> OBS
+    UPD -.evidence.-> OBS
+    REC -.evidence.-> OBS
+
+    classDef external stroke-dasharray: 5 5
+    class U,MS,W,GC,PAY external
