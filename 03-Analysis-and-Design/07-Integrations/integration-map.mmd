@@ -1,0 +1,62 @@
+flowchart LR
+
+  subgraph USER[Interactive Windows User Session]
+    MGR[SplitOS Manager]
+    GUX[Game Launcher]
+    RH[SplitOS Runtime Host]
+    WINUI[User-session Windows APIs]
+    GC[Game Client Adapters]
+  end
+
+  subgraph SYS[Session 0 / Privileged System Context]
+    PB[SplitOS Privileged Broker\nWindows Service]
+    SCM[SCM / protected machine operations]
+  end
+
+  subgraph EXT[External Systems]
+    ID[SplitOS Account Backend]
+    PAY[Payment Provider]
+    STEAM[Steam]
+    EPIC[Epic Games]
+    XBOX[Xbox / Microsoft Store]
+    BNET[Battle.net]
+  end
+
+  subgraph BUILD[Build / Release]
+    SRC[Microsoft-authorized Windows Source]
+    MB[SplitOS Media Builder]
+    DISM[DISM / Offline Servicing]
+    UPD[Microsoft Update / Patch Source]
+    COMPAT[Compatibility Management]
+  end
+
+  MGR -->|semantic requests/queries| RH
+  GUX -->|game/mode requests| RH
+
+  RH -->|user-session integration| WINUI
+  RH -->|secured named-pipe IPC| PB
+  PB -->|allowlisted privileged operations| SCM
+
+  RH -->|HTTPS account/entitlement| ID
+  MGR -->|checkout request| ID
+  ID -->|hosted checkout| PAY
+  PAY -->|validated payment evidence| ID
+
+  RH --> GC
+  GC --> STEAM
+  GC --> EPIC
+  GC --> XBOX
+  GC --> BNET
+
+  SRC --> MB
+  MB --> DISM
+  DISM -->|prepared baseline| MB
+
+  UPD --> COMPAT
+  COMPAT -->|supported update decision| RH
+  RH -->|privileged apply when required| PB
+
+  WINUI -.actual state evidence.-> RH
+  GC -.client/game evidence.-> RH
+  PB -.operation result/evidence.-> RH
+  ID -.entitlement evidence.-> RH
