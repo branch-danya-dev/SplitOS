@@ -1,0 +1,46 @@
+flowchart TB
+    subgraph USER[Windows User Session]
+        MGR[SplitOS Manager]
+        GL[Game Launcher]
+        RH[Runtime Host]
+        UGW[User Persistence Gateway]
+        PGW[Projection Gateway]
+        BCLI[Broker Client]
+    end
+
+    subgraph USERFS[Per-user LocalAppData]
+        UDB[(user.db\nUSER_CANONICAL\nWAL + FULL)]
+        PDB[(projection.db\nPROJECTION_CACHE\nWAL + NORMAL)]
+        UBAK[User Backups]
+        SEC[Protected Secret Store\nseparate from SQLite]
+    end
+
+    subgraph MACHINE[Machine / Session 0]
+        BROKER[SplitOS Broker Service\nLocalSystem]
+        MSGW[Machine State Store]
+    end
+
+    subgraph MACHINEFS[ProgramData]
+        MDB[(machine.db\nMACHINE_CANONICAL + TRANSACTION_DURABLE\nWAL + FULL)]
+        MBAK[Machine Backups]
+        STAGE[Update / Recovery Staging]
+    end
+
+    MGR -->|semantic IPC| RH
+    GL -->|semantic IPC| RH
+
+    RH --> UGW --> UDB
+    UGW --> UBAK
+    RH --> PGW --> PDB
+    RH -->|secret reference| SEC
+
+    RH --> BCLI
+    BCLI -->|Named Pipe\ntyped StateStore capability| BROKER
+    BROKER --> MSGW --> MDB
+    MSGW --> MBAK
+    BROKER --> STAGE
+
+    PDB -. rebuild from .-> EXT[External Game Clients / Windows Evidence]
+
+    classDef canonical stroke-width:2px;
+    class UDB,MDB canonical;
