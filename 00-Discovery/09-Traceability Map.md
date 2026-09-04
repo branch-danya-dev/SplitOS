@@ -66,7 +66,8 @@ Specification / Verification
 ├── 01-Responsibilities/
 ├── 02-Ownership/
 ├── 03-States/
-└── 04-Behavior/
+├── 04-Behavior/
+└── 05-Data/
 ```
 
 ### 3.1 Boundaries
@@ -163,6 +164,39 @@ Update execution/result
 | Game Launch | Game Launch Behavior | FR-LAUNCHER, FR-GAME, FR-HW, FR-OPT |
 | Game → Work | Game to Work Behavior | FR-MODE, FR-APP, FR-RECOVERY |
 
+### 3.6 Data
+
+| Meaning / requirement area | Canonical data concept / artifact |
+|---|---|
+| SplitOS identity | `SplitOSAccount` / Domain Model |
+| product capability access | `Entitlement` / Domain Model + Data Ownership and Lifecycle |
+| supported distribution release | `SplitOSRelease`, `WindowsBase`, `BuildManifest` |
+| Windows component lifecycle knowledge | `WindowsComponentDefinition` + `ComponentClassificationDecision` |
+| installed release/baseline identity | `SplitOSInstallation` + `InstalledBaselineIdentity` |
+| baseline deviation | `BaselineDriftObservation` as evidence, not expected truth |
+| `WORK xor GAME` canonical runtime truth | `OperationalModeState` |
+| crash-safe transition semantics | `ModeTransitionRecord` |
+| application role/lifecycle | `Application`, `ApplicationClassification`, `ApplicationLifecyclePolicy` |
+| unified gaming library | `Game`, `GameClient`, `GameInstallationProjection` |
+| per-game user scenario | `GameProfile` |
+| hardware/device evidence | `HardwareSnapshot`, device endpoint representations |
+| release/client compatibility | `CompatibilityDecision` |
+| update execution | `UpdateTransactionRecord` |
+| recovery coordination | `RecoveryContext` |
+| diagnostics | `DiagnosticRecord` — evidence only |
+
+Data configuration resolution is defined in:
+
+```text
+05-Data/Configuration Model.md
+```
+
+Data ownership, copies, freshness and lifecycle are defined in:
+
+```text
+05-Data/Data Ownership and Lifecycle.md
+```
+
 ---
 
 ## 4. Example end-to-end traceability
@@ -177,6 +211,7 @@ EL-001
 → canonical owner: Mode Intent & Active Mode State
 → System State Model / Operational Mode
 → Work to Game Behavior / Game to Work Behavior
+→ OperationalModeState data concept
 ```
 
 ### Safe Work → Game transition
@@ -189,6 +224,7 @@ EL-014..015
 → Mode Transition ownership
 → Mode Transition Model
 → Work to Game Behavior
+→ ModeTransitionRecord
 → future Interfaces / Failures / Verification
 ```
 
@@ -201,6 +237,7 @@ EL-030..034
 → Distribution Engineering
 → Build/Runtime ownership split
 → SplitOS Build Pipeline + Component Classification Model
+→ SplitOSRelease / BuildManifest / ComponentClassificationDecision
 → future Component Matrix / Specification / Verification
 ```
 
@@ -212,7 +249,19 @@ EL-035..036
 → FR-ENT-* / FR-SETUP-008..010
 → Product Identity & Entitlement
 → entitlement ownership
-→ future Data / Trust / Interfaces
+→ SplitOSAccount + Entitlement
+→ future Trust / Interfaces
+```
+
+### Game library and profiles
+
+```text
+DEC-006/009/011
+→ FR-GAME / FR-LAUNCHER / FR-HW
+→ Game Library Representation + Game Profiles
+→ external installation authority separated from SplitOS profile authority
+→ Game / GameClient / GameInstallationProjection / GameProfile
+→ future Game Client interfaces/integrations
 ```
 
 ---
