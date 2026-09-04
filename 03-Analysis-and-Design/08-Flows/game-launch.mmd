@@ -1,0 +1,64 @@
+sequenceDiagram
+    actor U as User
+    participant GL as Game Launcher
+    participant GO as Game Launch Orchestration
+    participant LIB as Game Library
+    participant GP as Game Profiles
+    participant HW as Hardware Context
+    participant CTX as Display/Input/Power/Shared Apps
+    participant AD as Game Client Adapter
+    participant GC as External Game Client
+    participant WIN as Windows Evidence
+    participant GS as Game Session
+
+    U->>GL: Launch game
+    GL->>GO: GameLaunchRequest(gameId)
+    GO->>GS: LAUNCHER → PREPARING
+    GO->>LIB: Resolve game/client projection
+    LIB-->>GO: Game + client + projection
+
+    opt Projection stale
+        GO->>AD: Reconcile client evidence
+        AD->>GC: Query/discover supported evidence
+        GC-->>AD: Client evidence
+        AD-->>LIB: Refresh projection
+    end
+
+    GO->>HW: Refresh relevant hardware evidence
+    HW->>WIN: Read devices/displays
+    WIN-->>HW: Actual evidence
+    GO->>GP: Resolve effective Game Profile
+    GP-->>GO: Effective profile
+
+    GO->>CTX: Apply and verify launch context
+    CTX->>WIN: Platform operations
+    WIN-->>CTX: Actual state
+    CTX-->>GO: Preparation verification
+
+    alt Preparation failed
+        GO->>GS: FAILED → LAUNCHER
+    else Preparation passed
+        GO->>GS: CLIENT_HANDOFF
+        GO->>AD: Launch through client
+        AD->>GC: Client-specific launch
+        GC-->>AD: Immediate result
+        alt Handoff rejected
+            AD-->>GO: AUTH_REQUIRED / UNAVAILABLE / FAILED
+            GO->>GS: FAILED → LAUNCHER
+        else HANDOFF_ACCEPTED
+            AD-->>GO: HANDOFF_ACCEPTED
+            GO->>GS: GAME_STARTING
+            GO->>WIN: Observe correlated game/process evidence
+            WIN-->>GO: Runtime evidence
+            alt Intended game confirmed
+                GO->>GS: GAME_RUNNING
+                Note over U,GS: Game Mode remains committed GAME
+                WIN-->>GO: Game exit evidence
+                GO->>GS: GAME_EXIT_DETECTED
+                GO->>GL: Return foreground UX
+                GO->>GS: RETURNING_TO_LAUNCHER → LAUNCHER
+            else Not confirmed in policy window
+                GO->>GS: FAILED → LAUNCHER
+            end
+        end
+    end
