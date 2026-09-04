@@ -41,25 +41,27 @@
 
 - [x] Technical assumptions не замаскированы под VERIFIED.
 - [x] Performance thresholds остаются OPEN/TBD.
-- [x] Update/recovery implementation details остаются OPEN where not yet validated.
 - [x] Identity/auth token design остаётся OPEN до Trust layer.
 - [x] Offline entitlement TTL / device sharing / account cardinality остаются OPEN.
 - [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
 - [x] System-wide default audio switching остаётся OPEN до supported mechanism validation.
 - [x] Epic/Xbox/Battle.net exact client integration mechanisms остаются OPEN/CANDIDATE.
 - [x] Steam local metadata не объявлена stable public contract.
-- [x] Exact timeout/retry/backoff values deferred to Failures/Specification.
+- [x] Exact retry/backoff/timeout numeric values остаются Specification-level unless product semantics require them.
+- [x] Exact update package/snapshot/rollback technology остаётся OPEN.
+- [x] Trust/integrity failures выделены, но конкретные trust controls перенесены в `10-Trust`.
 
 ## Traceability
 
 - [x] Elicitation → Decision связь присутствует.
 - [x] Decision → Concept/Requirements области определены.
-- [x] Requirement → Analysis & Design mapping доведён через Boundaries / Responsibilities / Ownership / States / Behavior.
+- [x] Requirement → Boundaries / Responsibilities / Ownership / States / Behavior mapping зафиксирован.
 - [x] Requirement → Data concepts mapping зафиксирован.
 - [x] Requirement → Interface contracts mapping зафиксирован.
 - [x] Requirement → Integration mechanisms mapping зафиксирован с VERIFIED/CANDIDATE/OPEN статусами.
 - [x] Requirement → end-to-end Flows mapping зафиксирован для canonical v1 scenarios.
-- [ ] Requirement → Failure behavior / Trust mapping — продолжить на следующих A&D слоях.
+- [x] Requirement / Flow → Failure behavior mapping зафиксирован для runtime/update/recovery.
+- [ ] Requirement → Trust mapping — следующий A&D layer.
 - [ ] Requirement → Verification mapping — заполнить после Specification/QA.
 
 ---
@@ -76,33 +78,47 @@ Data              ✅
 Interfaces        ✅
 Integrations      ✅
 Flows             ✅
-Failures          NEXT
-Trust             pending
+Failures          ✅
+Trust             NEXT
 Synthesis         pending
 ```
 
 ---
 
-## Canonical flows now covered
+## Canonical failure coverage
 
 ```text
-First Run / account association / FREE-PRO branching
-FREE → PRO upgrade
-Work → Game
-Direct managed launch from Work as flow composition
-Managed Game Launch
-Game Exit → Game Launcher
-Game → Work
-Update transaction
-Recovery after failed/incomplete mutation
+Account/backend unavailable
+Entitlement stale/ambiguous
+Runtime Host crash
+Privileged Broker unavailable/denied
+Work→Game blocker/cancel/partial application
+Display target unavailable/not verified
+Mandatory mode policy failure
+Rollback failure
+Game Client missing/auth required
+Stale installation projection
+Client handoff rejected
+Game start not confirmed
+Game/game-client crash
+Game→Work close/restore failure
+Display/controller/audio disappearance
+Major mutation conflicts
+Update staging/apply/verification failure
+Crash/reboot/power loss during update
+Recovery verification failure
+Manual recovery escalation
 ```
 
-Major mutating flows are explicitly coordinated rather than assumed safe to interleave:
+Safe convergence priority:
 
 ```text
-Mode Transition
-or Update
-or Recovery
+User data integrity
+→ Windows bootability/base usability
+→ known coherent state
+→ correct canonical SplitOS state
+→ managed runtime restoration
+→ UX convenience
 ```
 
 ---
@@ -139,6 +155,6 @@ Trust
 Synthesis
 ```
 
-Следующий layer должен превратить уже видимые alternate/error paths в систематическую failure taxonomy и safe-convergence model.
+Следующий layer должен определить trust boundaries: caller identity, authorization, token/secret handling, artifact integrity, update/build signatures и доверие к external evidence.
 
 Оставшиеся `OPEN` не должны превращаться в неявные архитектурные предположения.
