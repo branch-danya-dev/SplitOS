@@ -93,28 +93,58 @@ Requirement
 
 ---
 
-## 5. Requirements primarily served
+## 5. SPEC-04 traceability
 
-SPEC-01/02/03 provide infrastructure needed by:
+| SPEC-04 decision | A&D source |
+|---|---|
+| Windows identity remains separate from SplitOS Account | Concept + Ownership + Identity Data |
+| SplitOS account association begins after Windows sign-in | First Run Behavior / FL-01 |
+| OAuth/OIDC Authorization Code native flow | Identity/Entitlement Trust; auth mechanism OPEN closed in SPEC-04 |
+| external system browser | Trust native-app security baseline |
+| PKCE S256 mandatory | Trust candidate / native public-client security |
+| loopback `127.0.0.1` redirect | native-app integration mechanism closed in SPEC-04 |
+| no desktop client secret | Trust public-client boundary |
+| stable accountId/sub, not email, is canonical identity | Ownership/Data identity rules |
+| user-scoped DPAPI protects reusable credentials | Trust candidate closed in SPEC-04 |
+| refresh token rotation/replay handling | Trust secret lifecycle + failure semantics |
+| entitlement remains backend canonical | Ownership + Data + Runtime Access |
+| capability list is runtime authorization source | Responsibilities/Interfaces + future-proof tier separation |
+| FREE disables managed runtime but leaves Windows usable | Runtime Access State / Failures |
+| signed offline assertion authorizes bounded PRO offline | Identity/Entitlement Trust |
+| offline proof bound to account + installation + association | Trust context binding |
+| offline proof max 7 days + rollback detection | Trust/failure abuse-model closure |
+| browser/checkout callback cannot grant PRO | External Evidence Trust / FL-01 |
+| checkout payment evidence becomes entitlement only through backend | Payment boundary + Ownership |
+| one active account association per Windows user | Data model + Synthesis placement |
+| sign-out clears auth/offline proof but preserves profiles by default | identity separation from user configuration |
+
+---
+
+## 6. Requirements primarily served
+
+SPEC-01..04 provide infrastructure/domain contracts needed by:
 
 ```text
+FR-ACCOUNT
+FR-FIRST
 FR-ACCESS
+FR-ENT
+FR-MANAGER
 FR-MODE / FR-TRANS
 FR-APP
 FR-GAME / FR-LAUNCHER
 FR-UPDATE / FR-RECOVERY
-FR-ACCOUNT / FR-ENT
 NFR-REL
 NFR-TRANS
 NFR-SEC
 NFR-OBS
 ```
 
-They do not fully satisfy those requirements alone; later specs define domain algorithms, auth contracts and integrations.
+Later specs still define mode algorithms, Windows integrations, game-client mechanisms and release/update security details.
 
 ---
 
-## 6. Specification-level decisions
+## 7. Specification-level decisions
 
 ```text
 SPEC-DEC-001
@@ -158,13 +188,46 @@ physical schema evolution is monotonic/versioned; unsupported newer schema fails
 
 SPEC-DEC-014
 projection DB is disposable/rebuildable, while user/machine canonical corruption requires backup/recovery handling and must never fabricate canonical state.
+
+SPEC-DEC-015
+v1 native authentication uses OAuth/OIDC Authorization Code in the external system browser.
+
+SPEC-DEC-016
+public native client requires PKCE S256 and contains no reusable client secret.
+
+SPEC-DEC-017
+v1 Windows native redirect uses `http://127.0.0.1:<ephemeral>/oauth/callback` with a one-transaction loopback listener.
+
+SPEC-DEC-018
+access-token nominal lifetime is 15 minutes and access token is memory-only where practical.
+
+SPEC-DEC-019
+refresh tokens rotate on every successful refresh; v1 server policy upper bounds are 30-day inactivity and 90-day absolute lifetime.
+
+SPEC-DEC-020
+reusable auth/offline material is protected with user-scoped DPAPI and hidden from Manager/Game Launcher.
+
+SPEC-DEC-021
+offline premium authorization uses signed JWS `OfflineEntitlementAssertion v1`, bound to account + installation + association, max 7-day validity and 5-minute clock-skew tolerance.
+
+SPEC-DEC-022
+premium runtime authorization checks explicit entitlement capabilities; tier string alone is insufficient.
+
+SPEC-DEC-023
+one Windows user profile has at most one active SplitOS Account association; switching account creates a new associationId.
+
+SPEC-DEC-024
+hosted checkout/browser completion cannot grant PRO directly; newer backend entitlement must be fetched and accepted.
+
+SPEC-DEC-025
+when premium authorization cannot be proven, managed runtime fails closed while base Windows remains usable.
 ```
 
 If implementation validation disproves any of these, the decision must be revised explicitly rather than silently changed in code.
 
 ---
 
-## 7. Verification backlog
+## 8. Verification backlog
 
 ### Runtime / IPC
 
@@ -209,14 +272,52 @@ V-DATA-016 user DB contains no reusable plaintext auth token
 V-DATA-017 stale projection cannot satisfy fresh evidence requirement
 ```
 
----
-
-## 8. Next specification target
-
-After SPEC-03 review/merge:
+### Authentication / entitlement
 
 ```text
-SPEC-04 Account / Auth / Entitlement
+V-AUTH-001 external browser used; embedded password UI absent
+V-AUTH-002 PKCE S256 mandatory; plain rejected
+V-AUTH-003 loopback listener binds only 127.0.0.1
+V-AUTH-004 auth state mismatch rejected
+V-AUTH-005 OIDC nonce mismatch rejected
+V-AUTH-006 authorization code replay rejected
+V-AUTH-007 auth transaction timeout destroys verifier/state
+V-AUTH-008 no reusable desktop client secret exists
+V-AUTH-009 refresh token absent from SQLite/logs/UI IPC
+V-AUTH-010 DPAPI blob inaccessible to another normal Windows user
+V-AUTH-011 refresh-token rotation/reuse behavior verified
+V-AUTH-012 DPAPI failure causes REAUTH_REQUIRED
+V-AUTH-013 sign-out removes protected auth/offline material
+
+V-ENT-001 FREE cannot enable runtime.managed_modes
+V-ENT-002 PRO requires explicit capability
+V-ENT-003 newer backend entitlement supersedes stale local evidence
+V-ENT-004 offline assertion bad signature rejected
+V-ENT-005 assertion wrong account rejected
+V-ENT-006 assertion wrong installation rejected
+V-ENT-007 assertion wrong association rejected
+V-ENT-008 assertion beyond max validity rejected
+V-ENT-009 expired assertion disables premium offline
+V-ENT-010 clock rollback suspicion blocks offline premium
+V-ENT-011 base Windows remains usable when entitlement cannot be proven
+
+V-ACC-001 one active association per Windows user
+V-ACC-002 account switch creates new associationId
+V-ACC-003 email change does not change canonical identity
+V-ACC-004 sign-out preserves Game Profiles by default
+V-PAY-001 checkout/browser return alone cannot enable PRO
+V-PAY-002 backend checkout completion still requires entitlement refresh
+V-PAY-003 duplicate checkout create is idempotent
 ```
 
-This will define backend APIs, native-app authorization flow, token lifecycle/protection, Windows-user association, FREE/PRO entitlement and bounded offline authorization evidence.
+---
+
+## 9. Next specification target
+
+After SPEC-04 review/merge:
+
+```text
+SPEC-05 Mode Runtime
+```
+
+This will define exact committed-mode persistence semantics, transition transaction schema, blocker evaluation, Work/Game policy representation, mutation coordination, rollback and entitlement-loss convergence.
