@@ -71,7 +71,8 @@ Specification / Verification
 ├── 02-Ownership/
 ├── 03-States/
 ├── 04-Behavior/
-└── 05-Data/
+├── 05-Data/
+└── 06-Interfaces/
 ```
 
 ### 3.1 Boundaries
@@ -113,13 +114,7 @@ Specification / Verification
 Windows user identity/session
 → Windows authority
 
-SplitOS Account
-→ Product Identity & Entitlement
-
-Windows user ↔ SplitOS account association
-→ Product Identity & Entitlement
-
-Entitlement
+SplitOS Account / association / entitlement
 → Product Identity & Entitlement
 
 Managed runtime access decision
@@ -194,6 +189,39 @@ SplitOS Game Profile
 | recovery coordination | `RecoveryContext` |
 | diagnostics | `DiagnosticRecord` — evidence only |
 
+### 3.7 Interfaces
+
+| Requirement / behavior area | Canonical interface family |
+|---|---|
+| SplitOS Account resolution | `IF-ID-001`, `EXT-ID-001` |
+| Entitlement / FREE-PRO runtime access | `IF-ID-002`, `IF-ACCESS-001/002`, `EXT-ID-002/003` |
+| Mode selection / committed mode | `IF-MODE-001..003` |
+| transactional Work↔Game | `IF-TRANS-001..004` |
+| effective Work/Game policy | `IF-POLICY-001` |
+| application classification/lifecycle | `IF-APP-001..003`, `EXT-WIN-010` |
+| display desired-vs-actual | `IF-DISPLAY-001..003`, `EXT-WIN-DISPLAY-*` |
+| audio/input/power context | `IF-AUDIO-*`, `IF-INPUT-*`, `IF-POWER-*`, corresponding Windows boundaries |
+| hardware refresh/invalidation | `IF-HW-001/002` |
+| game library projection | `IF-LIB-001/002`, `EXT-GC-001/002/003` |
+| Game Profile / optimization | `IF-PROFILE-001/002`, `IF-OPT-001` |
+| managed game launch | `IF-LAUNCH-001/002`, `EXT-GC-004/005` |
+| Shared Apps presentation | `IF-SHARED-001` |
+| compatibility / update | `IF-COMPAT-001`, `IF-UPDATE-*`, `EXT-MS-UPDATE-001` |
+| recovery | `IF-RECOVERY-001/002` |
+| diagnostics | `IF-OBS-001` |
+| payment/checkout evidence | `EXT-PAY-001/002` |
+| Builder Windows source | `EXT-MS-SOURCE-001` |
+
+Interface semantics are canonical in:
+
+```text
+06-Interfaces/Interface Model.md
+06-Interfaces/Internal Runtime Contracts.md
+06-Interfaces/External Boundary Contracts.md
+```
+
+Concrete API/IPC/SDK implementation remains deferred to `07-Integrations`.
+
 ---
 
 ## 4. Example end-to-end traceability
@@ -207,7 +235,9 @@ DEC-035..043
 → Runtime Access State Model
 → First Run and Runtime Access Behavior
 → WindowsUserAccountAssociation / Entitlement / ManagedRuntimeAccessDecision
-→ future Account/Entitlement Interfaces and Trust rules
+→ IF-ID-001/002 + IF-ACCESS-001/002
+→ EXT-ID-001..003 + EXT-PAY-001/002
+→ future Account/Payment integrations + Trust rules
 ```
 
 ### Work XOR Game
@@ -219,6 +249,7 @@ DEC-002 + DEC-037
 → Runtime access gate + Operational Mode
 → Work to Game Behavior / Game to Work Behavior
 → OperationalModeState
+→ IF-MODE-001..003 + IF-TRANS-001..004
 ```
 
 ### Safe Work → Game transition
@@ -230,7 +261,8 @@ DEC-016/017
 → Mode Transition Model
 → Work to Game Behavior
 → ModeTransitionRecord
-→ future Interfaces / Failures / Verification
+→ IF-TRANS-* + IF-POLICY-* + IF-APP-* + system-context interfaces
+→ future Integrations / Failures / Verification
 ```
 
 ### Build-time Windows preparation
@@ -241,16 +273,20 @@ DEC-028..032
 → Distribution Engineering
 → SplitOS Build Pipeline + Component Classification Model
 → SplitOSRelease / BuildManifest / ComponentClassificationDecision
+→ EXT-MS-SOURCE-001
+→ future Builder/source integration
 ```
 
-### Game library and profiles
+### Managed game launch
 
 ```text
-DEC-006/009/011
-→ FR-GAME / FR-LAUNCHER / FR-HW
-→ Game Library Representation + Game Profiles
-→ Game / GameClient / GameInstallationProjection / GameProfile
-→ future Game Client interfaces/integrations
+DEC-006/007/008/009/011..014
+→ FR-GAME / FR-LAUNCHER / FR-HW / FR-OPT
+→ Game Library + Profiles + Hardware + Optimization + Launch Orchestration
+→ Game / GameClient / GameInstallationProjection / GameProfile / HardwareSnapshot
+→ IF-LIB-* / IF-PROFILE-* / IF-HW-* / IF-OPT-* / IF-LAUNCH-*
+→ EXT-GC-* + Windows/device evidence boundaries
+→ future Game Client integrations and end-to-end Game Launch Flow
 ```
 
 ---
