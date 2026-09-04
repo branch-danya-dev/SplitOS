@@ -1,0 +1,50 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant M as SplitOS Manager
+    participant R as Runtime Host
+    participant B as System Browser
+    participant A as SplitOS Authorization Server
+    participant API as SplitOS Account Backend
+    participant S as DPAPI Secret Store
+
+    U->>M: Sign in / Create account
+    M->>R: Auth.Start
+    R->>R: Create state + nonce + PKCE S256
+    R->>R: Bind 127.0.0.1 ephemeral listener
+    R->>B: Open authorization URL
+    B->>A: Authorization request
+    A-->>B: User login / consent
+    A-->>R: Loopback callback(code, state)
+    R->>R: Validate state / transaction
+    R->>A: Exchange code + code_verifier
+    A-->>R: Access token + rotated refresh token + ID token
+    R->>R: Validate issuer/aud/nonce/sub
+    R->>API: GET /v1/account
+    API-->>R: accountId + profile
+    R->>API: GET /v1/entitlements/current
+    API-->>R: FREE/PRO capabilities + version
+    R->>S: DPAPI protect refresh token
+    S-->>R: Durable protected blob
+    R->>R: Persist Windows user association
+    R->>R: Recompute ManagedRuntimeAccessDecision
+    R-->>M: Account + entitlement projection
+
+    alt PRO and offline eligible
+        R->>API: POST offline assertion request
+        API-->>R: signed bounded assertion
+        R->>S: Replace protected blob with assertion
+    end
+
+    alt Upgrade from FREE
+        U->>M: Upgrade
+        M->>R: Checkout.Create
+        R->>API: POST checkout session
+        API-->>R: checkoutUrl + checkoutSessionId
+        R->>B: Open hosted checkout
+        B-->>API: Payment/provider flow completes via backend
+        R->>API: Poll/refresh checkout + entitlement
+        API-->>R: New entitlementVersion + PRO capabilities
+        R->>R: Recompute access
+        R-->>M: PRO activated
+    end
