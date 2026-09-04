@@ -1,0 +1,26 @@
+flowchart TD
+    WI[Windows Identity / User Context]
+    ASSOC[WindowsUserAccountAssociation]
+    ACC[SplitOS Account]
+    PLAN[Subscription Plan Reference]
+    ENT[Entitlement]
+    PAY[Payment Evidence Projection]
+    ACCESS[Managed Runtime Access Decision]
+    BASE[FREE / Base Windows Experience]
+    MODES[PRO Managed Runtime]
+    WORK[WORK]
+    GAME[GAME]
+
+    WI --> ASSOC
+    ASSOC --> ACC
+    ACC --> ENT
+    PLAN --> ENT
+    PAY -. external evidence .-> ENT
+    ENT --> ACCESS
+    ACCESS -->|DISABLED| BASE
+    ACCESS -->|ENABLED| MODES
+    MODES --> WORK
+    MODES --> GAME
+
+    classDef external stroke-dasharray: 5 5
+    class WI,PAY external
