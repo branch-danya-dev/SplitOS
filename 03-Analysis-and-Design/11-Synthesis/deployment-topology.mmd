@@ -1,0 +1,50 @@
+flowchart LR
+    subgraph RELEASE["Release / Build Environment"]
+        SIGN["Release Signing Authority"]
+        MANIFEST["Signed Manifest"]
+        BUILDER["SplitOS Media Builder"]
+        MEDIA["Prepared Installation Media"]
+        SIGN --> MANIFEST --> BUILDER --> MEDIA
+    end
+
+    subgraph PC["Installed Windows Machine"]
+        subgraph SESSION["Interactive User Session"]
+            MANAGER["SplitOS.Manager.exe"]
+            LAUNCHER["SplitOS.GameLauncher.exe"]
+            RUNTIME["SplitOS.RuntimeHost.exe"]
+            USTORE["Per-user state / profiles"]
+            SECRET["Protected user secrets"]
+            CLIENT["External Game Client"]
+            GAME["Game Process"]
+
+            MANAGER --> RUNTIME
+            LAUNCHER --> RUNTIME
+            RUNTIME --> USTORE
+            RUNTIME --> SECRET
+            RUNTIME --> CLIENT
+            CLIENT --> GAME
+        end
+
+        subgraph SERVICE["Privileged Service Domain / Session 0"]
+            BROKER["SplitOS.Broker.Service.exe"]
+            MSTORE["Machine state / update-recovery journal"]
+            BROKER --> MSTORE
+        end
+
+        WINDOWS["Windows / SCM / Drivers / Devices"]
+
+        RUNTIME -->|"secured local IPC"| BROKER
+        RUNTIME -->|"user-session APIs"| WINDOWS
+        BROKER -->|"bounded privileged operations"| WINDOWS
+    end
+
+    subgraph CLOUD["Remote"]
+        API["SplitOS Backend"]
+        PAY["Payment Provider"]
+        ART["Artifact / Update Distribution"]
+    end
+
+    MEDIA --> PC
+    RUNTIME -->|"HTTPS"| API
+    PAY --> API
+    ART --> RUNTIME
