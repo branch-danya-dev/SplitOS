@@ -12,7 +12,7 @@ Decision Log фиксирует продуктовые и системные р�
 |---|---|---|---|
 | DEC-001 | SplitOS является отдельным управляемым Windows 11-based distribution, формируемым из известного Windows source и SplitOS-owned build inputs | Предсказуемое базовое состояние, debloat, testing, updates, recovery | ACCEPTED |
 | DEC-002 | Work Mode и Game Mode строго взаимоисключающие | Иначе теряется isolation и optimization value | ACCEPTED |
-| DEC-003 | После Windows sign-in пользователь проходит SplitOS user/key context и mode selection | Режим является частью session intent | ACCEPTED |
+| DEC-003 | После Windows sign-in пользователь проходит SplitOS user/key context и mode selection | Уточнено: mode selection обязателен только для managed runtime с соответствующим entitlement | SUPERSEDED by DEC-036/037/041 |
 | DEC-004 | Game Mode остаётся активным после закрытия игры | Пользователь может сменить игру/отойти/использовать Game Launcher | ACCEPTED |
 | DEC-005 | Возврат Game→Work выполняется явным действием пользователя | Не предполагать завершение gaming session по закрытию одной игры | ACCEPTED |
 | DEC-006 | GAME и GAME_CLIENT являются разными сущностями | Клиент может использоваться без игрового контекста | ACCEPTED |
@@ -44,6 +44,15 @@ Decision Log фиксирует продуктовые и системные р�
 | DEC-032 | После установки Build Pipeline больше не управляет обычным runtime; Installed SplitOS Runtime управляет только live state, mode transitions и MODE_MANAGED lifecycle | Не смешивать image servicing и runtime orchestration | ACCEPTED |
 | DEC-033 | SplitOS distribution/build tooling предполагается бесплатным, а SplitOS Account/entitlement может предоставлять платные product capabilities, updates и support | Монетизация относится к SplitOS product/services, а не к продаже Windows binaries | ACCEPTED |
 | DEC-034 | Существенная информация о paid entitlement должна быть показана до destructive installation step | Пользователь не должен узнать о существенных ограничениях после форматирования накопителя | ACCEPTED |
+| DEC-035 | SplitOS Account является обязательной product identity для нормального supported SplitOS onboarding, но не заменяет Windows account и не является Windows login principal | Разделить OS authentication и product identity | ACCEPTED |
+| DEC-036 | FREE entitlement предоставляет пользователю обычный Windows desktop UX на модернизированном SplitOS baseline без обязательной активации Work/Game managed runtime | Пользователь может пользоваться системой без платной подписки | ACCEPTED |
+| DEC-037 | PAID/PRO entitlement включает полноценный managed SplitOS runtime: mode selection, `WORK xor GAME`, Game Launcher, managed game launch, profiles и связанные premium capabilities согласно product policy | Подписка разблокирует product runtime, а не новую установку Windows | ACCEPTED |
+| DEC-038 | SplitOS Pro runtime components могут присутствовать в установленном baseline заранее, но entitlement определяет право на их активное product behavior | Upgrade не должен требовать переустановки ОС | ACCEPTED |
+| DEC-039 | Windows identity, SplitOS Account и SplitOS Entitlement являются разными facts/authority domains; SplitOS связывает account с текущим Windows user context | Не смешивать Windows security identity и SplitOS product identity | ACCEPTED |
+| DEC-040 | Недоступность SplitOS account backend или отсутствие paid entitlement не должны блокировать базовую работоспособность Windows desktop; применяется offline/degraded policy | Установленный ПК не должен становиться неработоспособным из-за product entitlement | ACCEPTED |
+| DEC-041 | Первичный SplitOS sign-in/create-account выполняется после создания Windows user и первого Windows sign-in через SplitOS First Run Experience | Привязка account должна происходить к реальному пользовательскому контексту, а не к абстрактной установке до OOBE | ACCEPTED |
+| DEC-042 | SplitOS Manager является desktop control center для SplitOS Account, subscription/plan status, upgrade flow, modes, profiles, updates и recovery | Пользователю нужен штатный интерфейс управления продуктовой учёткой и подпиской | ACCEPTED |
+| DEC-043 | Платёжные данные и payment transaction execution остаются ответственностью внешнего payment provider; SplitOS потребляет payment evidence и владеет resulting entitlement | Не делать SplitOS владельцем карточных/платёжных данных | ACCEPTED |
 
 ---
 
@@ -68,6 +77,31 @@ locally prepared SplitOS installation baseline
 ```
 
 Отдельный distribution сохраняется как product/deployment model, но Windows source является внешним build input.
+
+### Startup clarification
+
+Раннее DEC-003 предполагало безусловную цепочку:
+
+```text
+Windows sign-in
+→ SplitOS context
+→ Mode selection
+→ WORK xor GAME
+```
+
+Это понимание **SUPERSEDED**.
+
+Текущая модель:
+
+```text
+Windows sign-in
+→ SplitOS Account context
+→ Entitlement resolution
+→ FREE: normal Windows desktop on SplitOS baseline
+→ PRO: mode selection → WORK xor GAME
+```
+
+`WORK xor GAME` является invariant полноценного managed SplitOS runtime, а не обязательным состоянием каждого бесплатного пользователя SplitOS.
 
 ---
 

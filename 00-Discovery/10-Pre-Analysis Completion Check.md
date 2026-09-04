@@ -28,6 +28,7 @@
 - [x] Решения отделены от assumptions.
 - [x] Superseded assumptions помечены.
 - [x] Distribution/Builder и Account/Entitlement decisions перенесены в requirements baseline.
+- [x] FREE/PRO runtime access и first-run identity model перенесены в requirements baseline.
 
 ## Scope
 
@@ -42,14 +43,16 @@
 - [x] Performance thresholds остаются OPEN/TBD.
 - [x] Update/recovery details остаются OPEN.
 - [x] Identity/licensing implementation остаётся OPEN.
+- [x] Offline entitlement TTL / device sharing / account cardinality остаются OPEN.
 - [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
 
 ## Traceability
 
 - [x] Elicitation → Decision связь присутствует.
 - [x] Decision → Concept/Requirements области определены.
-- [x] Requirement → Analysis & Design mapping начат и доведён через Boundaries / Responsibilities / Ownership / States / Behavior.
-- [ ] Requirement → Data / Interfaces / Integrations / Failures mapping — продолжить на следующих A&D слоях.
+- [x] Requirement → Analysis & Design mapping доведён через Boundaries / Responsibilities / Ownership / States / Behavior.
+- [x] Requirement → Data concepts mapping начат и зафиксирован.
+- [ ] Requirement → Interfaces / Integrations / Failures mapping — продолжить на следующих A&D слоях.
 - [ ] Requirement → Verification mapping — заполнить после Specification/QA.
 
 ---
@@ -62,8 +65,8 @@ Responsibilities  ✅
 Ownership         ✅
 States            ✅
 Behavior          ✅
-Data              NEXT
-Interfaces        pending
+Data              ✅
+Interfaces        NEXT
 Integrations      pending
 Flows             pending
 Failures          pending

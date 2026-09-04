@@ -10,6 +10,7 @@
 ├── SplitOS Functional Requirements.md
 ├── SplitOS — Non-Functional Requirements.md
 ├── SplitOS Distribution and Entitlement Requirements.md
+├── SplitOS Runtime Access and Account Requirements.md
 ├── SplitOS System Context.md
 └── Requirements Open Questions.md
 ```
@@ -32,7 +33,13 @@ SplitOS Functional Requirements.md
 SplitOS Distribution and Entitlement Requirements.md
 ```
 
-Они являются частью того же requirements baseline, а не отдельным продуктом.
+Уточнения FREE/PRO runtime access, first-run, Windows user ↔ SplitOS Account association и account/subscription surface находятся в:
+
+```text
+SplitOS Runtime Access and Account Requirements.md
+```
+
+Оба extension-документа являются частью того же requirements baseline, а не отдельными продуктами.
 
 Позднее при крупной requirements consolidation эти families могут быть объединены в один document без изменения semantic ownership.
 
@@ -104,7 +111,7 @@ Document usage = ANALYSIS_BASELINE
 
 ## Current requirement extensions
 
-После принятия решений DEC-028..034 requirements baseline дополнен следующими областями:
+После решений DEC-028..034 baseline дополнен:
 
 ```text
 Media Builder / Windows source
@@ -115,4 +122,15 @@ SplitOS Account / Entitlement
 pre-destructive-step disclosure
 ```
 
-Подробные requirements находятся в `SplitOS Distribution and Entitlement Requirements.md`.
+После решений DEC-035..043 baseline дополнен:
+
+```text
+SplitOS Account after Windows user creation
+FREE base Windows experience
+PRO managed runtime
+preinstalled entitlement-gated capabilities
+FREE → PRO without reinstall
+offline/degraded account behavior
+SplitOS Manager account/subscription surface
+payment evidence vs entitlement ownership
+```

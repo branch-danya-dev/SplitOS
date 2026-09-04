@@ -8,10 +8,14 @@
 
 ## 1. Product definition
 
-SplitOS — управляемый Windows 11-based product, который формирует известный clean-install baseline и после установки предоставляет два взаимоисключающих пользовательских контекста:
+SplitOS — управляемый Windows 11-based product, который формирует известный clean-install baseline и после установки предоставляет два уровня пользовательского experience:
 
 ```text
-WORK xor GAME
+SplitOS Base
+→ модернизированный Windows desktop baseline
+
+SplitOS Pro Runtime
+→ managed WORK xor GAME experience
 ```
 
 SplitOS:
@@ -20,8 +24,10 @@ SplitOS:
 - не запускает вторую Windows;
 - не использует dual boot для Work/Game;
 - не является обычной `.exe`-прослойкой поверх произвольной пользовательской Windows;
-- сохраняет Windows Shell как базовую desktop shell для Work Mode;
-- предоставляет собственный Game Mode UX / Game Launcher.
+- сохраняет Windows Shell как базовую desktop shell;
+- предоставляет собственный Game Mode UX / Game Launcher при соответствующем entitlement.
+
+`WORK xor GAME` является invariant полноценного managed SplitOS runtime, а не обязательным состоянием каждого FREE пользователя.
 
 ---
 
@@ -73,7 +79,7 @@ MODE_MANAGED
 KEEP
 ```
 
-`MODE_MANAGED` позволяет компоненту иметь разное состояние в Work и Game.
+`MODE_MANAGED` позволяет компоненту иметь разное состояние в Work и Game, когда managed runtime разрешён.
 
 Пример:
 
@@ -84,29 +90,81 @@ WORK → available
 GAME → inactive
 ```
 
-Цель — не минимальный размер Windows любой ценой, а **минимальный релевантный active runtime footprint текущего режима** при сохранении требуемой совместимости.
+Цель — не минимальный размер Windows любой ценой, а **минимальный релевантный active runtime footprint текущего experience/mode** при сохранении требуемой совместимости.
 
 ---
 
-## 4. Startup concept
+## 4. Identity and startup concept
+
+Windows identity и SplitOS identity разделены:
 
 ```text
-Windows boot
-    ↓
-Windows sign-in
-    ↓
-SplitOS account / entitlement context
-    ↓
-Mode selection
-    ↓
-WORK xor GAME
+Windows User / Windows Identity
+≠
+SplitOS Account
+≠
+SplitOS Entitlement
 ```
 
-Пользователь выражает session intent, а SplitOS управляет semantic activation выбранного режима.
+Канонический first-run flow:
+
+```text
+Windows OOBE
+    ↓
+Windows user created
+    ↓
+First Windows sign-in
+    ↓
+SplitOS First Run Experience
+    ↓
+Sign in / Create SplitOS Account
+    ↓
+Entitlement resolution
+```
+
+После этого:
+
+```text
+FREE
+→ normal Windows Desktop on SplitOS baseline
+
+PRO
+→ managed runtime
+→ Mode selection
+→ WORK xor GAME
+```
+
+SplitOS Account является product identity и не заменяет Windows authentication principal.
+
+Подробная модель находится в:
+
+```text
+Runtime Access and Subscription Model.md
+```
 
 ---
 
-## 5. Work Mode
+## 5. FREE / SplitOS Base experience
+
+FREE пользователь получает модернизированный SplitOS Windows baseline без обязательной платной подписки.
+
+В FREE experience:
+
+- Windows desktop доступен обычным образом;
+- Windows Shell остаётся базовым UX;
+- обычные приложения работают как Windows applications;
+- Game Clients могут запускать игры обычным Windows/client path;
+- mode selection не является обязательным gate;
+- Work/Game managed runtime не активируется;
+- SplitOS Manager остаётся доступен как account/subscription/product control surface.
+
+Build-time изменения baseline сохраняются независимо от подписки.
+
+---
+
+## 6. Work Mode
+
+Work Mode относится к managed SplitOS runtime и доступен согласно entitlement/product policy.
 
 Work Mode использует знакомый Windows desktop UX и предназначен для продуктивной работы.
 
@@ -120,9 +178,9 @@ Work Mode использует знакомый Windows desktop UX и предн
 
 ---
 
-## 6. Game Mode
+## 7. Game Mode
 
-Game Mode является основным UX differentiator первой версии.
+Game Mode является основным UX differentiator первой версии managed runtime.
 
 В Game Mode:
 
@@ -137,7 +195,7 @@ Game Mode является основным UX differentiator первой ве�
 
 ---
 
-## 7. Game / Game Client boundary
+## 8. Game / Game Client boundary
 
 ```text
 GAME != GAME_CLIENT
@@ -155,15 +213,17 @@ SplitOS владеет:
 
 - unified library representation;
 - SplitOS game/profile relation;
-- managed launch orchestration;
+- managed launch orchestration при active Pro Runtime;
 - Game Mode preparation;
 - SplitOS UX.
 
+В FREE experience обычный game launch может идти напрямую через external Game Client без managed mode transition.
+
 ---
 
-## 8. Mode transition concept
+## 9. Mode transition concept
 
-Work → Game является управляемой транзакцией:
+При активном managed runtime Work → Game является управляемой транзакцией:
 
 ```text
 Request GAME
@@ -185,7 +245,7 @@ Committed mode не меняется преждевременно.
 
 ---
 
-## 9. Account / monetization concept
+## 10. Account / monetization concept
 
 SplitOS Account и SplitOS Entitlement являются отдельной продуктовой областью:
 
@@ -199,20 +259,43 @@ SplitOS Entitlement
 External Game License
 ```
 
-Текущая product direction:
+Текущая модель:
 
 ```text
-Distribution / build tooling → free
-SplitOS paid entitlement → premium/full capabilities, updates/support according to product policy
+SplitOS Base / build tooling → free
+SplitOS Account → required product identity for supported onboarding
+FREE entitlement → Windows desktop on SplitOS baseline
+PRO entitlement → managed Work/Game runtime and premium capabilities
 ```
+
+Pro capabilities могут быть предустановлены, но entitlement определяет право на их активное product behavior.
+
+Upgrade FREE → PRO не должен требовать reinstall при наличии required installed components.
 
 Существенная информация о paid entitlement должна быть показана до destructive installation step.
 
-Точный Free/Paid split остаётся отдельным requirement/product decision.
+---
+
+## 11. SplitOS Manager
+
+SplitOS Manager является основным desktop control center SplitOS и должен включать product surfaces для:
+
+```text
+Account
+Subscription / Plan
+Upgrade
+Modes
+Game Profiles
+Devices
+Updates
+Recovery
+```
+
+Payment execution остаётся внешней responsibility; SplitOS владеет resulting entitlement semantics.
 
 ---
 
-## 10. Canonical downstream ownership
+## 12. Canonical downstream ownership
 
 Concept отвечает на вопрос **что такое SplitOS как продукт**.
 
@@ -223,4 +306,5 @@ Concept отвечает на вопрос **что такое SplitOS как п
 - `01-Responsibilities` → зоны ответственности;
 - `02-Ownership` → authority/canonical truth;
 - `03-States` → state semantics;
-- `04-Behavior` → сценарное поведение.
+- `04-Behavior` → сценарное поведение;
+- `05-Data` → meaning/ownership/lifecycle данных.
