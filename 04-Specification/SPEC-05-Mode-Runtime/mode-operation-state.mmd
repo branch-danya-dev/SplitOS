@@ -1,0 +1,38 @@
+stateDiagram-v2
+    [*] --> REQUESTED
+    REQUESTED --> INSPECTING
+    INSPECTING --> BLOCKED: hard blocker
+    INSPECTING --> AWAITING_USER: user decision required
+    INSPECTING --> RESOLVING: clear / auto-resolvable
+    BLOCKED --> INSPECTING: condition changed
+    BLOCKED --> CANCELLED: abort
+    AWAITING_USER --> RESOLVING: approved decision
+    AWAITING_USER --> CANCELLED: cancel
+    RESOLVING --> APPLYING: action plan ready
+    RESOLVING --> CANCELLED: cannot continue, no mutation
+    APPLYING --> VERIFYING: apply complete
+    APPLYING --> ROLLING_BACK: mandatory failure / cancel
+    VERIFYING --> COMMITTING: mandatory target verified
+    VERIFYING --> ROLLING_BACK: mismatch / unknown
+    COMMITTING --> COMPLETED: durable commit + finalization
+    ROLLING_BACK --> CANCELLED: coherent source restored
+    ROLLING_BACK --> FAILED_WITH_SAFE_FALLBACK: safe fallback verified
+
+    COMPLETED --> [*]
+    CANCELLED --> [*]
+    FAILED_WITH_SAFE_FALLBACK --> [*]
+
+    note right of REQUESTED
+      operationKind:
+      ACTIVATE | SWITCH | DEACTIVATE
+    end note
+
+    note right of COMMITTING
+      Atomic boundary:
+      mode state + transition commit_durable
+    end note
+
+    note right of ROLLING_BACK
+      rollback mechanism,
+      not a terminal outcome
+    end note
