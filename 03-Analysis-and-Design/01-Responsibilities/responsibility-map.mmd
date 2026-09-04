@@ -1,0 +1,63 @@
+flowchart TB
+    B[Distribution Engineering]
+    BL[Installed SplitOS Baseline]
+    ID[Product Identity & Entitlement]
+    MODE[Mode Intent & Active State]
+    TRANS[Mode Transition Coordination]
+    POLICY[Mode Policy]
+    APP[Application Lifecycle Policy]
+    DISP[Display Context]
+    AUDIO[Audio Context]
+    INPUT[Input Context]
+    POWER[Power / Resource Context]
+
+    subgraph GAME[Game Experience Management]
+        LIB[Game Library Representation]
+        LAUNCH[Game Launch Orchestration]
+        PROFILE[Game Profiles]
+        HW[Hardware Context Evaluation]
+        OPT[Game Optimization Policy]
+        GUX[Game Mode UX]
+        SHARED[Shared App Experience]
+    end
+
+    COMPAT[Compatibility Management]
+    UPD[Update Orchestration]
+    REC[Recovery Coordination]
+    OBS[Observability & Diagnostics]
+
+    B --> BL
+    BL --> ID
+    ID --> MODE
+    MODE --> TRANS
+    TRANS --> POLICY
+    POLICY --> APP
+    POLICY --> DISP
+    POLICY --> AUDIO
+    POLICY --> INPUT
+    POLICY --> POWER
+
+    TRANS --> LAUNCH
+    DISP --> PROFILE
+    INPUT --> PROFILE
+    HW --> PROFILE
+    PROFILE --> OPT
+    LIB --> LAUNCH
+    PROFILE --> LAUNCH
+    OPT --> LAUNCH
+    GUX --> LAUNCH
+    GUX --> SHARED
+
+    COMPAT --> B
+    COMPAT --> LAUNCH
+    COMPAT --> UPD
+    UPD --> BL
+    REC --> BL
+    REC --> TRANS
+
+    OBS -. verifies .-> B
+    OBS -. verifies .-> TRANS
+    OBS -. verifies .-> POLICY
+    OBS -. verifies .-> LAUNCH
+    OBS -. verifies .-> UPD
+    OBS -. verifies .-> REC
