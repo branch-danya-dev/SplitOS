@@ -1,0 +1,30 @@
+sequenceDiagram
+    actor User
+    participant Manager as Manager / Game Launcher
+    participant Host as Runtime Host
+    participant Pipe as Broker Named Pipe
+    participant Broker as Privileged Broker
+    participant Win as Windows
+
+    User->>Manager: semantic action
+    Manager->>Host: UI command
+    Host->>Host: owner validation / policy / state guards
+
+    Host->>Pipe: connect to S<SessionId> pipe
+    Pipe->>Broker: accepted connection
+    Broker->>Broker: derive client SessionId + PID
+    Broker->>Broker: validate console owner + user/logon SID
+    Broker->>Broker: validate RuntimeHost image/release/protocol
+    Broker-->>Host: HelloAck / capabilities
+
+    Host->>Broker: allowlisted capability request\nrequestId + operationId + idempotencyKey
+    Broker->>Broker: schema + authorization + target allowlist
+    Broker->>Win: bounded machine mutation
+    Win-->>Broker: immediate technical result
+    Broker->>Win: read actual state where applicable
+    Win-->>Broker: actual evidence
+    Broker-->>Host: technical result + verification evidence
+
+    Host->>Host: semantic owner decides commit/failure/rollback
+    Host-->>Manager: state/result update
+    Manager-->>User: observable outcome
