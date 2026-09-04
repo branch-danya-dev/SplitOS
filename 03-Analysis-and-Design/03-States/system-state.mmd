@@ -1,0 +1,25 @@
+stateDiagram-v2
+    [*] --> BOOTING
+    BOOTING --> WINDOWS_SIGNED_IN: Windows sign-in complete
+    WINDOWS_SIGNED_IN --> SPLITOS_CONTEXT_RESOLVING
+    SPLITOS_CONTEXT_RESOLVING --> MODE_SELECTION: context resolved
+    SPLITOS_CONTEXT_RESOLVING --> RECOVERY: context/baseline invalid
+    MODE_SELECTION --> OPERATIONAL: initial mode committed
+    OPERATIONAL --> RECOVERY: coherent runtime lost
+    RECOVERY --> MODE_SELECTION: recovered before mode commit
+    RECOVERY --> OPERATIONAL: coherent mode restored
+    OPERATIONAL --> SHUTTING_DOWN: shutdown/sign-out
+    MODE_SELECTION --> SHUTTING_DOWN: shutdown/sign-out
+    RECOVERY --> SHUTTING_DOWN: shutdown/sign-out
+    SHUTTING_DOWN --> [*]
+
+---
+
+stateDiagram-v2
+    [*] --> NONE
+    NONE --> WORK: initial Work commit
+    NONE --> GAME: initial Game commit
+    WORK --> WORK: cancelled/rolled-back Work→Game
+    WORK --> GAME: successful Work→Game commit
+    GAME --> GAME: game exit / cancelled Game→Work
+    GAME --> WORK: successful Game→Work commit
