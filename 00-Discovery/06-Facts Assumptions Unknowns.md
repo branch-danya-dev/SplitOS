@@ -4,7 +4,7 @@
 
 ### Product
 
-- **V-001** SplitOS является отдельным управляемым дистрибутивом на базе Windows 11.
+- **V-001** SplitOS является отдельным управляемым дистрибутивом на базе Windows 11, формируемым из поддерживаемого Windows source и SplitOS-owned build inputs.
 - **V-002** SplitOS не создаёт собственное ядро.
 - **V-003** Windows Shell не заменяется как базовая desktop shell.
 - **V-004** Work Mode и Game Mode используют одну Windows installation.
@@ -52,6 +52,19 @@
 - **V-500** Windows feature/system updates не должны бесконтрольно применяться напрямую.
 - **V-501** SplitOS определяет совместимый Windows base для своего release.
 - **V-502** Security fixes не должны игнорироваться; требуется compatibility lifecycle.
+- **V-503** Базовая модель распространения SplitOS не предполагает публичную раздачу готового modified Windows ISO самим SplitOS.
+- **V-504** SplitOS Media Builder использует Microsoft-authorized Windows source как внешний build input и применяет SplitOS Build Manifest / packages для подготовки clean-install baseline.
+- **V-505** Подготовка baseline включает не только установку SplitOS, но и удаление/deprovision, disablement и конфигурацию Windows components согласно проверенной component classification.
+- **V-506** Каждый Windows component классифицируется как `REMOVE`, `DISABLE`, `MODE_MANAGED`, `KEEP` либо временно `TBD`.
+- **V-507** Компоненты `MODE_MANAGED` могут иметь разное runtime state в Work Mode и Game Mode.
+- **V-508** Build-time optimization и runtime optimization являются разными responsibility layers.
+- **V-509** После clean installation обычный runtime не должен повторно выполнять полный distribution debloat как часть каждого mode transition.
+
+### Account / Monetization
+
+- **V-600** SplitOS Account является отдельным продуктовым identity/entitlement context и не равен Windows license или внешнему Game Platform account.
+- **V-601** Distribution/build tooling может распространяться бесплатно, а paid entitlement может открывать полные/premium SplitOS capabilities, updates/support согласно product policy.
+- **V-602** Существенная информация о paid entitlement должна быть доступна пользователю до destructive installation step.
 
 ---
 
@@ -66,6 +79,9 @@
 - **I-007** Game Client integrations должны быть модульными, иначе обновление одного клиента будет ломать весь Launcher.
 - **I-008** Для automatic document save невозможно использовать единый универсальный механизм для любого Windows-приложения.
 - **I-009** Некоторые display capabilities потребуют vendor-specific behavior помимо стандартных Windows interfaces.
+- **I-010** Для воспроизводимого image servicing понадобится versioned Build Manifest и технический механизм применения offline changes.
+- **I-011** Для проверки `MODE_MANAGED` state потребуется runtime verification actual state, а не только отправка start/stop commands.
+- **I-012** После удаления части Windows security components SplitOS потребуется явно определить собственную минимальную security baseline.
 
 Эти утверждения не должны считаться архитектурными решениями до Analysis & Design / prototype validation.
 
@@ -93,6 +109,7 @@
 - **O-200** Конкретный distribution rollback mechanism.
 - **O-201** SLA интеграции critical security patches.
 - **O-202** Driver update policy.
+- **O-203** Baseline drift detection и repair policy.
 
 ### Integrations
 
@@ -106,6 +123,17 @@
 - **O-401** Key lifecycle.
 - **O-402** Online/offline entitlement.
 - **O-403** Recovery access при недоступности SplitOS identity layer.
+- **O-404** Точный Free/Paid capability split.
+
+### Distribution build
+
+- **O-500** Конкретный Microsoft-authorized Windows source для Media Builder.
+- **O-501** Допустимый механизм автоматического source acquisition.
+- **O-502** Поддерживаемые Windows editions / languages / architectures.
+- **O-503** Формат и versioning SplitOS Build Manifest.
+- **O-504** Полный Windows Component Matrix.
+- **O-505** Какие component changes выполняются offline, during setup или first boot.
+- **O-506** Точная removal/security baseline для Microsoft Defender Antivirus и связанных security components.
 
 ---
 
@@ -158,3 +186,13 @@ Steam → GAME_CLIENT
 Уточнено:
 
 > v1 baseline — официально установленные игры из поддерживаемых Game Clients. Manual library deferred.
+
+### S-005
+
+Ранняя трактовка:
+
+> SplitOS распространяет готовый modified Windows image как собственный download artifact.
+
+Заменено:
+
+> SplitOS распространяет собственный Media Builder / manifests / packages; Windows source является внешним Microsoft-authorized build input, из которого формируется поддерживаемый clean-install baseline.
