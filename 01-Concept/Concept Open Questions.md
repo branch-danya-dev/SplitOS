@@ -8,7 +8,23 @@
 
 **RESOLVED**
 
-SplitOS распространяется как отдельный управляемый дистрибутив на базе Windows 11, а не как универсальный installer поверх произвольной существующей Windows.
+SplitOS остаётся отдельным управляемым дистрибутивом на базе Windows 11, но базовая модель распространения не предполагает публичную раздачу готового modified Windows ISO самим SplitOS.
+
+Текущая модель:
+
+```text
+SplitOS Media Builder
+        +
+Microsoft-authorized Windows source
+        +
+SplitOS Build Manifest / packages
+        ↓
+locally prepared / supported installation baseline
+        ↓
+clean install
+```
+
+SplitOS не является универсальным installer поверх произвольной существующей Windows.
 
 ### CONCEPT-RES-002 — Mode concurrency
 
@@ -24,7 +40,7 @@ WORK xor GAME
 
 **RESOLVED**
 
-После Windows sign-in SplitOS определяет user/key context и предоставляет выбор режима.
+После Windows sign-in SplitOS определяет user/key/account context и предоставляет выбор режима.
 
 ### CONCEPT-RES-004 — Game completion
 
@@ -96,13 +112,54 @@ SplitOS стремится обеспечить максимально возм�
 
 **RESOLVED**
 
-Стандартный Windows feature/system auto-update отключается. Windows patches проходят SplitOS validation и доставляются через совместимый SplitOS distribution release.
+Стандартный Windows feature/system auto-update не должен бесконтрольно менять поддерживаемый baseline. Windows patches проходят SplitOS validation и включаются в совместимый SplitOS release/update path.
 
 ### CONCEPT-RES-015 — Product priority
 
 **RESOLVED**
 
 Game Mode UI и Game Launcher являются core product scope первой версии. Глубокая кастомизация Work Mode UI имеет более низкий приоритет.
+
+### CONCEPT-RES-016 — Windows component strategy
+
+**RESOLVED at concept level**
+
+Windows components не рассматриваются только как глобально ON/OFF.
+
+Используется модель:
+
+```text
+REMOVE
+DISABLE
+MODE_MANAGED
+KEEP
+```
+
+`MODE_MANAGED` components могут быть полезны в Work Mode и неактивны в Game Mode либо наоборот.
+
+### CONCEPT-RES-017 — Build-time vs runtime
+
+**RESOLVED**
+
+Build-time preparation и installed runtime являются разными responsibility layers.
+
+```text
+Build Pipeline
+→ establishes known baseline
+
+Installed Runtime
+→ manages Work/Game live state
+```
+
+### CONCEPT-RES-018 — Account / monetization model
+
+**RESOLVED at concept level**
+
+SplitOS Account является собственной product identity/entitlement областью.
+
+Distribution/build tooling может быть бесплатным, а paid entitlement может предоставлять полные/premium capabilities, updates и support согласно product policy.
+
+Windows license, SplitOS entitlement и Game Platform accounts остаются разными authority domains.
 
 ---
 
@@ -128,17 +185,36 @@ Game Mode UI и Game Launcher являются core product scope первой �
 ## Optimization
 
 - Как учитывать VRR, upscaling, frame generation и frame pacing?
-- Как совместить автоматический recalculation с ручными overrides пользователя?
+- Как совместить automatic recalculation с manual overrides пользователя?
 
 ## User / key / entitlement
 
-- Где хранится SplitOS user/key state?
-- Как подтверждается entitlement на distribution updates?
+- Где хранится SplitOS account/user/key state?
+- Как подтверждается entitlement online/offline?
+- Какие функции доступны без paid entitlement?
+- Какие функции могут зависеть от update/support entitlement?
+
+## Distribution Builder
+
+- Какой Microsoft-authorized Windows source используется?
+- Может ли Builder автоматически получать Windows source и на каких условиях?
+- Какие editions/languages/architectures входят в supported baseline?
+- Как физически представлен SplitOS Build Manifest?
+- Какие операции выполняются offline, during setup или first boot?
+
+## Windows Component Matrix
+
+- Какие компоненты переходят в `REMOVE` после validation?
+- Какие остаются `DISABLE`?
+- Какие должны быть `MODE_MANAGED`?
+- Какие относятся к `KEEP` compatibility baseline?
+- Как определяется security baseline при удалении Microsoft Defender Antivirus и связанных компонентов?
 
 ## Update / Recovery
 
 - Какой rollback mechanism обязателен?
 - Каков ускоренный процесс доставки critical Microsoft security patches?
+- Как обнаруживается baseline drift после установки?
 
 ## Future ecosystem
 
@@ -151,4 +227,4 @@ Game Mode UI и Game Launcher являются core product scope первой �
 
 На текущем уровне Concept / Pre-analysis не содержит блокирующих продуктовых вопросов, препятствующих переходу к детальному Requirements и Analysis & Design.
 
-Оставшиеся вопросы относятся к поведению, контрактам, состояниям, интеграциям и техническим ограничениям и должны закрываться на соответствующих следующих этапах SSAD.
+Оставшиеся вопросы относятся к поведению, контрактам, состояниям, интеграциям, component validation и техническим ограничениям и должны закрываться на соответствующих следующих этапах SSAD.

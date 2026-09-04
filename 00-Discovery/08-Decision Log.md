@@ -10,7 +10,7 @@ Decision Log фиксирует продуктовые и системные р�
 
 | ID | Decision | Rationale | Status |
 |---|---|---|---|
-| DEC-001 | SplitOS распространяется как отдельный управляемый Windows 11-based distribution | Предсказуемое базовое состояние, debloat, testing, updates, recovery | ACCEPTED |
+| DEC-001 | SplitOS является отдельным управляемым Windows 11-based distribution, формируемым из известного Windows source и SplitOS-owned build inputs | Предсказуемое базовое состояние, debloat, testing, updates, recovery | ACCEPTED |
 | DEC-002 | Work Mode и Game Mode строго взаимоисключающие | Иначе теряется isolation и optimization value | ACCEPTED |
 | DEC-003 | После Windows sign-in пользователь проходит SplitOS user/key context и mode selection | Режим является частью session intent | ACCEPTED |
 | DEC-004 | Game Mode остаётся активным после закрытия игры | Пользователь может сменить игру/отойти/использовать Game Launcher | ACCEPTED |
@@ -37,6 +37,37 @@ Decision Log фиксирует продуктовые и системные р�
 | DEC-025 | Один физический накопитель должен поддерживаться | Не навязывать искусственное физическое разделение | ACCEPTED |
 | DEC-026 | Все корректно обнаруживаемые подключённые дисплеи должны быть доступны SplitOS | Display selection — core capability | ACCEPTED |
 | DEC-027 | Future ecosystem может включать OEM/partner hardware/software | Архитектура должна оставаться расширяемой | ACCEPTED |
+| DEC-028 | SplitOS не проектируется как публично распространяемый modified Windows ISO; пользовательский Builder использует Microsoft-authorized Windows source как внешний build input | Разделить Windows redistribution и собственные SplitOS assets; сохранить clean-install distribution model | ACCEPTED |
+| DEC-029 | SplitOS Media Builder формирует поддерживаемый baseline до установки, применяя SplitOS Build Manifest и packages к совместимому Windows source | Агрессивная интеграция должна происходить на build-time, а не быть набором runtime tweaks поверх произвольной Windows | ACCEPTED |
+| DEC-030 | Windows components классифицируются как REMOVE / DISABLE / MODE_MANAGED / KEEP | Отделить физическое удаление, baseline-disablement, mode-dependent lifecycle и обязательные dependencies | ACCEPTED |
+| DEC-031 | MODE_MANAGED components могут иметь разное состояние в Work и Game | Work/Game дают уникальную возможность уменьшать active runtime footprint без необратимого удаления полезных Work-функций | ACCEPTED |
+| DEC-032 | После установки Build Pipeline больше не управляет обычным runtime; Installed SplitOS Runtime управляет только live state, mode transitions и MODE_MANAGED lifecycle | Не смешивать image servicing и runtime orchestration | ACCEPTED |
+| DEC-033 | SplitOS distribution/build tooling предполагается бесплатным, а SplitOS Account/entitlement может предоставлять платные product capabilities, updates и support | Монетизация относится к SplitOS product/services, а не к продаже Windows binaries | ACCEPTED |
+| DEC-034 | Существенная информация о paid entitlement должна быть показана до destructive installation step | Пользователь не должен узнать о существенных ограничениях после форматирования накопителя | ACCEPTED |
+
+---
+
+## Superseded clarification
+
+Ранняя трактовка DEC-001 могла читаться как:
+
+> SplitOS самостоятельно распространяет готовый modified Windows image.
+
+Эта трактовка **SUPERSEDED** решениями DEC-028/029.
+
+Текущая модель:
+
+```text
+Microsoft-authorized Windows source
++
+SplitOS Media Builder
++
+SplitOS Build Manifest / packages
+↓
+locally prepared SplitOS installation baseline
+```
+
+Отдельный distribution сохраняется как product/deployment model, но Windows source является внешним build input.
 
 ---
 

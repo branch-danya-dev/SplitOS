@@ -41,6 +41,13 @@
 | EL-027 | Displays | Какие дисплеи поддерживать? | Все корректно обнаруживаемые подключённые дисплеи в поддерживаемой Windows/driver environment. | VERIFIED | Compatibility requirement |
 | EL-028 | Storage | Нужен ли отдельный диск для игр? | Нет. Разделение логическое; один SSD обязателен как поддерживаемый сценарий. | VERIFIED | Storage invariant |
 | EL-029 | Future ecosystem | Может ли SplitOS расшириться своим hardware/partner software? | Да. OEM controller, partner apps, communication/social/streaming layers допустимы в будущем. | VERIFIED | Extensibility |
+| EL-030 | Windows source distribution | Должен ли SplitOS публично отдавать готовый modified Windows ISO? | Нет как базовая модель. SplitOS Builder использует Microsoft-authorized Windows source как внешний вход и формирует поддерживаемый baseline локально/в допустимом deployment flow. | VERIFIED | Distribution/legal boundary |
+| EL-031 | Build-time preparation | Должна ли подготовка Windows происходить только после установки как набор runtime tweaks? | Нет. Удаление/deprovision компонентов, baseline policies и внедрение SplitOS должны применяться до/во время clean installation через Build Manifest. | VERIFIED | Build pipeline |
+| EL-032 | Component lifecycle | Все ненужные Windows components нужно либо удалить, либо оставить включёнными? | Нет. Используются классы `REMOVE / DISABLE / MODE_MANAGED / KEEP`. | VERIFIED | Component classification |
+| EL-033 | Mode-managed Windows capability | Может ли компонент быть полезен в Work и отключён в Game? | Да. Например Phone Link / Cross-Device может оставаться доступным в Work и отключаться в Game. | VERIFIED | Runtime mode policy |
+| EL-034 | Build vs runtime | Кто управляет Windows после установки? | Builder заканчивает responsibility после создания baseline; Installed Runtime управляет live state, transitions и MODE_MANAGED lifecycle. | VERIFIED | Runtime boundary |
+| EL-035 | Monetization | За что платит пользователь? | Distribution/build tooling может быть бесплатным; paid SplitOS Account/entitlement предоставляет product capabilities, updates/support согласно policy. | VERIFIED | Identity/entitlement scope |
+| EL-036 | Destructive install disclosure | Когда сообщать о paid limitations? | Существенные ограничения должны быть показаны до форматирования/установки, а не после удаления старой системы. | VERIFIED | Setup UX / consumer transparency |
 
 ---
 
@@ -56,4 +63,10 @@
 - поддерживаемый baseline Game Clients;
 - rollback model distribution updates;
 - точные CPU/RAM/transition-time budgets;
-- security/licensing model SplitOS user/key context.
+- security/licensing model SplitOS user/key context;
+- конкретный Microsoft-authorized Windows source для Builder;
+- механизм автоматического source acquisition и его licensing validation;
+- полный Windows Component Matrix и validation каждой REMOVE/DISABLE/MODE_MANAGED гипотезы;
+- точный Free/Paid feature split;
+- offline entitlement behavior;
+- baseline drift detection после установки.
