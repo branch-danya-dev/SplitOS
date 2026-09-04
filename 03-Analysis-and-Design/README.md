@@ -30,7 +30,7 @@
 11-Synthesis
 ```
 
-Порядок отражает reasoning dependency, а не жёсткий waterfall. Новое evidence может потребовать возврата к предыдущему слою.
+Порядок отражает reasoning dependency, а не жёсткий waterfall.
 
 ---
 
@@ -45,150 +45,130 @@
 | `04-Behavior` | READY | First Run/Runtime Access, Startup, Work→Game, Game Launch, Game→Work |
 | `05-Data` | READY | Domain Model, Identity & Runtime Access, Configuration Model, Data Ownership and Lifecycle |
 | `06-Interfaces` | READY | Interface Model, Internal Runtime Contracts, External Boundary Contracts, interface map |
-| `07-Integrations` | READY | Integration Architecture, Windows Runtime Integration, Game Client Integration, Account/Payment/Builder/Update Integration, integration map |
-| `08-Flows` | READY | Flow Model, First Run/Subscription, Work→Game, Managed Game Launch, Game→Work, Update/Recovery + sequence diagrams |
-| `09-Failures` | NEXT | not started |
-| `10-Trust` | NOT STARTED | — |
+| `07-Integrations` | READY | Integration Architecture, Windows Runtime Integration, Game Client Integration, Account/Payment/Builder/Update Integration |
+| `08-Flows` | READY | First Run/Subscription, Work→Game, Managed Game Launch, Game→Work, Update/Recovery + sequence diagrams |
+| `09-Failures` | READY | Failure Model, Runtime Failure Scenarios, Update/Recovery Failure Scenarios, Failure Handling Matrix, failure map |
+| `10-Trust` | NEXT | not started |
 | `11-Synthesis` | NOT STARTED | — |
 
 ---
 
-## Knowledge ownership rules
+# Knowledge ownership by layer
 
-### Boundary truth
-
-Canonical boundary ownership belongs to:
+## Boundary truth
 
 ```text
-00-Boundaries/System Boundary Analysis.md
+00-Boundaries/
 ```
 
-Requirements-level `SplitOS System Context.md` provides high-level context and participants, but must not redefine A&D ownership boundaries independently.
+Defines build/runtime/external ownership boundaries.
 
-### Responsibility truth
-
-Canonical responsibility decomposition belongs to:
+## Responsibility truth
 
 ```text
 01-Responsibilities/Responsibility Model.md
 ```
 
-### Ownership truth
+Defines what the system must own semantically.
 
-Canonical authority / evidence / writer / consumer relationships belong to:
+## Ownership truth
 
 ```text
 02-Ownership/Ownership Model.md
 ```
 
-### State truth
+Defines authority, writers, consumers and evidence sources.
 
-Canonical runtime state semantics belong to:
+## State truth
 
 ```text
 03-States/
 ```
 
-`Runtime Access State Model.md` уточняет startup assumption: `WORK xor GAME` обязателен только при enabled managed runtime; FREE experience может стабильно иметь `OperationalMode = NONE` и обычный Windows Desktop.
+Important invariant:
 
-UI labels, process presence и external-client state являются evidence/projections и не должны независимо переопределять canonical SplitOS state.
+```text
+FREE  → ManagedRuntime = DISABLED, OperationalMode = NONE
+PRO   → ManagedRuntime = ENABLED, WORK xor GAME
+```
 
-### Behavior truth
-
-Canonical scenario behavior belongs to:
+## Behavior truth
 
 ```text
 04-Behavior/
 ```
 
-Behavior defines semantic reaction to triggers/states but does not itself choose integration mechanisms or full multi-party timeline.
+Defines trigger → rules → state consequences.
 
-### Data truth
-
-Canonical conceptual data meaning, configuration composition and lifecycle ownership belong to:
+## Data truth
 
 ```text
 05-Data/
-├── Domain Model.md
-├── Identity and Runtime Access Model.md
-├── Configuration Model.md
-└── Data Ownership and Lifecycle.md
 ```
 
-Data layer deliberately distinguishes canonical product truth, policy/user intent, external projections, runtime evidence, transaction/recovery state and diagnostics.
+Separates:
 
-Physical tables, storage engine, API schemas and concrete serialization formats are not yet canonical.
+```text
+Canonical product truth
+Policy / user intent
+External projections
+Runtime evidence
+Transaction / recovery state
+Diagnostics
+```
 
-### Interface truth
-
-Canonical semantic contracts belong to:
+## Interface truth
 
 ```text
 06-Interfaces/
-├── Interface Model.md
-├── Internal Runtime Contracts.md
-├── External Boundary Contracts.md
-└── interface-map.mmd
 ```
+
+Core contract rule:
 
 ```text
-Interface
-!= REST endpoint
-!= Integration implementation
-!= end-to-end Flow
+Consumer
+→ request/query/event
+→ canonical owner
+→ semantic result
 ```
 
-### Integration truth
-
-Canonical mechanism-level integration analysis belongs to:
+## Integration truth
 
 ```text
 07-Integrations/
-├── Integration Architecture.md
-├── Windows Runtime Integration.md
-├── Game Client Integration.md
-├── Account Payment Builder and Update Integration.md
-└── integration-map.mmd
 ```
 
-Every mechanism is classified explicitly as VERIFIED / CANDIDATE / BEST_EFFORT / OPEN / REJECTED where applicable.
+Mechanisms are classified explicitly:
 
-A missing supported mechanism remains OPEN rather than being replaced silently with undocumented behavior.
+```text
+VERIFIED
+CANDIDATE
+BEST_EFFORT
+OPEN
+REJECTED
+```
 
-### Flow truth
-
-Canonical end-to-end temporal composition belongs to:
+## Flow truth
 
 ```text
 08-Flows/
-├── Flow Model.md
-├── First Run and Subscription Flow.md
-├── Work to Game Flow.md
-├── Managed Game Launch Flow.md
-├── Game to Work Flow.md
-├── Update and Recovery Flow.md
-├── first-run-subscription.mmd
-├── work-to-game.mmd
-├── game-launch.mmd
-├── game-to-work.mmd
-└── update-recovery.mmd
 ```
 
-Flow layer composes already-owned semantics:
+Canonical end-to-end pattern:
 
 ```text
 Trigger
 → Preconditions
 → Requests / Evidence
-→ Owner decisions
-→ Integration operations
+→ Owner decision
+→ Integration operation
 → Actual-state evidence
 → Verification
 → Commit / result
 → User-visible outcome
 ```
 
-Critical flow rule:
+Critical distinction:
 
 ```text
 command sent
@@ -199,11 +179,36 @@ command sent
 != canonical commit
 ```
 
-Flow does not redefine ownership/state. It shows how several owners and integrations cooperate over time.
+## Failure truth
+
+Canonical failure semantics belong to:
+
+```text
+09-Failures/
+├── Failure Model.md
+├── Runtime Failure Scenarios.md
+├── Update Recovery Failure Scenarios.md
+├── Failure Handling Matrix.md
+└── failure-map.mmd
+```
+
+Core failure rule:
+
+```text
+Failure evidence
+→ owning responsibility
+→ classify impact
+→ choose response
+→ apply response
+→ verify resulting state
+→ commit fallback/recovery result if needed
+```
+
+Failure handlers must not directly invent canonical state.
 
 ---
 
-## Current core system model
+# Current core system model
 
 ```text
 Microsoft-authorized Windows source
@@ -232,7 +237,7 @@ Desktop     ↓
             WORK xor GAME
 ```
 
-Runtime integration topology:
+Runtime topology:
 
 ```text
 Interactive user session
@@ -249,22 +254,9 @@ Interactive user session
          Windows Service / Session 0
 ```
 
-End-to-end mutation pattern:
-
-```text
-User intent
-→ semantic owner/orchestrator
-→ integration mechanism
-→ immediate technical result
-→ actual-state evidence
-→ verification
-→ canonical commit/result
-→ visible UX
-```
-
 ---
 
-## Current canonical flow families
+# Current canonical flows
 
 ```text
 FL-01 First Run / FREE-PRO / Upgrade
@@ -274,7 +266,7 @@ FL-04 Game → Work
 FL-05 Update and Recovery
 ```
 
-Direct managed game launch from Work is intentionally composition, not a separate implementation:
+Direct managed launch from Work is composition:
 
 ```text
 FL-02 Work → Game
@@ -282,7 +274,7 @@ FL-02 Work → Game
 FL-03 Managed Game Launch
 ```
 
-Major mutating orchestration must be coordinated:
+Major mutation coordination:
 
 ```text
 Mode Transition
@@ -290,11 +282,96 @@ or Update
 or Recovery
 ```
 
-should own the machine-transition window rather than interleaving conflicting state mutations.
+must not independently mutate conflicting machine state at the same time.
 
 ---
 
-## Current mechanism baseline
+# Failure model summary
+
+## Failure classes
+
+```text
+Request / precondition failure
+Dependency unavailable
+Unsupported capability
+Missing/stale/contradictory external evidence
+Operation rejected / technical failure
+Partial application
+Verification failure
+Component crash / runtime loss
+Persistence / durability failure
+Interruption / reboot / power loss
+Recovery failure
+Trust / integrity validation failure
+```
+
+## Response classes
+
+```text
+Reject
+Defer
+Retry
+Controlled fallback
+Degraded continuation
+Cancel to source state
+Rollback
+Recovery
+Manual recovery / support required
+```
+
+## Severity
+
+```text
+S0 controlled negative outcome
+S1 local feature failure
+S2 operation failed but safe state known
+S3 degraded system state
+S4 recovery required
+S5 manual recovery / bootability or data risk
+```
+
+Canonical safety priority:
+
+```text
+1. User data integrity
+2. Windows bootability and base usability
+3. Known coherent system state
+4. Correct SplitOS canonical state
+5. Managed runtime restoration
+6. UX convenience
+```
+
+---
+
+# Important failure invariants
+
+```text
+technical failure
+!= permission to change canonical state
+
+partial application
+!= successful target
+
+verification failure
+→ target commit prohibited
+
+source state remains canonical before target commit
+
+mixed actual state
+!= new HYBRID operational mode
+
+rollback command sent
+!= rollback successful
+
+recovery command sent
+!= recovery completed
+```
+
+Premium runtime failure must not intentionally make base Windows unusable merely because SplitOS cannot restore its own managed capabilities.
+
+---
+
+# Current mechanism baseline
 
 ### Windows
 
@@ -314,10 +391,10 @@ Privileged local IPC    → secured named pipes candidate
 ```text
 Stable SplitOS semantic contract
 → per-client adapter
-→ Steam / Epic / Xbox / Battle.net specific mechanism
+→ Steam / Epic / Xbox / Battle.net mechanism
 ```
 
-Support is capability-based; version-sensitive local metadata is never silently promoted to a stable public contract.
+Version-sensitive local metadata is never promoted to stable external truth.
 
 ### Account / payment
 
@@ -327,7 +404,7 @@ Runtime / Manager
 → SplitOS Account Backend
 → hosted checkout
 → Payment Provider
-→ backend-validated payment evidence
+→ validated payment evidence
 → Entitlement
 ```
 
@@ -341,43 +418,33 @@ Windows source
 → verify baseline
 ```
 
-Update execution remains compatibility-gated and its exact technology/package format is still OPEN.
+Target baseline/update identity changes only after semantic verification.
 
 ---
 
-## Next analytical target
+# Next analytical target
 
-После `08-Flows` следующим слоем является `09-Failures`.
+После `09-Failures` следующим слоем является `10-Trust`.
 
-Failure analysis должен системно определить:
-
-```text
-failure source
-failure class
-who detects it
-who owns recovery decision
-retryable vs non-retryable
-user-visible impact
-rollback / safe fallback
-persistence across reboot
-observability requirement
-```
-
-Primary failure families:
+Trust analysis должен определить:
 
 ```text
-Account/backend unavailable
-Entitlement stale/ambiguous
-Privileged Broker unavailable
-Windows platform operation rejected
-Target state not reached after accepted operation
-Mode transition rollback failure
-Game Client unavailable/auth required
-Game launch not confirmed
-Hardware/display disappears mid-flow
-Update apply/verification failure
-Incomplete transaction after crash/reboot
-Recovery target cannot be verified
+who may call privileged interfaces
+how local IPC caller identity is established
+what data/artifacts are trusted
+account authentication and token handling
+entitlement evidence trust
+payment evidence trust
+update/package signatures
+Build Manifest integrity
+Windows source integrity
+Game Client evidence trust level
+secret storage
+replay/tampering protection
+least privilege boundaries
 ```
 
-`Failure != generic exception`: failure semantics must remain tied to owners, states and safe convergence rules.
+`Trust != Failure`:
+
+- Failure описывает, что происходит при проблеме;
+- Trust определяет, чему и кому система вообще разрешает верить до выполнения действия.
