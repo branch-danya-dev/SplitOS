@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph MACHINE[Windows Machine]
+        BROKER[SplitOS Broker Service\nSession 0 / LocalSystem\n1 per machine]
+
+        subgraph S1[Interactive Session A]
+            RH1[Runtime Host\n1 per session]
+            M1[Manager\n0..1]
+            G1[Game Launcher\n0..1]
+            M1 --> RH1
+            G1 --> RH1
+        end
+
+        subgraph S2[Interactive Session B]
+            RH2[Runtime Host\n1 per session]
+            M2[Manager\n0..1]
+            G2[Game Launcher\n0..1]
+            M2 --> RH2
+            G2 --> RH2
+        end
+
+        RH1 -->|per-session Broker pipe\nonly if console owner| BROKER
+        RH2 -->|per-session Broker pipe\nonly if console owner| BROKER
+    end
+
+    WIN[Windows / SCM / WTS / Task Scheduler] --> MACHINE
+
+    NOTE[Exactly one physical-console session\nmay own machine-wide managed mutations in v1]
+    NOTE -.-> RH1
+    NOTE -.-> RH2
