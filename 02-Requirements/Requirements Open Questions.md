@@ -92,11 +92,11 @@ Current Game Configuration
 
 ---
 
-# 5. User / Key / Entitlement
+# 5. User / Account / Entitlement
 
 ### REQ-OPEN-010
 
-Как реализуется SplitOS user/key storage и entitlement validation?
+Как реализуется SplitOS user/account/key storage и entitlement validation?
 
 Необходимо определить:
 
@@ -104,11 +104,89 @@ Current Game Configuration
 - локальное / удалённое хранение;
 - offline behavior;
 - связь пользователя с профилями;
-- update entitlement.
+- update entitlement;
+- support entitlement;
+- feature entitlement.
+
+### REQ-OPEN-013
+
+Какие SplitOS capabilities входят в Free baseline, а какие требуют paid entitlement?
+
+Нужно отдельно определить minimum-safe behavior при отсутствии или истечении entitlement.
+
+### REQ-OPEN-014
+
+Какие capabilities должны оставаться доступными offline при временной недоступности SplitOS account backend?
 
 ---
 
-# 6. Update / Recovery
+# 6. Distribution Builder / Windows Source
+
+### REQ-OPEN-015
+
+Какой Microsoft-authorized Windows source является поддерживаемым входом SplitOS Media Builder?
+
+### REQ-OPEN-016
+
+Имеет ли Builder право автоматизировать получение Windows source, либо source должен предоставляться пользователем/официальным Microsoft tooling?
+
+### REQ-OPEN-017
+
+Какие Windows editions, languages и architectures входят в supported SplitOS baseline?
+
+### REQ-OPEN-018
+
+Как Builder проверяет identity/integrity Windows source до применения SplitOS Build Manifest?
+
+### REQ-OPEN-019
+
+Какие действия выполняются:
+
+```text
+offline image servicing
+during setup
+first boot
+runtime
+```
+
+и какие операции запрещено переносить между этими фазами?
+
+---
+
+# 7. Windows Component Baseline
+
+### REQ-OPEN-020
+
+Какой полный Windows Component Matrix входит в v1?
+
+Для каждого элемента требуется определить:
+
+```text
+REMOVE
+DISABLE
+MODE_MANAGED
+KEEP
+```
+
+### REQ-OPEN-021
+
+Какие Work-oriented Windows capabilities должны быть `MODE_MANAGED`, например Phone Link / Cross-Device, Print subsystem, indexing или sync clients?
+
+### REQ-OPEN-022
+
+Какие Game-oriented components должны активироваться только в Game Mode?
+
+### REQ-OPEN-023
+
+Какой minimum security baseline должен оставаться после planned removal Microsoft Defender Antivirus и связанных security components?
+
+### REQ-OPEN-024
+
+Какие component removals считаются необратимыми в рамках обычного runtime и требуют repair/rebuild/update path?
+
+---
+
+# 8. Update / Recovery
 
 ### REQ-OPEN-011
 
@@ -118,9 +196,17 @@ Current Game Configuration
 
 Какой target SLA требуется для прохождения critical Microsoft security patches через SplitOS validation и distribution cycle?
 
+### REQ-OPEN-025
+
+Как Installed Runtime определяет baseline drift относительно release manifest/component matrix?
+
+### REQ-OPEN-026
+
+Какой repair path используется, если обязательный SplitOS package или `KEEP` dependency повреждён/удалён?
+
 ---
 
-# 7. Deferred questions
+# 9. Deferred questions
 
 Следующие темы не блокируют v1 Requirements, но должны быть возвращены в анализ при расширении scope:
 
