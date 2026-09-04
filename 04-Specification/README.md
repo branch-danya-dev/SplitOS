@@ -14,8 +14,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-02` Local IPC & Privileged Broker | READY FOR REVIEW | Named Pipe transport, protocol, caller validation, broker capabilities, service hardening; machine-state persistence extension from SPEC-03 |
 | `SPEC-03` Local Data & Persistence | READY FOR REVIEW | SQLite stores, machine/user/cache separation, schemas, durability, migrations, corruption recovery |
 | `SPEC-04` Account/Auth/Entitlement | READY FOR REVIEW | native auth, backend contracts, token protection, account association, FREE/PRO, offline entitlement |
-| `SPEC-05` Mode Runtime | NEXT | persisted mode/transition schema, blocker/policy engine |
-| `SPEC-06` Windows Context Integrations | NOT STARTED | display/audio/input/power/process/services/hardware |
+| `SPEC-05` Mode Runtime | READY FOR REVIEW | ACTIVATE/SWITCH/DEACTIVATE transaction model, blocker engine, mode policy, major mutation lease, rollback/reconciliation |
+| `SPEC-06` Windows Context Integrations | NEXT | display/audio/input/power/process/services/hardware |
 | `SPEC-07` Game Client Adapters | NOT STARTED | Steam/Epic/Xbox/Battle.net adapters |
 | `SPEC-08` Game Profile & Optimization | NOT STARTED | profile/optimization schema and resolution |
 | `SPEC-09` Game Launcher & Shared Apps UX | NOT STARTED | controller-first UX and Shared Apps |
@@ -146,6 +146,87 @@ JWS OfflineEntitlementAssertion v1
 
 Hosted checkout/browser return never grants PRO directly; Runtime Host refreshes backend entitlement before changing access.
 
+## Current Mode Runtime baseline
+
+User-visible modes remain only:
+
+```text
+WORK
+GAME
+```
+
+Physical durable mode operations are:
+
+```text
+ACTIVATE   NONE → WORK|GAME
+SWITCH     WORK ↔ GAME
+DEACTIVATE WORK|GAME → NONE
+```
+
+`NONE` is base/no-managed-mode state, not a third user mode.
+
+Mode operation lifecycle remains transactional:
+
+```text
+REQUESTED
+→ INSPECTING
+→ [BLOCKED / AWAITING_USER]*
+→ RESOLVING
+→ APPLYING
+→ VERIFYING
+→ COMMITTING
+→ COMPLETED
+```
+
+Failure after mutation uses:
+
+```text
+ROLLING_BACK
+→ CANCELLED
+or
+→ FAILED_WITH_SAFE_FALLBACK
+or
+→ Recovery
+```
+
+Canonical commit rule:
+
+```text
+mandatory target verified
++
+current major-mutation lease/fence
++
+atomic CommitTransitionAndMode
+↓
+OperationalMode changes
+```
+
+Mode / Update / Recovery share one machine mutation lease. `fence_token` prevents a stale Runtime Host from continuing mutation after ownership changes.
+
+v1 startup policy:
+
+```text
+fresh physical-console Windows logon
+→ reconcile incomplete work
+→ BASE / NONE
+→ FREE: Windows Desktop
+→ PRO: mode selection
+→ ACTIVATE WORK or GAME
+```
+
+The previous Windows session's mode is not automatically reactivated in v1. A Runtime Host process restart within the same logon is different: it preserves the already committed mode and reconciles actual state.
+
+Entitlement loss converges through:
+
+```text
+WORK|GAME
+→ DEACTIVATE
+→ BASE policy
+→ NONE
+```
+
+without turning subscription loss into a Windows usability failure.
+
 ## Current specification artifacts
 
 ```text
@@ -153,6 +234,7 @@ SPEC-01-Runtime-Process-and-Module/
 SPEC-02-Local-IPC-and-Privileged-Broker/
 SPEC-03-Local-Data-and-Persistence/
 SPEC-04-Account-Auth-and-Entitlement/
+SPEC-05-Mode-Runtime/
 ```
 
 ## Source architecture
