@@ -1,0 +1,16 @@
+stateDiagram-v2
+    [*] --> INACTIVE
+    INACTIVE --> LAUNCHER: Game Mode committed
+    LAUNCHER --> PREPARING: launch requested
+    PREPARING --> CLIENT_HANDOFF: prerequisites ready
+    PREPARING --> FAILED: preparation failed
+    CLIENT_HANDOFF --> GAME_STARTING: client accepted launch
+    CLIENT_HANDOFF --> FAILED: client handoff failed
+    GAME_STARTING --> GAME_RUNNING: expected game evidence confirmed
+    GAME_STARTING --> FAILED: timeout/start failure
+    GAME_RUNNING --> GAME_EXIT_DETECTED: game exit evidence
+    GAME_EXIT_DETECTED --> RETURNING_TO_LAUNCHER
+    RETURNING_TO_LAUNCHER --> LAUNCHER: launcher context restored
+    RETURNING_TO_LAUNCHER --> FAILED: restore failed
+    FAILED --> LAUNCHER: recover/retry
+    LAUNCHER --> INACTIVE: Game→Work committed
