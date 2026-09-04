@@ -1,0 +1,58 @@
+sequenceDiagram
+    actor U as User
+    participant UI as SplitOS UI
+    participant RH as Runtime Host
+    participant MS as Mode State
+    participant MT as Mode Transition
+    participant APP as App Lifecycle
+    participant MP as Mode Policy
+    participant CTX as Display/Audio/Input/Power
+    participant PB as Privileged Broker
+    participant WIN as Windows/Drivers
+    participant GL as Game Launcher
+
+    U->>UI: Switch to Game Mode
+    UI->>RH: RequestOperationalMode(GAME)
+    RH->>MS: Read committed mode
+    MS-->>RH: WORK
+    RH->>MT: Start transition WORK→GAME
+    MT->>APP: Inspect Work context
+    APP->>WIN: Read process/window/service evidence
+    WIN-->>APP: Evidence
+
+    alt User decision required
+        MT-->>UI: Blocker details / AWAITING_USER
+        U->>UI: Resolve or cancel
+        alt Cancel
+            UI->>MT: Cancel transition
+            MT-->>MS: No commit
+        else Continue
+            UI->>MT: Continue
+        end
+    end
+
+    MT->>MP: Resolve Game target policy
+    MP->>CTX: Resolve target contexts
+    MT->>CTX: Apply target context
+    CTX->>WIN: User-session platform operations
+    opt Privileged machine operation
+        RH->>PB: Semantic privileged command
+        PB->>WIN: Apply machine-level operation
+        WIN-->>PB: Technical result
+        PB-->>RH: Technical result
+    end
+
+    CTX->>WIN: Read actual state
+    WIN-->>CTX: Actual evidence
+    CTX-->>MT: Verification result
+
+    alt Verification passed
+        MT->>MS: Commit GAME
+        MS-->>MT: GAME committed
+        MT-->>GL: Game Mode ready
+    else Verification failed
+        MT->>CTX: Roll back / safe fallback
+        CTX->>WIN: Restore safe target
+        WIN-->>CTX: Actual evidence
+        MT-->>MS: Keep WORK or escalate recovery
+    end
