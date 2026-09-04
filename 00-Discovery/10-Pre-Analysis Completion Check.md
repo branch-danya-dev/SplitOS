@@ -41,13 +41,14 @@
 
 - [x] Technical assumptions не замаскированы под VERIFIED.
 - [x] Performance thresholds остаются OPEN/TBD.
-- [x] Update/recovery details остаются OPEN.
+- [x] Update/recovery implementation details остаются OPEN where not yet validated.
 - [x] Identity/auth token design остаётся OPEN до Trust layer.
 - [x] Offline entitlement TTL / device sharing / account cardinality остаются OPEN.
 - [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
 - [x] System-wide default audio switching остаётся OPEN до supported mechanism validation.
 - [x] Epic/Xbox/Battle.net exact client integration mechanisms остаются OPEN/CANDIDATE.
 - [x] Steam local metadata не объявлена stable public contract.
+- [x] Exact timeout/retry/backoff values deferred to Failures/Specification.
 
 ## Traceability
 
@@ -56,8 +57,9 @@
 - [x] Requirement → Analysis & Design mapping доведён через Boundaries / Responsibilities / Ownership / States / Behavior.
 - [x] Requirement → Data concepts mapping зафиксирован.
 - [x] Requirement → Interface contracts mapping зафиксирован.
-- [x] Requirement → Integration mechanisms mapping начат и зафиксирован с VERIFIED/CANDIDATE/OPEN статусами.
-- [ ] Requirement → end-to-end Flows / Failures / Trust mapping — продолжить на следующих A&D слоях.
+- [x] Requirement → Integration mechanisms mapping зафиксирован с VERIFIED/CANDIDATE/OPEN статусами.
+- [x] Requirement → end-to-end Flows mapping зафиксирован для canonical v1 scenarios.
+- [ ] Requirement → Failure behavior / Trust mapping — продолжить на следующих A&D слоях.
 - [ ] Requirement → Verification mapping — заполнить после Specification/QA.
 
 ---
@@ -73,10 +75,34 @@ Behavior          ✅
 Data              ✅
 Interfaces        ✅
 Integrations      ✅
-Flows             NEXT
-Failures          pending
+Flows             ✅
+Failures          NEXT
 Trust             pending
 Synthesis         pending
+```
+
+---
+
+## Canonical flows now covered
+
+```text
+First Run / account association / FREE-PRO branching
+FREE → PRO upgrade
+Work → Game
+Direct managed launch from Work as flow composition
+Managed Game Launch
+Game Exit → Game Launcher
+Game → Work
+Update transaction
+Recovery after failed/incomplete mutation
+```
+
+Major mutating flows are explicitly coordinated rather than assumed safe to interleave:
+
+```text
+Mode Transition
+or Update
+or Recovery
 ```
 
 ---
@@ -113,4 +139,6 @@ Trust
 Synthesis
 ```
 
-Оставшиеся `OPEN` должны закрываться в соответствующем аналитическом слое и не должны превращаться в неявные архитектурные предположения.
+Следующий layer должен превратить уже видимые alternate/error paths в систематическую failure taxonomy и safe-convergence model.
+
+Оставшиеся `OPEN` не должны превращаться в неявные архитектурные предположения.
