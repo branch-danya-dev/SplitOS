@@ -27,8 +27,8 @@
 - [x] Ответы сохранены в Elicitation Log.
 - [x] Решения отделены от assumptions.
 - [x] Superseded assumptions помечены.
-- [x] Distribution/Builder и Account/Entitlement decisions перенесены в requirements baseline.
-- [x] FREE/PRO runtime access и first-run identity model перенесены в requirements baseline.
+- [x] Distribution/Builder decisions перенесены в requirements baseline.
+- [x] Account/Entitlement/FREE-PRO decisions перенесены в requirements baseline.
 
 ## Scope
 
@@ -37,41 +37,9 @@
 - [x] Explicit out-of-scope определён.
 - [x] MVP priority Game Mode определён.
 
-## Unknowns
-
-- [x] Technical assumptions не замаскированы под VERIFIED.
-- [x] Performance thresholds остаются OPEN/TBD.
-- [x] Offline entitlement TTL / device sharing / account cardinality остаются OPEN.
-- [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
-- [x] System-wide default audio switching остаётся OPEN до supported mechanism validation.
-- [x] Epic/Xbox/Battle.net exact client integration mechanisms остаются OPEN/CANDIDATE.
-- [x] Steam local metadata не объявлена stable public contract.
-- [x] Exact retry/backoff/timeout numeric values остаются Specification-level unless product semantics require them.
-- [x] Exact update package/snapshot/rollback technology остаётся OPEN.
-- [x] OAuth/OIDC provider and Windows redirect strategy remain OPEN implementation decisions.
-- [x] Offline entitlement assertion format/TTL/device binding/clock rollback remain OPEN but trust requirements are explicit.
-- [x] Privileged Broker exact SDDL/token checks/service account remain OPEN but trust boundary is explicit.
-- [x] Release manifest signature envelope/key hierarchy/rotation/revocation remain OPEN but lifecycle requirements are explicit.
-- [x] Windows source provenance validation remains OPEN pending supported Microsoft acquisition model.
-- [x] Hostile unrestricted local Administrator/kernel compromise is explicitly outside v1 SplitOS security guarantee.
-
-## Traceability
-
-- [x] Elicitation → Decision связь присутствует.
-- [x] Decision → Concept/Requirements области определены.
-- [x] Requirement → Boundaries / Responsibilities / Ownership / States / Behavior mapping зафиксирован.
-- [x] Requirement → Data concepts mapping зафиксирован.
-- [x] Requirement → Interface contracts mapping зафиксирован.
-- [x] Requirement → Integration mechanisms mapping зафиксирован с VERIFIED/CANDIDATE/OPEN статусами.
-- [x] Requirement → end-to-end Flows mapping зафиксирован для canonical v1 scenarios.
-- [x] Requirement / Flow → Failure behavior mapping зафиксирован для runtime/update/recovery.
-- [x] Requirement / Flow / Failure → Trust controls mapping зафиксирован.
-- [ ] Requirement → Synthesis component mapping — следующий A&D layer.
-- [ ] Requirement → Verification mapping — заполнить после Specification/QA.
-
 ---
 
-## Current Analysis & Design status
+## Analysis & Design completeness
 
 ```text
 Boundaries        ✅
@@ -85,131 +53,211 @@ Integrations      ✅
 Flows             ✅
 Failures          ✅
 Trust             ✅
-Synthesis         NEXT
+Synthesis         ✅
+```
+
+```text
+Analysis & Design baseline = COMPLETE
+Next phase = Detailed Specification
 ```
 
 ---
 
-## Canonical trust coverage
+## Canonical architecture now synthesized
+
+### Build
 
 ```text
-Windows platform authority assumptions
-Interactive user session vs Privileged Broker boundary
-Named Pipe ACL / caller SID-session validation candidate
-bounded privileged capability protocol
-no arbitrary admin command contract
-SplitOS Account native-app authentication model
-external browser + PKCE candidate
-protected reusable token storage / DPAPI candidate
-server-owned entitlement
-bounded offline entitlement evidence
-payment-provider evidence → backend → entitlement
-release/build signing authority
-Authenticode binary verification candidate
-signed Build/Update Manifest requirement
-artifact digest binding / protected staging
-anti-downgrade authorization
-key rotation / revocation lifecycle
-Game Client metadata parsing/normalization
-custom URI/browser callback distrust
-external evidence authority/freshness rules
-explicit local-admin/kernel threat limitation
+Authorized Windows source
+→ Source validation
+→ Signed/versioned Build Manifest
+→ Typed supported transformations
+→ Baseline verification
+→ Prepared SplitOS baseline
 ```
 
-Core trust chain:
+### Runtime
 
 ```text
-Claim / Request
-→ Identity / Issuer
-→ Integrity
-→ Freshness
-→ Context binding
-→ Capability authorization
-→ Semantic owner decision
-→ Sensitive action
-→ Verification
+Windows User Session
+├── SplitOS Manager / First Run
+├── Game Launcher
+└── Runtime Host
+        ├── runtime semantic coordinators
+        ├── Windows adapters
+        ├── Game Client adapters
+        ├── local state/transaction stores
+        ├── HTTPS → Account Backend
+        └── authenticated/authorized IPC
+                 ↓
+         Privileged Broker
+                 ↓
+         bounded privileged Windows operations
 ```
 
-Trust failure for premium capability follows:
+### Product access
 
 ```text
-cannot prove authorization
-→ do not grant premium capability
-→ preserve base Windows usability
+FREE
+→ ManagedRuntime=DISABLED
+→ OperationalMode=NONE
+→ normal Windows Desktop
+
+PRO
+→ ManagedRuntime=ENABLED
+→ WORK xor GAME
 ```
 
 ---
 
-## Canonical failure coverage
+## Canonical component synthesis
+
+- [x] Build Plane defined.
+- [x] Manager / First Run UX defined.
+- [x] Game Launcher defined.
+- [x] Runtime Host orchestration responsibilities defined.
+- [x] Mode/access/game/update/recovery logical modules mapped.
+- [x] Windows adapter families mapped.
+- [x] Game Client adapter layer mapped.
+- [x] Privileged Broker boundary mapped.
+- [x] Local persistence classes mapped.
+- [x] Account/Auth/Entitlement backend mapped.
+- [x] Release/Build trust domain mapped.
+- [x] External authorities remain explicitly external.
+
+---
+
+## State / flow / failure invariants
+
+- [x] `WORK xor GAME` applies only when managed runtime is enabled.
+- [x] FREE stable state may have `OperationalMode=NONE`.
+- [x] User intent, committed mode, transition lifecycle and game-session lifecycle are distinct.
+- [x] Source mode remains canonical before verified target commit.
+- [x] `HANDOFF_ACCEPTED != GAME_RUNNING`.
+- [x] Game exit does not imply Game→Work.
+- [x] Direct managed launch from Work composes Work→Game + Managed Launch.
+- [x] Mode Transition / Update / Recovery conflicting mutations require coordination.
+- [x] Technical operation success never replaces semantic verification.
+- [x] Rollback/recovery require verification.
+- [x] Mixed partial actual state is not a new `HYBRID` mode.
+
+---
+
+## Trust/security baseline
+
+- [x] Interactive UX is separated from privileged machine mutation.
+- [x] Privileged Broker exposes bounded capabilities, not arbitrary admin command execution.
+- [x] Runtime→Broker caller/context authorization is required.
+- [x] SplitOS Account is distinct from Windows identity.
+- [x] Entitlement is distinct from payment evidence and local settings.
+- [x] Premium access cannot be granted by an editable local flag.
+- [x] Native auth external-browser + PKCE candidate recorded.
+- [x] Protected reusable token storage / DPAPI candidate recorded.
+- [x] Offline PRO requires bounded verifiable evidence if supported.
+- [x] Build/update artifacts/manifests require provenance/integrity validation.
+- [x] Valid old signature alone does not authorize downgrade.
+- [x] External Game Client/browser/device metadata cannot directly authorize privileged actions.
+- [x] Hostile unrestricted local Administrator/kernel/firmware compromise is outside v1 guarantee.
+
+---
+
+## Data/persistence synthesis
+
+- [x] BACKEND_CANONICAL data separated from local data.
+- [x] User-scoped and machine-scoped canonical state separated.
+- [x] Durable transition/update/recovery journals identified.
+- [x] External projection cache separated from source authority.
+- [x] Ephemeral hardware/device evidence separated from user preferences.
+- [x] Protected secrets separated from normal configuration/logs.
+- [x] Diagnostics remain evidence rather than canonical state.
+- [x] InstalledBaselineIdentity changes only after verification.
+
+---
+
+## Traceability
+
+- [x] Elicitation → Decision.
+- [x] Decision → Concept/Requirements.
+- [x] Requirement → Boundaries / Responsibilities / Ownership / States / Behavior.
+- [x] Requirement → Data.
+- [x] Requirement → Interface contracts.
+- [x] Requirement → Integration mechanisms.
+- [x] Requirement → end-to-end Flows.
+- [x] Requirement / Flow → Failure behavior.
+- [x] Requirement / Flow / Failure → Trust controls.
+- [x] Requirement → Synthesis component mapping.
+- [ ] Synthesis component → Detailed Specification ID — next phase.
+- [ ] Specification → Verification/Acceptance case — next phase.
+
+---
+
+## Remaining OPEN engineering decisions
+
+These are explicit Specification/research backlog, not hidden architecture assumptions:
+
+- [ ] local persistence technology/schema/migrations;
+- [ ] exact Runtime Host physical module/package structure;
+- [ ] IPC protocol/serialization/SDDL/caller validation/service account;
+- [ ] OAuth/OIDC provider and redirect mechanism;
+- [ ] offline entitlement assertion format/TTL/device binding/clock rollback;
+- [ ] release manifest envelope/key hierarchy/rotation/revocation;
+- [ ] update package/snapshot/rollback technology;
+- [ ] supported system-wide default audio endpoint switching mechanism;
+- [ ] exact Epic/Xbox/Battle.net integration mechanisms;
+- [ ] stable Steam local metadata strategy;
+- [ ] Windows Component Matrix empirical `REMOVE/DISABLE/MODE_MANAGED/KEEP` classification;
+- [ ] Microsoft-authorized Windows source acquisition/provenance model;
+- [ ] performance thresholds and observability retention;
+- [ ] exact major-mutation coordination primitive;
+- [ ] multi-user/Fast User Switching support level for v1.
+
+---
+
+## Specification handoff
+
+Canonical handoff:
 
 ```text
-Account/backend unavailable
-Entitlement stale/ambiguous
-Runtime Host crash
-Privileged Broker unavailable/denied
-Work→Game blocker/cancel/partial application
-Display target unavailable/not verified
-Mandatory mode policy failure
-Rollback failure
-Game Client missing/auth required
-Stale installation projection
-Client handoff rejected
-Game start not confirmed
-Game/game-client crash
-Game→Work close/restore failure
-Display/controller/audio disappearance
-Major mutation conflicts
-Update staging/apply/verification failure
-Crash/reboot/power loss during update
-Recovery verification failure
-Manual recovery escalation
+03-Analysis-and-Design/11-Synthesis/Specification Handoff.md
 ```
 
-Safe convergence priority:
+Recommended next specifications:
 
 ```text
-User data integrity
-→ Windows bootability/base usability
-→ known coherent state
-→ correct canonical SplitOS state
-→ managed runtime restoration
-→ UX convenience
+SPEC-01 Runtime Process & Module
+SPEC-02 Local IPC & Privileged Broker
+SPEC-03 Local Data & Persistence
+SPEC-04 Account/Auth/Entitlement
+SPEC-05 Mode Runtime
+SPEC-06 Windows Context Integrations
+SPEC-07 Game Client Adapters
+SPEC-08 Game Profile & Optimization
+SPEC-09 Game Launcher & Shared Apps UX
+SPEC-10 Builder & Component Matrix
+SPEC-11 Update & Recovery
+SPEC-12 Release Security & Key Management
+SPEC-13 Observability & Diagnostics
+SPEC-14 Verification & Acceptance
 ```
 
 ---
 
 ## Conclusion
 
-Pre-analysis завершён; Analysis & Design доведён до Trust layer и достаточен для финальной архитектурной синтезации.
-
-Текущий reasoning path:
+Pre-analysis и текущий Analysis & Design cycle завершены.
 
 ```text
-Boundaries
-    ↓
-Responsibilities
-    ↓
-Ownership
-    ↓
-States
-    ↓
-Behavior
-    ↓
-Data
-    ↓
-Interfaces
-    ↓
-Integrations
-    ↓
-Flows
-    ↓
-Failures
-    ↓
-Trust
-    ↓
-Synthesis
+Discovery / Concept / Requirements
+        ↓
+Analysis & Design
+        ↓
+Synthesis COMPLETE
+        ↓
+Detailed Specification
+        ↓
+Grooming / Delivery
+        ↓
+Verification
 ```
 
-Следующий layer должен собрать все предыдущие решения в единую implementable component/deployment architecture без переопределения уже установленных owners, states и trust boundaries.
-
-Оставшиеся `OPEN` должны перейти в explicit Synthesis/Specification decision backlog и не превращаться в неявные implementation assumptions.
+Если detailed engineering обнаруживает новое evidence, которое противоречит текущей модели, необходимо обновить owning A&D layer и затем Synthesis. Implementation не должен становиться скрытым источником архитектурной истины.
