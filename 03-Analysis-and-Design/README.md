@@ -45,8 +45,8 @@
 | `04-Behavior` | READY | First Run/Runtime Access, Startup, Work→Game, Game Launch, Game→Work |
 | `05-Data` | READY | Domain Model, Identity & Runtime Access, Configuration Model, Data Ownership and Lifecycle |
 | `06-Interfaces` | READY | Interface Model, Internal Runtime Contracts, External Boundary Contracts, interface map |
-| `07-Integrations` | NEXT | not started |
-| `08-Flows` | NOT STARTED | — |
+| `07-Integrations` | READY | Integration Architecture, Windows Runtime Integration, Game Client Integration, Account/Payment/Builder/Update Integration, integration map |
+| `08-Flows` | NEXT | not started |
 | `09-Failures` | NOT STARTED | — |
 | `10-Trust` | NOT STARTED | — |
 | `11-Synthesis` | NOT STARTED | — |
@@ -89,7 +89,7 @@ Canonical runtime state semantics belong to:
 03-States/
 ```
 
-`Runtime Access State Model.md` уточняет прежнюю startup assumption: `WORK xor GAME` обязателен только при enabled managed runtime; FREE experience может стабильно иметь `OperationalMode = NONE` и обычный Windows Desktop.
+`Runtime Access State Model.md` уточняет startup assumption: `WORK xor GAME` обязателен только при enabled managed runtime; FREE experience может стабильно иметь `OperationalMode = NONE` и обычный Windows Desktop.
 
 UI labels, process presence и external-client state являются evidence/projections и не должны независимо переопределять canonical SplitOS state.
 
@@ -154,7 +154,7 @@ Temporal / verification semantics
 Ownership boundary
 ```
 
-It does **not** decide transport technology automatically.
+It does not decide transport technology automatically.
 
 ```text
 Interface
@@ -162,6 +162,33 @@ Interface
 != Integration implementation
 != end-to-end Flow
 ```
+
+### Integration truth
+
+Canonical mechanism-level integration analysis belongs to:
+
+```text
+07-Integrations/
+├── Integration Architecture.md
+├── Windows Runtime Integration.md
+├── Game Client Integration.md
+├── Account Payment Builder and Update Integration.md
+└── integration-map.mmd
+```
+
+Integration layer may select or reject technical mechanism families, but must preserve semantic ownership from earlier layers.
+
+Every mechanism is classified explicitly:
+
+```text
+VERIFIED
+CANDIDATE
+BEST_EFFORT
+OPEN
+REJECTED
+```
+
+A missing supported mechanism remains OPEN rather than being replaced silently with undocumented behavior.
 
 ---
 
@@ -194,79 +221,123 @@ Desktop     ↓
             WORK xor GAME
 ```
 
-Runtime state is modeled as orthogonal dimensions:
+Runtime integration topology now has an explicit user-session / privileged split:
 
 ```text
-Windows Session
-+
-SplitOS Account Context
-+
-Entitlement State
-+
-Managed Runtime Access
-+
-Committed Operational Mode
-+
-Mode Transition Lifecycle
-+
-Game Session Lifecycle
-+
-Recovery Lifecycle
+Interactive user session
+├── SplitOS Manager
+├── Game Launcher
+└── SplitOS Runtime Host
+        │
+        ├── user-session Windows APIs
+        ├── Game Client adapters
+        ├── HTTPS → Account Backend
+        └── secured local IPC
+                 ↓
+         SplitOS Privileged Broker
+         Windows Service / Session 0
 ```
 
-Data is modeled as owned semantic layers:
+Critical integration rule:
 
 ```text
-Release/Baseline knowledge
-+
-Installed baseline identity
-+
-Windows user ↔ SplitOS account association
-+
-Entitlement / runtime access
-+
-User/Mode/Game configuration
-+
-External projections/evidence
-+
-Transaction/Recovery data
+UI request
+→ semantic owner/orchestrator
+→ integration mechanism
+→ immediate technical result
+→ actual-state evidence
+→ verification
+→ canonical result
 ```
 
-Interfaces preserve these ownership boundaries:
+Not:
 
 ```text
-Consumer
-→ request/query/event contract
-→ canonical owner
-→ validated semantic result
+API call returned success
+= product target reached
 ```
 
-External evidence follows:
+---
+
+## Current mechanism baseline
+
+### Windows
 
 ```text
-External authority
-→ adapter/interface boundary
-→ SplitOS owner interpretation
-→ canonical state or projection
+User/session            → WTS / Win32 session APIs
+Display read/apply      → QueryDisplayConfig / SetDisplayConfig family
+Audio read/events       → Core Audio / MMDevice APIs
+Default audio switching → OPEN until supported mechanism is validated
+Power schemes           → PowrProf APIs
+Process evidence        → Win32 process APIs
+Service lifecycle       → Service Control Manager APIs
+Privileged local IPC    → secured named pipes candidate
+```
+
+### Game Clients
+
+```text
+Stable SplitOS semantic contract
+→ per-client adapter
+→ Steam / Epic / Xbox / Battle.net specific mechanism
+```
+
+Support is capability-based; version-sensitive local metadata is never silently promoted to a public stable contract.
+
+### Account / payment
+
+```text
+Runtime / Manager
+→ HTTPS
+→ SplitOS Account Backend
+→ hosted checkout
+→ Payment Provider
+→ backend-validated payment evidence
+→ Entitlement
+```
+
+### Builder
+
+```text
+Windows source
+→ validate
+→ Build Manifest
+→ DISM/offline servicing where applicable
+→ verify baseline
 ```
 
 ---
 
 ## Next analytical target
 
-После `06-Interfaces` следующим слоем является `07-Integrations`.
+После `07-Integrations` следующим слоем является `08-Flows`.
 
-Integration analysis должен определить конкретные mechanisms за уже существующими semantic contracts:
+Flow layer должен связать уже определённые:
 
 ```text
-Windows APIs / services / privileged operations
-Game Client adapters
-Account authentication/backend channel
-Payment checkout/evidence path
-Microsoft source/update inputs
-local IPC/process boundaries
+state
+behavior
+owned data
+interface contract
+integration mechanism
 ```
 
-При этом Integration не должна менять semantic ownership только потому, что конкретная технология удобнее.
+в end-to-end sequences.
 
-После Integrations `08-Flows` свяжет отдельные contracts/integrations в end-to-end последовательности.
+Primary flows:
+
+```text
+First Run + Account
+FREE → PRO Upgrade
+Startup PRO → Mode Selection
+Work → Game
+Managed Game Launch
+Game Exit → Launcher
+Game → Work
+Hardware/Display Change
+Update
+Recovery
+Builder / Clean Install
+```
+
+`Flow != Interface` и `Flow != State Machine`: flow показывает сквозное взаимодействие нескольких owners/integrations во времени.

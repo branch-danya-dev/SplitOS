@@ -42,17 +42,22 @@
 - [x] Technical assumptions не замаскированы под VERIFIED.
 - [x] Performance thresholds остаются OPEN/TBD.
 - [x] Update/recovery details остаются OPEN.
-- [x] Identity/licensing implementation остаётся OPEN.
+- [x] Identity/auth token design остаётся OPEN до Trust layer.
 - [x] Offline entitlement TTL / device sharing / account cardinality остаются OPEN.
 - [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
+- [x] System-wide default audio switching остаётся OPEN до supported mechanism validation.
+- [x] Epic/Xbox/Battle.net exact client integration mechanisms остаются OPEN/CANDIDATE.
+- [x] Steam local metadata не объявлена stable public contract.
 
 ## Traceability
 
 - [x] Elicitation → Decision связь присутствует.
 - [x] Decision → Concept/Requirements области определены.
 - [x] Requirement → Analysis & Design mapping доведён через Boundaries / Responsibilities / Ownership / States / Behavior.
-- [x] Requirement → Data concepts mapping начат и зафиксирован.
-- [ ] Requirement → Interfaces / Integrations / Failures mapping — продолжить на следующих A&D слоях.
+- [x] Requirement → Data concepts mapping зафиксирован.
+- [x] Requirement → Interface contracts mapping зафиксирован.
+- [x] Requirement → Integration mechanisms mapping начат и зафиксирован с VERIFIED/CANDIDATE/OPEN статусами.
+- [ ] Requirement → end-to-end Flows / Failures / Trust mapping — продолжить на следующих A&D слоях.
 - [ ] Requirement → Verification mapping — заполнить после Specification/QA.
 
 ---
@@ -66,9 +71,9 @@ Ownership         ✅
 States            ✅
 Behavior          ✅
 Data              ✅
-Interfaces        NEXT
-Integrations      pending
-Flows             pending
+Interfaces        ✅
+Integrations      ✅
+Flows             NEXT
 Failures          pending
 Trust             pending
 Synthesis         pending
@@ -97,7 +102,13 @@ Data
     ↓
 Interfaces
     ↓
-Integrations / Flows / Failures / Trust
+Integrations
+    ↓
+Flows
+    ↓
+Failures
+    ↓
+Trust
     ↓
 Synthesis
 ```
