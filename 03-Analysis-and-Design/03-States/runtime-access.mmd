@@ -1,0 +1,26 @@
+stateDiagram-v2
+    [*] --> ACCOUNT_UNRESOLVED
+    ACCOUNT_UNRESOLVED --> ACCOUNT_AVAILABLE: sign in/create account
+    ACCOUNT_UNRESOLVED --> ACCOUNT_DEGRADED: offline cached context
+
+    state ACCOUNT_AVAILABLE {
+        [*] --> ENTITLEMENT_UNKNOWN
+        ENTITLEMENT_UNKNOWN --> FREE: free entitlement
+        ENTITLEMENT_UNKNOWN --> PRO: pro entitlement
+        ENTITLEMENT_UNKNOWN --> OFFLINE_VALID: cached entitlement accepted
+        ENTITLEMENT_UNKNOWN --> UNAVAILABLE: entitlement unavailable/expired
+    }
+
+    FREE --> BASE_WINDOWS: managed runtime disabled
+    PRO --> MODE_SELECTION: managed runtime enabled
+    OFFLINE_VALID --> MODE_SELECTION: policy permits managed runtime
+    OFFLINE_VALID --> BASE_WINDOWS: policy limits premium runtime
+    UNAVAILABLE --> BASE_WINDOWS: safe fallback
+
+    MODE_SELECTION --> WORK: Work committed
+    MODE_SELECTION --> GAME: Game committed
+    WORK --> GAME: successful Work→Game
+    GAME --> WORK: successful Game→Work
+
+    PRO --> FREE: downgrade/expiry after safe deactivation
+    BASE_WINDOWS --> MODE_SELECTION: upgrade enables managed runtime
