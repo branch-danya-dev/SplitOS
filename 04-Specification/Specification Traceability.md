@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document begins the Specification-level continuation of the SSAD traceability chain.
+This document continues the Specification-level SSAD traceability chain.
 
 ```text
 Requirement
@@ -60,12 +60,42 @@ Requirement
 | major/minor protocol handshake | Synthesis local version compatibility need |
 | mutation idempotency key | Failure/Update/Recovery durability concerns |
 | per-session Broker endpoint | active session trust boundary + SPEC-01 session model |
+| Broker-mediated protected `machine.db` persistence | Data Placement + Trust boundary + SPEC-03 |
+| no SQL/path tunneling for machine persistence | Trust least-privilege invariant + SPEC-03 repository model |
 
 ---
 
-## 4. Requirements primarily served
+## 4. SPEC-03 traceability
 
-SPEC-01/SPEC-02 implement infrastructure needed by requirement families:
+| SPEC-03 decision | A&D source |
+|---|---|
+| physical machine/user/cache separation | `11-Synthesis/Data and State Placement.md` placement classes |
+| SQLite selected for structured local persistence | Synthesis storage technology OPEN closed in SPEC-03 |
+| `machine.db` under ProgramData | MACHINE_CANONICAL / TRANSACTION_DURABLE placement |
+| `user.db` under LocalAppData | USER_CANONICAL placement |
+| `projection.db` separate and rebuildable | PROJECTION_CACHE placement |
+| canonical DBs use WAL + `synchronous=FULL` | failure/reboot durability requirements |
+| projection cache uses WAL + `synchronous=NORMAL` | rebuildable evidence semantics |
+| machine DB writes mediated by Broker | Trust local privilege boundary + SPEC-02 |
+| Runtime Host is user/cache DB writer | Synthesis Runtime Host + semantic ownership |
+| Manager/Launcher never open DB directly | UI != canonical writer / interface boundary |
+| OperationalModeState is durably machine-scoped | State/Failure/Synthesis crash-reconciliation requirement |
+| ModeTransition/Update/Recovery records are transaction durable | States + Flows + Failures |
+| GameProfile persists per user | Game Profiles ownership + USER_CANONICAL |
+| external projections preserve source/freshness | Data/External Evidence Trust |
+| auth secrets excluded from ordinary SQLite plaintext | Trust / Protected Secret placement |
+| typed repository gateways instead of raw SQL | Ownership + Trust + Synthesis component rules |
+| optimistic row revision is first-class | concurrent activation/crash-safe persistence closure |
+| live DB backup uses SQLite-consistent backup | WAL physical semantics + recovery requirements |
+| schema migration is explicit/versioned | release compatibility + recovery requirements |
+| machine migration uses release-owned ID, not IPC SQL | Trust + Broker bounded capability model |
+| projection corruption may rebuild; canonical corruption enters controlled recovery | Failure Model / safe-convergence priority |
+
+---
+
+## 5. Requirements primarily served
+
+SPEC-01/02/03 provide infrastructure needed by:
 
 ```text
 FR-ACCESS
@@ -73,19 +103,18 @@ FR-MODE / FR-TRANS
 FR-APP
 FR-GAME / FR-LAUNCHER
 FR-UPDATE / FR-RECOVERY
+FR-ACCOUNT / FR-ENT
 NFR-REL
 NFR-TRANS
 NFR-SEC
 NFR-OBS
 ```
 
-They do not fully satisfy those requirements alone; later specs define domain algorithms/data/integrations.
+They do not fully satisfy those requirements alone; later specs define domain algorithms, auth contracts and integrations.
 
 ---
 
-## 5. New Specification-level decisions
-
-The following are implementation-level decisions introduced by Detailed Specification and do not redefine product ownership/state semantics:
+## 6. Specification-level decisions
 
 ```text
 SPEC-DEC-001
@@ -108,15 +137,36 @@ v1 IPC wire format is 4-byte length-prefixed UTF-8 JSON with 256 KiB max payload
 
 SPEC-DEC-007
 privileged mutations require allowlisted capability IDs and idempotency identity; arbitrary admin commands are prohibited.
+
+SPEC-DEC-008
+v1 structured local persistence uses SQLite split into machine canonical, user canonical and rebuildable projection databases.
+
+SPEC-DEC-009
+machine/user canonical SQLite databases use WAL + synchronous=FULL; projection cache uses WAL + synchronous=NORMAL.
+
+SPEC-DEC-010
+machine-canonical SQLite is protected under ProgramData and normal Runtime Host writes cross bounded Broker persistence capabilities; ordinary user processes do not receive direct write ACL.
+
+SPEC-DEC-011
+per-user canonical data is stored under LocalAppData and written through Runtime Host persistence gateways; Manager/Game Launcher do not access databases directly.
+
+SPEC-DEC-012
+reusable account credentials are outside ordinary SQLite fields; DB stores only protected-secret references/metadata.
+
+SPEC-DEC-013
+physical schema evolution is monotonic/versioned; unsupported newer schema fails closed for writes and machine migrations are selected by trusted release migration ID.
+
+SPEC-DEC-014
+projection DB is disposable/rebuildable, while user/machine canonical corruption requires backup/recovery handling and must never fabricate canonical state.
 ```
 
 If implementation validation disproves any of these, the decision must be revised explicitly rather than silently changed in code.
 
 ---
 
-## 6. Verification backlog created by SPEC-01/02
+## 7. Verification backlog
 
-Minimum future `SPEC-14` cases:
+### Runtime / IPC
 
 ```text
 V-RUNTIME-001 single Runtime Host per session
@@ -137,14 +187,36 @@ V-IPC-009 Broker partial technical result does not cause semantic commit
 V-IPC-010 Broker crash during mutation reconciles from evidence
 ```
 
----
-
-## 7. Next specification target
-
-After SPEC-01 and SPEC-02 review/merge:
+### Persistence
 
 ```text
-SPEC-03 Local Data & Persistence
+V-DATA-001 machine/user/projection DB physical separation
+V-DATA-002 ordinary user process cannot directly write machine.db
+V-DATA-003 Manager/Launcher cannot bypass Runtime Host persistence
+V-DATA-004 canonical DB pragma/durability configuration verified
+V-DATA-005 committed mode survives Runtime Host restart/reboot
+V-DATA-006 incomplete transition is discoverable after Runtime Host crash
+V-DATA-007 incomplete update/recovery survives reboot
+V-DATA-008 projection.db deletion/corruption rebuilds without profile loss
+V-DATA-009 user.db backup/restore preserves profiles/preferences
+V-DATA-010 live backup is consistent while WAL is active
+V-DATA-011 revision conflict is detected and not overwritten
+V-DATA-012 disk-full/IO failure blocks required durable commit
+V-DATA-013 machine migration cannot accept raw SQL from Runtime Host
+V-DATA-014 unsupported newer schema opens no write path
+V-DATA-015 machine DB corruption enters safe recovery without inventing mode
+V-DATA-016 user DB contains no reusable plaintext auth token
+V-DATA-017 stale projection cannot satisfy fresh evidence requirement
 ```
 
-This will choose actual local storage engines and schemas for the state that SPEC-01 modules currently own abstractly.
+---
+
+## 8. Next specification target
+
+After SPEC-03 review/merge:
+
+```text
+SPEC-04 Account / Auth / Entitlement
+```
+
+This will define backend APIs, native-app authorization flow, token lifecycle/protection, Windows-user association, FREE/PRO entitlement and bounded offline authorization evidence.

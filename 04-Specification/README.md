@@ -11,9 +11,9 @@ Specification не переопределяет уже зафиксирован�
 | Package | Status | Scope |
 |---|---|---|
 | `SPEC-01` Runtime Process & Module | READY FOR REVIEW | physical processes, Runtime Host module boundaries, startup/lifecycle, session cardinality, version compatibility |
-| `SPEC-02` Local IPC & Privileged Broker | READY FOR REVIEW | Named Pipe transport, protocol, caller validation, broker capabilities, service hardening |
-| `SPEC-03` Local Data & Persistence | NEXT | physical stores, schemas, migrations, durability |
-| `SPEC-04` Account/Auth/Entitlement | NOT STARTED | backend/auth/offline entitlement |
+| `SPEC-02` Local IPC & Privileged Broker | READY FOR REVIEW | Named Pipe transport, protocol, caller validation, broker capabilities, service hardening; machine-state persistence extension from SPEC-03 |
+| `SPEC-03` Local Data & Persistence | READY FOR REVIEW | SQLite stores, machine/user/cache separation, schemas, durability, migrations, corruption recovery |
+| `SPEC-04` Account/Auth/Entitlement | NEXT | backend/auth/offline entitlement |
 | `SPEC-05` Mode Runtime | NOT STARTED | persisted mode/transition schema, blocker/policy engine |
 | `SPEC-06` Windows Context Integrations | NOT STARTED | display/audio/input/power/process/services/hardware |
 | `SPEC-07` Game Client Adapters | NOT STARTED | Steam/Epic/Xbox/Battle.net adapters |
@@ -70,6 +70,50 @@ Windows machine state
 ```
 
 No UI process may call the Privileged Broker directly.
+
+## Current persistence baseline
+
+```text
+%ProgramData%\SplitOS\Data\machine.db
+→ SQLite WAL + synchronous=FULL
+→ machine canonical + durable transactions
+→ Broker-mediated write boundary
+
+%LocalAppData%\SplitOS\Data\user.db
+→ SQLite WAL + synchronous=FULL
+→ per-user canonical profiles/preferences/association metadata
+→ Runtime Host write boundary
+
+%LocalAppData%\SplitOS\Cache\projection.db
+→ SQLite WAL + synchronous=NORMAL
+→ rebuildable external projections
+→ Runtime Host cache boundary
+```
+
+Reusable account credentials are not stored as ordinary SQLite plaintext fields; protected-secret semantics continue in `SPEC-04`.
+
+Canonical persistence rules:
+
+```text
+storage writer != semantic owner
+persistence commit != external target verification
+projection cache != authoritative external truth
+machine DB != directly writable by ordinary user processes
+```
+
+## Current SPEC-03 artifacts
+
+```text
+SPEC-03-Local-Data-and-Persistence/
+├── Local Data and Persistence Specification.md
+├── Physical Storage Layout.md
+├── SQLite Schema Baseline.md
+├── Durability Migration and Corruption Model.md
+├── Persistence Contract and Repository Model.md
+└── persistence-topology.mmd
+```
+
+`SPEC-02` additionally contains the normative machine-state persistence capability extension required to protect `machine.db` behind Broker authority.
 
 ## Source architecture
 
