@@ -1,0 +1,48 @@
+sequenceDiagram
+    actor U as User
+    participant W as Windows
+    participant FRE as First Run Experience
+    participant RH as Runtime Host
+    participant ID as Identity & Entitlement
+    participant BE as Account Backend
+    participant M as SplitOS Manager
+    participant PAY as Payment Provider
+    participant MS as Mode State
+
+    W->>RH: Windows user session available
+    RH->>ID: Resolve Windows user association
+    alt No SplitOS account association
+        RH->>FRE: Start onboarding
+        U->>FRE: Sign in / Create account
+        FRE->>BE: Authenticate account
+        BE-->>FRE: Authenticated account
+        FRE->>ID: Associate Windows user ↔ SplitOS account
+    end
+
+    ID->>BE: Refresh entitlement evidence
+    BE-->>ID: Account / entitlement evidence
+    ID->>ID: Evaluate ManagedRuntimeAccess
+
+    alt FREE
+        ID-->>RH: DISABLED
+        RH-->>W: Keep normal Windows Desktop
+    else PRO
+        ID-->>RH: ENABLED
+        RH->>MS: Make mode selection available
+        U->>RH: Select WORK or GAME
+    end
+
+    opt FREE → PRO upgrade
+        U->>M: Upgrade
+        M->>BE: Create hosted checkout
+        BE-->>M: Checkout session
+        M->>PAY: Open checkout
+        U->>PAY: Complete payment
+        PAY->>BE: Validated payment evidence
+        Note over M,ID: Browser return/callback only triggers refresh
+        M->>ID: Refresh entitlement
+        ID->>BE: Read new entitlement evidence
+        BE-->>ID: PRO evidence
+        ID-->>RH: ManagedRuntimeAccess ENABLED
+        RH->>MS: Setup / mode selection
+    end
