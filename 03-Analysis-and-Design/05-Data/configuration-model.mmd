@@ -1,0 +1,31 @@
+flowchart TB
+    A[Release / Baseline Configuration]
+    B[Installation Configuration]
+    C[User / Account Configuration]
+    D[Mode Configuration]
+    E[GameProfile]
+    F[Explicit User Override]
+    G[Effective Runtime Configuration]
+    H[Actual State Evidence]
+    I[Platform / Compatibility Constraints]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    I -. constrains .-> D
+    I -. constrains .-> E
+    I -. constrains .-> F
+    F --> G
+    G --> H
+    H -. verification / reconciliation .-> G
+
+    J[HardwareSnapshot]
+    K[GameInstallationProjection]
+
+    J -. runtime evidence .-> G
+    K -. external projection .-> E
+
+    classDef evidence stroke-dasharray: 5 5
+    class H,J,K evidence

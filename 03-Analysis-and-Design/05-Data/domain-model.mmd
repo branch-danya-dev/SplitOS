@@ -1,0 +1,80 @@
+flowchart TB
+    subgraph Identity[Identity & Entitlement]
+        Account[SplitOSAccount]
+        Ent[Entitlement]
+        Pref[User Preferences]
+        Account --> Ent
+        Account --> Pref
+    end
+
+    subgraph Release[Distribution & Release]
+        Rel[SplitOSRelease]
+        Win[WindowsBase]
+        Manifest[BuildManifest]
+        Comp[ComponentClassificationDecision]
+        Rel --> Win
+        Rel --> Manifest
+        Rel --> Comp
+    end
+
+    subgraph Install[Installed Baseline]
+        Inst[SplitOSInstallation]
+        Base[InstalledBaselineIdentity]
+        Drift[BaselineDriftObservation]
+        Inst --> Base
+        Base --> Rel
+        Inst --> Drift
+    end
+
+    Account -. may associate .-> Inst
+
+    subgraph Runtime[Operational Runtime]
+        Mode[OperationalModeState]
+        Trans[ModeTransitionRecord]
+        HWS[HardwareSnapshot]
+        Inst --> Mode
+        Inst --> Trans
+        Inst --> HWS
+    end
+
+    subgraph Apps[Applications]
+        App[Application]
+        AppClass[ApplicationClassification]
+        Life[ApplicationLifecyclePolicy]
+        Shared[SharedAppProfile]
+        App --> AppClass
+        App --> Life
+        App --> Shared
+    end
+
+    subgraph Gaming[Gaming]
+        Client[GameClient]
+        Projection[GameInstallationProjection]
+        Game[Game]
+        Profile[GameProfile]
+        Session[GameSessionRecord]
+        Client --> Projection
+        Projection --> Game
+        Game --> Profile
+        Game --> Session
+        Profile --> Session
+    end
+
+    Account -. owns / references .-> Profile
+    Inst --> Session
+    HWS -. evidence for .-> Profile
+
+    subgraph Lifecycle[Compatibility / Update / Recovery]
+        Compat[CompatibilityDecision]
+        Update[UpdateTransactionRecord]
+        Recovery[RecoveryContext]
+        Diag[DiagnosticRecord]
+        Rel --> Compat
+        Update --> Rel
+        Recovery -. consumes .-> Mode
+        Recovery -. consumes .-> Trans
+        Diag -. observes .-> Runtime
+    end
+
+    classDef external stroke-dasharray: 5 5
+    class Win,Projection,HWS external
