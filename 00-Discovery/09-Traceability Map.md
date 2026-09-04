@@ -53,8 +53,8 @@ Specification / Verification
 | EL-036 | DEC-034 pre-install disclosure | Setup UX | FR-SETUP / NFR-UX |
 | Product clarification | DEC-035/039/041 | Windows user ↔ SplitOS Account | FR-ACCOUNT / FR-FIRST / Runtime Access Model |
 | Product clarification | DEC-036/037/038 | FREE vs PRO runtime access | FR-ACCESS / Runtime Access State / First Run Behavior |
-| Product clarification | DEC-040 | Offline/degraded access | FR-ACCESS / Runtime Access / Failure handling |
-| Product clarification | DEC-042/043 | Manager + subscription/payment boundary | FR-MANAGER / FR-ENT / Identity & Runtime Access Data |
+| Product clarification | DEC-040 | Offline/degraded access | FR-ACCESS / Runtime Access / Failure / Trust |
+| Product clarification | DEC-042/043 | Manager + subscription/payment boundary | FR-MANAGER / FR-ENT / Identity / Payment Trust |
 
 ---
 
@@ -71,7 +71,8 @@ Specification / Verification
 ├── 06-Interfaces/
 ├── 07-Integrations/
 ├── 08-Flows/
-└── 09-Failures/
+├── 09-Failures/
+└── 10-Trust/
 ```
 
 ### 3.1 Boundaries
@@ -226,51 +227,21 @@ Canonical artifacts:
 09-Failures/failure-map.mmd
 ```
 
-Failure taxonomy:
+Critical safe-convergence rules:
 
-```text
-precondition/request
-missing dependency
-unsupported capability
-stale/contradictory evidence
-technical operation failure
-partial application
-verification failure
-component crash
-persistence/durability failure
-reboot/power interruption
-recovery failure
-trust/integrity validation failure
-```
-
-Response classes:
-
-```text
-Reject / Defer / Retry
-Controlled fallback
-Degraded continuation
-Cancel to source state
-Rollback
-Recovery
-Manual recovery
-```
-
-Critical mapping rules:
-
-| Failure area | Canonical safe-convergence rule |
+| Failure area | Canonical result |
 |---|---|
-| Account backend unavailable | Windows session stays usable; offline/degraded entitlement policy applies |
+| Account backend unavailable | Windows remains usable; offline/degraded policy applies |
 | Runtime Host crash mid-transition | source committed mode remains canonical unless durable target commit exists |
 | Broker unavailable | privileged mutation blocked; no false success |
-| Display target not reached | target mode commit prohibited unless explicit fallback is resolved and verified |
+| Display target not reached | target mode commit prohibited unless fallback resolved + verified |
 | Partial mode policy application | mandatory failure → rollback/recovery |
 | Game Client auth required | controlled outcome; remain GAME/Launcher |
-| Handoff accepted but no game evidence | game launch fails; never promote to `GAME_RUNNING` |
-| Game crash | Game Mode remains if system context coherent; return launcher |
-| Update partial/incomplete | new baseline identity not committed |
-| Reboot/power loss during update | resume/reconcile durable transaction + actual evidence |
-| Recovery verification fails | recovery not complete; try next strategy or manual recovery |
-| SplitOS runtime cannot recover but Windows works | prioritize base Windows usability |
+| Handoff accepted but no game evidence | launch fails; never promote `GAME_RUNNING` |
+| Update incomplete | target baseline not committed |
+| Reboot/power loss during update | resume/reconcile durable transaction |
+| Recovery verification fails | recovery remains incomplete/manual escalation possible |
+| SplitOS runtime unrecoverable but Windows works | prioritize base Windows usability |
 
 Canonical safety priority:
 
@@ -281,6 +252,77 @@ User data integrity
 → correct SplitOS canonical state
 → managed runtime restoration
 → UX convenience
+```
+
+### 3.11 Trust
+
+Canonical artifacts:
+
+```text
+10-Trust/Trust Model.md
+10-Trust/Local Privilege and IPC Trust.md
+10-Trust/Identity Entitlement and Secret Trust.md
+10-Trust/Artifact Build and Update Trust.md
+10-Trust/External Evidence Trust.md
+10-Trust/Security Control Matrix.md
+10-Trust/trust-map.mmd
+```
+
+Core trust chain:
+
+```text
+Claim / Request
+→ identity / issuer
+→ integrity
+→ freshness
+→ context binding
+→ capability authorization
+→ semantic owner decision
+→ sensitive operation
+→ actual-state verification
+```
+
+Key trust mappings:
+
+| Area | Trust rule / candidate |
+|---|---|
+| Runtime → Privileged Broker | explicit Named Pipe ACL + caller token/session validation + bounded capability protocol |
+| Broker operation surface | no arbitrary command/script/raw admin API |
+| SplitOS Account login | external browser native-app flow + PKCE candidate |
+| reusable account tokens | Windows-protected storage; DPAPI current candidate |
+| FREE/PRO | backend or bounded verifiable offline entitlement evidence; never editable local flag |
+| offline PRO | signed/authentic server-issued assertion + expiry/context binding; exact format OPEN |
+| Payment | provider→backend authenticated evidence; desktop callback only triggers refresh |
+| SplitOS binaries | Authenticode/WinVerifyTrust candidate + protected installation ACL |
+| Build/Update Manifest | signed/versioned metadata required; exact envelope OPEN |
+| Update packages | digest/signature binding + protected staging + revalidation |
+| downgrade | valid old signature alone insufficient; explicit authorized recovery policy required |
+| Game Client metadata | bounded adapter/parser; never privileged command input |
+| browser/custom URI | untrusted until transaction correlation/server validation |
+| Windows/device evidence | trusted only for platform facts it actually proves |
+| local Administrator/kernel threat | explicitly outside v1 guarantee |
+
+Trust invariants:
+
+```text
+trusted for one capability
+!= globally trusted
+
+signed binary
+!= authorized request
+
+browser callback
+!= entitlement/payment authority
+
+HTTPS download
+!= trusted release artifact
+
+external metadata
+!= privileged command
+
+cannot prove premium authorization
+→ do not grant premium capability
+→ preserve base Windows usability
 ```
 
 ---
@@ -299,8 +341,9 @@ DEC-035..043
 → IF-ID / IF-ACCESS / EXT-ID / EXT-PAY
 → Account Backend + hosted checkout
 → FL-01
-→ RF-01 / RF-02 account/runtime-access failures
-→ future Trust rules
+→ RF-01 / RF-02
+→ Identity Entitlement and Secret Trust
+→ future Verification cases
 ```
 
 ### Safe Work → Game
@@ -312,11 +355,12 @@ DEC-016/017
 → Mode Transition Model
 → Work to Game Behavior
 → ModeTransitionRecord
-→ IF-TRANS / IF-POLICY / IF-APP / system-context interfaces
+→ IF-TRANS / IF-POLICY / IF-APP
 → Windows/process/service/display integrations
 → FL-02
 → RF-20..26
-→ future Trust / Verification
+→ Local Privilege and IPC Trust + External Evidence Trust
+→ future Verification
 ```
 
 ### Managed game launch
@@ -330,6 +374,8 @@ DEC-006..014
 → per-client Game Client Adapter + Windows evidence
 → FL-03
 → RF-30..36
+→ External Evidence Trust
+→ future Verification
 ```
 
 ### Update / recovery
@@ -337,13 +383,28 @@ DEC-006..014
 ```text
 DEC-022/023
 → FR-UPDATE / FR-RECOVERY / NFR-UPD
-→ Compatibility + Update + Recovery responsibilities
+→ Compatibility + Update + Recovery
 → CompatibilityDecision / UpdateTransactionRecord / RecoveryContext / InstalledBaselineIdentity
 → IF-COMPAT / IF-UPDATE / IF-RECOVERY
-→ servicing / broker / platform evidence
+→ servicing / Broker / platform evidence
 → FL-05
-→ UF-* / RC-* failure scenarios
-→ future package/auth/integrity Trust rules
+→ UF-* / RC-*
+→ Artifact Build and Update Trust + Local Privilege Trust
+→ future Verification
+```
+
+### Build-time Windows preparation
+
+```text
+DEC-028..032
+→ FR-BUILD / NFR-INSTALL
+→ Distribution Engineering
+→ SplitOS Build Pipeline / Component Classification
+→ BuildManifest / ComponentClassificationDecision
+→ EXT-MS-SOURCE
+→ source validation + manifest executor + servicing
+→ Artifact Build and Update Trust
+→ future Builder Specification / Verification
 ```
 
 ---
@@ -361,7 +422,8 @@ Requirement
 → Flow
 → Failure behavior
 → Trust rule
+→ Synthesis component
 → Verification case
 ```
 
-Следующий layer — `10-Trust`.
+Следующий layer — `11-Synthesis`, после которого A&D baseline можно переводить в detailed Specification.

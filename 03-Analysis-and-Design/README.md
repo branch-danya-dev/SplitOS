@@ -48,8 +48,8 @@
 | `07-Integrations` | READY | Integration Architecture, Windows Runtime Integration, Game Client Integration, Account/Payment/Builder/Update Integration |
 | `08-Flows` | READY | First Run/Subscription, Work→Game, Managed Game Launch, Game→Work, Update/Recovery + sequence diagrams |
 | `09-Failures` | READY | Failure Model, Runtime Failure Scenarios, Update/Recovery Failure Scenarios, Failure Handling Matrix, failure map |
-| `10-Trust` | NEXT | not started |
-| `11-Synthesis` | NOT STARTED | — |
+| `10-Trust` | READY | Trust Model, Local Privilege & IPC, Identity/Entitlement/Secrets, Artifact/Build/Update Trust, External Evidence Trust, Security Control Matrix, trust map |
+| `11-Synthesis` | NEXT | not started |
 
 ---
 
@@ -181,15 +181,8 @@ command sent
 
 ## Failure truth
 
-Canonical failure semantics belong to:
-
 ```text
 09-Failures/
-├── Failure Model.md
-├── Runtime Failure Scenarios.md
-├── Update Recovery Failure Scenarios.md
-├── Failure Handling Matrix.md
-└── failure-map.mmd
 ```
 
 Core failure rule:
@@ -201,10 +194,42 @@ Failure evidence
 → choose response
 → apply response
 → verify resulting state
-→ commit fallback/recovery result if needed
+→ commit fallback/recovery result if proven
 ```
 
-Failure handlers must not directly invent canonical state.
+Failure handlers must not invent canonical state.
+
+## Trust truth
+
+Canonical trust semantics belong to:
+
+```text
+10-Trust/
+├── Trust Model.md
+├── Local Privilege and IPC Trust.md
+├── Identity Entitlement and Secret Trust.md
+├── Artifact Build and Update Trust.md
+├── External Evidence Trust.md
+├── Security Control Matrix.md
+└── trust-map.mmd
+```
+
+Trust answers:
+
+```text
+who is the subject/issuer
+→ how identity/provenance is established
+→ how integrity/freshness/context are validated
+→ what capability is authorized
+→ what action may follow
+```
+
+Core rule:
+
+```text
+trusted for one claim/capability
+!= globally trusted component
+```
 
 ---
 
@@ -248,11 +273,13 @@ Interactive user session
         ├── user-session Windows APIs
         ├── Game Client adapters
         ├── HTTPS → Account Backend
-        └── secured local IPC
+        └── authenticated + authorized local IPC
                  ↓
          SplitOS Privileged Broker
          Windows Service / Session 0
 ```
+
+The Privileged Broker is a narrow machine-mutation boundary, not a general administrator API.
 
 ---
 
@@ -319,17 +346,6 @@ Recovery
 Manual recovery / support required
 ```
 
-## Severity
-
-```text
-S0 controlled negative outcome
-S1 local feature failure
-S2 operation failed but safe state known
-S3 degraded system state
-S4 recovery required
-S5 manual recovery / bootability or data risk
-```
-
 Canonical safety priority:
 
 ```text
@@ -343,35 +359,111 @@ Canonical safety priority:
 
 ---
 
-# Important failure invariants
+# Trust model summary
+
+## Trust zones
 
 ```text
-technical failure
-!= permission to change canonical state
-
-partial application
-!= successful target
-
-verification failure
-→ target commit prohibited
-
-source state remains canonical before target commit
-
-mixed actual state
-!= new HYBRID operational mode
-
-rollback command sent
-!= rollback successful
-
-recovery command sent
-!= recovery completed
+Windows Platform Authority
+Interactive User Session
+Privileged Broker
+Local Persistent SplitOS State
+SplitOS Backend
+Release / Build Trust Domain
+External Authorities
 ```
 
-Premium runtime failure must not intentionally make base Windows unusable merely because SplitOS cannot restore its own managed capabilities.
+## Local privilege
+
+```text
+UI
+→ Runtime Host semantic owner
+→ bounded privileged capability
+→ explicit Named Pipe ACL / caller token-session validation candidate
+→ Privileged Broker
+→ bounded OS mutation
+→ actual-state verification
+```
+
+No generic `RunCommand`, arbitrary PowerShell, raw registry/service mutation contract is allowed.
+
+## Identity / entitlement
+
+```text
+Windows User
+→ SplitOS Account auth via external browser/native-app flow candidate
+→ server-issued tokens
+→ protected local secret storage (DPAPI candidate)
+→ server/offline entitlement evidence
+→ ManagedRuntimeAccessDecision
+```
+
+```text
+FREE/PRO
+!= editable local setting
+```
+
+Offline premium access requires bounded verifiable evidence, not `cachedPro=true`.
+
+## Artifact trust
+
+```text
+release authority
+→ signed manifest / signed or digest-bound artifact
+→ compatibility validation
+→ protected staging
+→ privileged apply
+→ read-back verification
+→ baseline commit
+```
+
+Authenticode/WinVerifyTrust is the current Windows-native binary-signature mechanism family. Structured manifests require a separate versioned signed format.
+
+## External evidence
+
+```text
+External source
+→ bounded adapter/parser
+→ validate + normalize + freshness metadata
+→ semantic owner interpretation
+→ canonical state/projection only if justified
+```
+
+Game Client/browser/device evidence never becomes direct privileged command input.
 
 ---
 
-# Current mechanism baseline
+# Security invariants
+
+```text
+ordinary user process
+!= privileged Broker authority
+
+signed executable
+!= authorized capability
+
+browser callback
+!= authenticated account/payment/entitlement result
+
+HTTPS download
+!= trusted release artifact
+
+valid old signature
+!= downgrade authorization
+
+external client metadata
+!= privileged command
+
+trust validation failure
+→ deny sensitive capability
+→ preserve base Windows usability where possible
+```
+
+v1 explicitly does not promise resistance to an unrestricted hostile local Administrator/kernel/firmware compromise.
+
+---
+
+# Current mechanism/security baseline
 
 ### Windows
 
@@ -379,72 +471,67 @@ Premium runtime failure must not intentionally make base Windows unusable merely
 User/session            → WTS / Win32 session APIs
 Display read/apply      → QueryDisplayConfig / SetDisplayConfig family
 Audio read/events       → Core Audio / MMDevice APIs
-Default audio switching → OPEN until supported mechanism is validated
+Default audio switching → OPEN
 Power schemes           → PowrProf APIs
-Process evidence        → Win32 process APIs
-Service lifecycle       → Service Control Manager APIs
-Privileged local IPC    → secured named pipes candidate
+Process/service evidence→ Win32 / SCM
+Privileged local IPC    → Named Pipe candidate + explicit ACL/caller validation
+Local user secret       → DPAPI candidate
+Binary provenance       → Authenticode / WinVerifyTrust candidate
 ```
 
 ### Game Clients
 
 ```text
-Stable SplitOS semantic contract
-→ per-client adapter
-→ Steam / Epic / Xbox / Battle.net mechanism
+stable SplitOS semantic contract
+→ bounded per-client adapter/parser
+→ external client evidence
 ```
 
-Version-sensitive local metadata is never promoted to stable external truth.
+Version-sensitive local metadata remains BEST_EFFORT/CANDIDATE and is never promoted to privileged authority.
 
 ### Account / payment
 
 ```text
 Runtime / Manager
-→ HTTPS
-→ SplitOS Account Backend
+→ external browser auth candidate + PKCE
+→ HTTPS SplitOS Account Backend
 → hosted checkout
 → Payment Provider
-→ validated payment evidence
+→ backend-validated payment evidence
 → Entitlement
 ```
 
 ### Builder / update
 
 ```text
-Windows source
-→ validate
-→ Build Manifest
+validated Windows source
+→ signed Build/Update Manifest
+→ exact artifact binding
 → supported servicing mechanism
-→ verify baseline
+→ verification
+→ supported baseline identity
 ```
-
-Target baseline/update identity changes only after semantic verification.
 
 ---
 
 # Next analytical target
 
-После `09-Failures` следующим слоем является `10-Trust`.
+После `10-Trust` следующим и финальным A&D layer является `11-Synthesis`.
 
-Trust analysis должен определить:
+Synthesis должен собрать предыдущие решения в целостную implementable architecture view:
 
 ```text
-who may call privileged interfaces
-how local IPC caller identity is established
-what data/artifacts are trusted
-account authentication and token handling
-entitlement evidence trust
-payment evidence trust
-update/package signatures
-Build Manifest integrity
-Windows source integrity
-Game Client evidence trust level
-secret storage
-replay/tampering protection
-least privilege boundaries
+system/component decomposition
+runtime deployment topology
+process/service boundaries
+canonical component responsibilities
+owned state/data
+internal/external contracts
+trust boundaries
+major end-to-end flows
+failure/recovery paths
+build/update architecture
+open implementation decisions
 ```
 
-`Trust != Failure`:
-
-- Failure описывает, что происходит при проблеме;
-- Trust определяет, чему и кому система вообще разрешает верить до выполнения действия.
+Synthesis не должен заново придумывать ownership/state. Его задача — собрать уже доказанные слои в единую архитектурную модель, пригодную для Specification и дальнейшей реализации.

@@ -41,7 +41,6 @@
 
 - [x] Technical assumptions не замаскированы под VERIFIED.
 - [x] Performance thresholds остаются OPEN/TBD.
-- [x] Identity/auth token design остаётся OPEN до Trust layer.
 - [x] Offline entitlement TTL / device sharing / account cardinality остаются OPEN.
 - [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
 - [x] System-wide default audio switching остаётся OPEN до supported mechanism validation.
@@ -49,7 +48,12 @@
 - [x] Steam local metadata не объявлена stable public contract.
 - [x] Exact retry/backoff/timeout numeric values остаются Specification-level unless product semantics require them.
 - [x] Exact update package/snapshot/rollback technology остаётся OPEN.
-- [x] Trust/integrity failures выделены, но конкретные trust controls перенесены в `10-Trust`.
+- [x] OAuth/OIDC provider and Windows redirect strategy remain OPEN implementation decisions.
+- [x] Offline entitlement assertion format/TTL/device binding/clock rollback remain OPEN but trust requirements are explicit.
+- [x] Privileged Broker exact SDDL/token checks/service account remain OPEN but trust boundary is explicit.
+- [x] Release manifest signature envelope/key hierarchy/rotation/revocation remain OPEN but lifecycle requirements are explicit.
+- [x] Windows source provenance validation remains OPEN pending supported Microsoft acquisition model.
+- [x] Hostile unrestricted local Administrator/kernel compromise is explicitly outside v1 SplitOS security guarantee.
 
 ## Traceability
 
@@ -61,7 +65,8 @@
 - [x] Requirement → Integration mechanisms mapping зафиксирован с VERIFIED/CANDIDATE/OPEN статусами.
 - [x] Requirement → end-to-end Flows mapping зафиксирован для canonical v1 scenarios.
 - [x] Requirement / Flow → Failure behavior mapping зафиксирован для runtime/update/recovery.
-- [ ] Requirement → Trust mapping — следующий A&D layer.
+- [x] Requirement / Flow / Failure → Trust controls mapping зафиксирован.
+- [ ] Requirement → Synthesis component mapping — следующий A&D layer.
 - [ ] Requirement → Verification mapping — заполнить после Specification/QA.
 
 ---
@@ -79,8 +84,58 @@ Interfaces        ✅
 Integrations      ✅
 Flows             ✅
 Failures          ✅
-Trust             NEXT
-Synthesis         pending
+Trust             ✅
+Synthesis         NEXT
+```
+
+---
+
+## Canonical trust coverage
+
+```text
+Windows platform authority assumptions
+Interactive user session vs Privileged Broker boundary
+Named Pipe ACL / caller SID-session validation candidate
+bounded privileged capability protocol
+no arbitrary admin command contract
+SplitOS Account native-app authentication model
+external browser + PKCE candidate
+protected reusable token storage / DPAPI candidate
+server-owned entitlement
+bounded offline entitlement evidence
+payment-provider evidence → backend → entitlement
+release/build signing authority
+Authenticode binary verification candidate
+signed Build/Update Manifest requirement
+artifact digest binding / protected staging
+anti-downgrade authorization
+key rotation / revocation lifecycle
+Game Client metadata parsing/normalization
+custom URI/browser callback distrust
+external evidence authority/freshness rules
+explicit local-admin/kernel threat limitation
+```
+
+Core trust chain:
+
+```text
+Claim / Request
+→ Identity / Issuer
+→ Integrity
+→ Freshness
+→ Context binding
+→ Capability authorization
+→ Semantic owner decision
+→ Sensitive action
+→ Verification
+```
+
+Trust failure for premium capability follows:
+
+```text
+cannot prove authorization
+→ do not grant premium capability
+→ preserve base Windows usability
 ```
 
 ---
@@ -125,7 +180,7 @@ User data integrity
 
 ## Conclusion
 
-Pre-analysis завершён и достаточен для продолжения Analysis & Design.
+Pre-analysis завершён; Analysis & Design доведён до Trust layer и достаточен для финальной архитектурной синтезации.
 
 Текущий reasoning path:
 
@@ -155,6 +210,6 @@ Trust
 Synthesis
 ```
 
-Следующий layer должен определить trust boundaries: caller identity, authorization, token/secret handling, artifact integrity, update/build signatures и доверие к external evidence.
+Следующий layer должен собрать все предыдущие решения в единую implementable component/deployment architecture без переопределения уже установленных owners, states и trust boundaries.
 
-Оставшиеся `OPEN` не должны превращаться в неявные архитектурные предположения.
+Оставшиеся `OPEN` должны перейти в explicit Synthesis/Specification decision backlog и не превращаться в неявные implementation assumptions.
