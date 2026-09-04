@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant M as ModeTransition / Policy Owner
+    participant D as Display Adapter
+    participant W as Windows CCD
+    participant J as Transition Journal
+
+    M->>D: ResolveTarget(policyTarget, fresh generation)
+    D->>W: GetDisplayConfigBufferSizes + QueryDisplayConfig
+    W-->>D: current paths/modes
+    D-->>M: resolved display target + generation
+
+    M->>J: persist resolved action / source evidence
+    M->>D: ValidateTarget(resolvedTarget)
+    D->>W: SetDisplayConfig(SDC_VALIDATE | supplied config)
+    W-->>D: validation result
+
+    alt validation rejected
+        D-->>M: OPERATION_REJECTED
+    else validation accepted
+        M->>D: ApplyTarget(resolvedTarget)
+        D->>W: SetDisplayConfig(SDC_APPLY | supplied config)
+        W-->>D: technical result
+        D->>W: QueryDisplayConfig fresh read-back
+        W-->>D: actual paths/modes
+        D->>D: verify target predicates
+        alt all mandatory display predicates satisfied
+            D-->>M: APPLIED_VERIFIED + actual evidence
+            M->>J: mark display action VERIFIED
+        else topology changed / mismatch
+            D-->>M: STALE_SNAPSHOT / VERIFICATION_FAILED
+            M->>J: mark action FAILED
+        end
+    end
+
+    Note over M,J: Display success never commits WORK/GAME by itself. SPEC-05 commits only after all mandatory target predicates pass.
