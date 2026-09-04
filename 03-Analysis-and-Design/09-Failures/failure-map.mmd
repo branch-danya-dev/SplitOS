@@ -1,0 +1,42 @@
+flowchart TD
+    A[Operation / Flow active] --> B{Failure or controlled negative outcome?}
+
+    B -->|Controlled outcome| C[Reject / Defer / Cancel / Auth required / Unsupported]
+    C --> D[Keep current canonical state]
+
+    B -->|Failure| E[Capture failure evidence]
+    E --> F[Owning responsibility classifies impact]
+
+    F --> G{Was canonical target already committed?}
+
+    G -->|No| H[Source state remains canonical]
+    H --> I{Was actual platform partially mutated?}
+    I -->|No| J[Fail operation safely]
+    I -->|Yes| K[Rollback / reconcile source target]
+    K --> L{Source/fallback verified?}
+    L -->|Yes| M[Known safe source/fallback]
+    L -->|No| N[Recovery Coordination]
+
+    G -->|Yes| O[Handle as post-commit operational failure]
+    O --> P{Can current state remain coherent?}
+    P -->|Yes| Q[Degraded continuation / local recovery]
+    P -->|No| N
+
+    N --> R[Choose recovery target]
+    R --> S[Apply recovery]
+    S --> T[Read actual state]
+    T --> U{Recovery verified?}
+    U -->|Yes| V[Commit recovery result]
+    U -->|No| W{Another automatic strategy?}
+    W -->|Yes| R
+    W -->|No| X[Manual recovery / support required]
+
+    M --> Y[Observable final outcome]
+    J --> Y
+    Q --> Y
+    V --> Y
+    X --> Y
+
+    Z1[User data integrity] -. priority .-> N
+    Z2[Windows bootability/usability] -. priority .-> N
+    Z3[Known coherent state] -. priority .-> N
