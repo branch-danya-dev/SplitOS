@@ -16,8 +16,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-04` Account/Auth/Entitlement | READY FOR REVIEW | native auth, backend contracts, token protection, account association, FREE/PRO, offline entitlement |
 | `SPEC-05` Mode Runtime | READY FOR REVIEW | ACTIVATE/SWITCH/DEACTIVATE transaction model, blocker engine, mode policy, major mutation lease, rollback/reconciliation |
 | `SPEC-06` Windows Context Integrations | READY FOR REVIEW | display/audio/input/power/process/services/hardware, supported Windows APIs, device identity, hot-plug and read-back verification |
-| `SPEC-07` Game Client Adapters | NEXT | Steam/Epic/Xbox/Battle.net adapters |
-| `SPEC-08` Game Profile & Optimization | NOT STARTED | profile/optimization schema and resolution |
+| `SPEC-07` Game Client Adapters | READY FOR REVIEW | shared adapter contract, Steam/Epic/Microsoft Gaming/Battle.net capability model, library/install evidence, launch handoff and process/session correlation |
+| `SPEC-08` Game Profile & Optimization | NEXT | profile/optimization schema and resolution |
 | `SPEC-09` Game Launcher & Shared Apps UX | NOT STARTED | controller-first UX and Shared Apps |
 | `SPEC-10` Builder & Component Matrix | NOT STARTED | source/build manifest/component decisions |
 | `SPEC-11` Update & Recovery | NOT STARTED | update transaction/reboot/rollback/recovery |
@@ -241,6 +241,63 @@ desired state
 
 Relevant device/OS notifications invalidate an adapter generation. A resolved target from a stale generation cannot silently continue.
 
+## Current Game Client adapter baseline
+
+```text
+Game Library / Game Launch
+→ GameClientAdapterRegistry
+→ client-specific adapter
+→ normalized installation/launch/process evidence
+→ Game Library / Game Launch / Game Session owners
+```
+
+Client-level v1 posture:
+
+```text
+Steam              TARGET_SUPPORTED_V1
+Epic               TARGET_SUPPORTED_V1
+Microsoft Gaming   PARTIAL_SUPPORTED_V1
+Battle.net         EXPERIMENTAL
+```
+
+Capability support is independent. A client can have a supported public launch mechanism while local library parsing remains version-sensitive.
+
+Current launch mechanisms:
+
+```text
+Steam
+→ Valve-documented steam:// protocol using Steam App ID
+→ local library/install VDF/ACF = version-sensitive evidence
+
+Epic
+→ documented com.epicgames.launcher://apps/... protocol
+→ Sandbox/Catalog/Artifact preferred identity
+→ validated install-path protocol identity fallback
+→ local launcher metadata = version-sensitive evidence
+
+Microsoft Gaming
+→ Windows package/app registration
+→ PFN + AUMID identity
+→ Windows application activation
+→ local registered titles only; no claim of full Xbox/Game Pass cloud library
+
+Battle.net
+→ adapter boundary exists
+→ discovery/launch/product metadata remain experimental until validated
+```
+
+Common launch invariant:
+
+```text
+HANDOFF_ACCEPTED
+!= GAME_STARTING
+!= GAME_RUNNING
+```
+
+Process/session correlation uses named proof sets and `PID + creationTime` where Win32 PID identity is involved. Weak foreground/timing evidence alone cannot establish a managed running game.
+
+Adapters are unelevated/read-only integrations. They never collect external client passwords/tokens, modify client databases, inject into games, or convert local metadata into privileged command input.
+
 ## Current specification artifacts
 
 ```text
@@ -250,6 +307,7 @@ SPEC-03-Local-Data-and-Persistence/
 SPEC-04-Account-Auth-and-Entitlement/
 SPEC-05-Mode-Runtime/
 SPEC-06-Windows-Context-Integrations/
+SPEC-07-Game-Client-Adapters/
 ```
 
 ## Source architecture

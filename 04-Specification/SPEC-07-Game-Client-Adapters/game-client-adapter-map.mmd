@@ -1,0 +1,45 @@
+flowchart LR
+    GL[Game Library]
+    GO[Game Launch Orchestration]
+    GS[Game Session]
+    REG[GameClientAdapterRegistry]
+
+    ST[Steam Adapter]
+    EP[Epic Adapter]
+    MS[Microsoft Gaming Adapter]
+    BN[Battle.net Adapter]
+
+    WIN[Windows Process / Package Evidence\nSPEC-06]
+    CACHE[(projection.db\nSPEC-03)]
+
+    STEAM[Steam Client / Local Metadata]
+    EPIC[Epic Games Launcher / Local Metadata]
+    XBOX[Windows Package Registration\nXbox / Store / Gaming Services]
+    BNET[Battle.net Client / Local Metadata]
+
+    GL --> REG
+    GO --> REG
+    REG --> ST
+    REG --> EP
+    REG --> MS
+    REG --> BN
+
+    ST --> STEAM
+    EP --> EPIC
+    MS --> XBOX
+    BN --> BNET
+
+    ST --> CACHE
+    EP --> CACHE
+    MS --> CACHE
+    BN --> CACHE
+
+    ST --> WIN
+    EP --> WIN
+    MS --> WIN
+    BN --> WIN
+
+    REG -->|normalized library/install evidence| GL
+    REG -->|handoff result + observation rules| GO
+    WIN -->|process/application evidence| REG
+    REG -->|STARTING/RUNNING/EXIT evidence| GS

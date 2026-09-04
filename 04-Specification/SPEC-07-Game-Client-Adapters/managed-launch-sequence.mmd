@@ -1,0 +1,52 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant L as Game Launcher
+    participant O as Game Launch Orchestration
+    participant A as Game Client Adapter
+    participant C as projection.db
+    participant W as Windows Evidence
+    participant X as External Client
+    participant S as Game Session
+
+    U->>L: Launch selected game
+    L->>O: Launch(gameId, profileId)
+    O->>A: Refresh/resolve installation (FRESH_REQUIRED)
+    A->>C: Read/update client projection
+    C-->>A: Fresh projection + launch identity
+    A-->>O: PreparedClientLaunch
+
+    O->>W: Capture baseline process/application snapshot
+    W-->>O: Baseline snapshot
+
+    O->>A: SubmitLaunch(prepared)
+    A->>X: Public/OS/client-specific handoff
+    X-->>A: dispatch/activation result
+    A-->>O: HANDOFF_ACCEPTED
+
+    Note over O,S: HANDOFF_ACCEPTED != GAME_RUNNING
+
+    loop Until running deadline / failure
+        O->>W: Read fresh process/package/window evidence
+        W-->>O: Actual evidence
+        O->>A: ObserveLaunch(context, evidence)
+        A-->>O: candidate / starting / running / ambiguous
+    end
+
+    alt Running proof satisfied
+        O->>S: Running evidence
+        S-->>L: GAME_RUNNING
+    else Interaction/timeout/failure
+        O-->>L: Client interaction / launch failure
+        Note over L,S: Committed GAME mode normally remains active
+    end
+
+    loop While managed game session active
+        O->>W: Observe correlated process set
+        W-->>O: Actual evidence
+        O->>A: ObserveExit(...)
+        A-->>O: STILL_RUNNING / EXIT_CONFIRMED / replacement
+    end
+
+    O->>S: EXIT_CONFIRMED
+    S-->>L: Return to Game Launcher
