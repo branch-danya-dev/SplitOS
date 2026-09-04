@@ -1,0 +1,57 @@
+sequenceDiagram
+    actor User
+    participant UI as Manager / Game Launcher
+    participant RH as Runtime Host
+    participant MT as ModeTransition
+    participant MP as ModePolicy
+    participant BP as Blocker Providers
+    participant Repo as Machine Repository
+    participant Broker as Privileged Broker
+    participant Ctx as Context Owners / Windows
+
+    User->>UI: Request target mode
+    UI->>RH: RequestModeOperation
+    RH->>MT: validate request
+    MT->>Repo: Acquire major mutation lease
+    Repo-->>MT: lease + fence token
+    MT->>Repo: Create durable operation
+    MT->>BP: Inspect current context
+    BP-->>MT: blockers / evidence
+
+    alt user decision required
+        MT-->>UI: blocker decision request
+        User->>UI: choose closed option
+        UI->>MT: SubmitBlockerDecision
+        MT->>BP: Resolve / recheck
+        BP-->>MT: resolved evidence
+    end
+
+    MT->>MP: Resolve immutable target policy
+    MP-->>MT: policyId/version/digest
+    MT->>Ctx: Build typed action plan
+    MT->>Repo: Persist plan
+
+    loop ordered actions
+        MT->>Ctx: Apply user-session action
+        opt privileged action
+            Ctx->>Broker: allowlisted capability + fence
+            Broker-->>Ctx: technical result
+        end
+        Ctx-->>MT: immediate result
+        MT->>Repo: advance action journal
+    end
+
+    MT->>Ctx: Read actual target state
+    Ctx-->>MT: verification evidence
+    MT->>Repo: persist mandatory verification
+
+    alt target verified
+        MT->>Repo: Atomic CommitTransitionAndMode
+        Repo-->>MT: COMMITTED
+        MT-->>UI: committed target presentation
+        MT->>Repo: Mark COMPLETED + release lease
+    else target not verified
+        MT->>Ctx: rollback/reconcile source or BASE
+        Ctx-->>MT: rollback evidence
+        MT->>Repo: terminal result or Recovery escalation
+    end
