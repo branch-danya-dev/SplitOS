@@ -1,10 +1,33 @@
 flowchart TB
     U[User]
+    WS[Microsoft-authorized Windows 11 Source]
+    MS[Microsoft Update Source]
+    AB[SplitOS Account / Entitlement Backend]
 
-    subgraph SP[SplitOS Product Boundary]
-        UC[User Context]
+    subgraph BB[SplitOS Build Boundary]
+        MB[Media Builder]
+        BM[Build Manifest]
+        CM[Windows Component Matrix]
+        PKG[SplitOS Packages]
+        PV[Source / Compatibility Validation]
+
+        MB --> PV
+        BM --> MB
+        CM --> BM
+        PKG --> MB
+    end
+
+    WS --> PV
+
+    PB[Prepared SplitOS Baseline]
+    PV --> MB
+    MB --> PB
+
+    subgraph RB[Installed SplitOS Runtime Boundary]
+        UC[User / Account Context]
         MP[Mode Policy]
         MT[Mode Transition]
+        MC[MODE_MANAGED Component Lifecycle]
         WM[Work Context]
         GM[Game Context]
         GL[SplitOS Game Launcher]
@@ -15,6 +38,7 @@ flowchart TB
 
         UC --> MP
         MP --> MT
+        MT --> MC
         MT --> WM
         MT --> GM
         GM --> GL
@@ -23,21 +47,20 @@ flowchart TB
         UP --> RC
     end
 
-    subgraph DB[SplitOS Distribution Boundary]
-        SP
-        W[Windows 11 Base]
-    end
+    PB --> RB
 
+    W[Windows 11 Runtime Platform]
     GC[External Game Clients]
     G[Games]
     A[Shared Applications]
     D[Drivers]
     H[Hardware]
-    MS[Microsoft Update Source]
 
     U --> UC
+    AB <--> UC
     WM --> W
     GM --> W
+    MC <--> W
     GL <--> GC
     GC --> G
     GL --> G
@@ -47,4 +70,4 @@ flowchart TB
     MS --> UP
 
     classDef external stroke-dasharray: 5 5
-    class GC,G,A,D,H,MS external
+    class WS,MS,AB,GC,G,A,D,H external
