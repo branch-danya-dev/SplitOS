@@ -4,8 +4,6 @@
 
 Документ связывает discovery-решения с каноническими слоями проекта.
 
-Направление трассировки:
-
 ```text
 Initial Request
       ↓
@@ -62,8 +60,6 @@ Specification / Verification
 
 ## 3. Current Analysis & Design traceability
 
-Текущий A&D baseline:
-
 ```text
 03-Analysis-and-Design/
 ├── 00-Boundaries/
@@ -73,7 +69,8 @@ Specification / Verification
 ├── 04-Behavior/
 ├── 05-Data/
 ├── 06-Interfaces/
-└── 07-Integrations/
+├── 07-Integrations/
+└── 08-Flows/
 ```
 
 ### 3.1 Boundaries
@@ -109,8 +106,6 @@ Specification / Verification
 
 ### 3.3 Ownership
 
-Ключевые canonical ownership mappings:
-
 ```text
 Windows user identity/session
 → Windows authority
@@ -122,7 +117,7 @@ Managed runtime access decision
 → Product Identity & Entitlement
 
 Payment transaction result
-→ external payment provider evidence
+→ external Payment Provider evidence
 
 Committed operational mode
 → Mode Intent & Active Mode State
@@ -201,7 +196,7 @@ SplitOS Game Profile
 | effective Work/Game policy | `IF-POLICY-001` |
 | application classification/lifecycle | `IF-APP-001..003`, `EXT-WIN-010` |
 | display desired-vs-actual | `IF-DISPLAY-001..003`, `EXT-WIN-DISPLAY-*` |
-| audio/input/power context | `IF-AUDIO-*`, `IF-INPUT-*`, `IF-POWER-*`, corresponding Windows boundaries |
+| audio/input/power context | `IF-AUDIO-*`, `IF-INPUT-*`, `IF-POWER-*` |
 | hardware refresh/invalidation | `IF-HW-001/002` |
 | game library projection | `IF-LIB-001/002`, `EXT-GC-001/002/003` |
 | Game Profile / optimization | `IF-PROFILE-001/002`, `IF-OPT-001` |
@@ -234,15 +229,43 @@ SplitOS Game Profile
 | Builder servicing | versioned Build Manifest + DISM/offline servicing where applicable — VERIFIED/CANDIDATE |
 | SplitOS/Windows update | compatibility-gated controlled update orchestration — CANDIDATE; exact update technology OPEN |
 
-Canonical integration artifacts:
+### 3.9 Flows
+
+| Product scenario | Canonical flow | Key composed layers |
+|---|---|---|
+| First Windows sign-in / account onboarding | `FL-01A` First Run | Windows user evidence → account association → entitlement → FREE/PRO |
+| Normal later sign-in | `FL-01B` | account association → entitlement refresh/offline policy → runtime access |
+| FREE → PRO upgrade | `FL-01C` | Manager → backend → hosted checkout → payment evidence → entitlement refresh |
+| PRO downgrade / expiry | `FL-01D` | entitlement loss → safe convergence to base Windows experience |
+| Explicit Work → Game | `FL-02A` | mode request → blockers → target policy → apply → verify → commit GAME |
+| Direct managed game launch from Work | `FL-02B + FL-03` | reuse Work→Game then continue original launch intent |
+| Managed game launch | `FL-03A` | library/client projection → hardware/profile → prepare → client handoff → GAME_RUNNING evidence |
+| Normal game exit | `FL-03B` | exit evidence → cleanup → return to Game Launcher; mode remains GAME |
+| Game → Work | `FL-04A` | inspect game session → resolve Work target → apply → verify → commit WORK |
+| Update | `FL-05A..D` | entitlement + compatibility → durable transaction → apply → verify → baseline commit |
+| Recovery | `FL-05E` | failure evidence → safe target selection → recovery operations → verification → stable startup |
+
+Canonical flow artifacts:
 
 ```text
-07-Integrations/Integration Architecture.md
-07-Integrations/Windows Runtime Integration.md
-07-Integrations/Game Client Integration.md
-07-Integrations/Account Payment Builder and Update Integration.md
-07-Integrations/integration-map.mmd
+08-Flows/Flow Model.md
+08-Flows/First Run and Subscription Flow.md
+08-Flows/Work to Game Flow.md
+08-Flows/Managed Game Launch Flow.md
+08-Flows/Game to Work Flow.md
+08-Flows/Update and Recovery Flow.md
+08-Flows/*.mmd
 ```
+
+Major state mutation flows obey the coordination rule:
+
+```text
+Mode Transition
+or Update
+or Recovery
+```
+
+must not independently mutate conflicting machine state at the same time.
 
 ---
 
@@ -257,10 +280,10 @@ DEC-035..043
 → Runtime Access State Model
 → First Run and Runtime Access Behavior
 → WindowsUserAccountAssociation / Entitlement / ManagedRuntimeAccessDecision
-→ IF-ID-001/002 + IF-ACCESS-001/002
-→ EXT-ID-001..003 + EXT-PAY-001/002
-→ HTTPS Account Backend + hosted checkout/payment evidence integration
-→ future First Run / Upgrade Flow + Trust rules
+→ IF-ID / IF-ACCESS + EXT-ID / EXT-PAY
+→ HTTPS Account Backend + hosted checkout/payment evidence
+→ FL-01 First Run / Subscription Flow
+→ future Failure + Trust + Verification rules
 ```
 
 ### Work XOR Game
@@ -272,9 +295,9 @@ DEC-002 + DEC-037
 → Runtime access gate + Operational Mode
 → Work to Game Behavior / Game to Work Behavior
 → OperationalModeState
-→ IF-MODE-001..003 + IF-TRANS-001..004
-→ Runtime Host + user-session Windows integrations + Privileged Broker where required
-→ future Work→Game / Game→Work flows
+→ IF-MODE + IF-TRANS
+→ Runtime Host + Windows integrations + Privileged Broker where required
+→ FL-02 Work→Game / FL-04 Game→Work
 ```
 
 ### Safe Work → Game transition
@@ -286,9 +309,36 @@ DEC-016/017
 → Mode Transition Model
 → Work to Game Behavior
 → ModeTransitionRecord
-→ IF-TRANS-* + IF-POLICY-* + IF-APP-* + system-context interfaces
-→ process/service/window/device integration mechanisms
-→ future Work→Game Flow / Failure / Verification
+→ IF-TRANS + IF-POLICY + IF-APP + system-context interfaces
+→ process/service/display/device integration mechanisms
+→ FL-02 Work to Game Flow
+→ future Failure / Verification cases
+```
+
+### Managed game launch
+
+```text
+DEC-006/007/008/009/011..014
+→ FR-GAME / FR-LAUNCHER / FR-HW / FR-OPT
+→ Game Library + Profiles + Hardware + Optimization + Launch Orchestration
+→ Game / GameClient / GameInstallationProjection / GameProfile / HardwareSnapshot
+→ IF-LIB / IF-PROFILE / IF-HW / IF-OPT / IF-LAUNCH
+→ per-client Game Client Adapter + Windows evidence
+→ FL-03 Managed Game Launch Flow
+→ future Game Client failure matrix / Verification
+```
+
+### Update / recovery
+
+```text
+DEC-022/023
+→ FR-UPDATE / FR-RECOVERY / NFR-UPD
+→ Compatibility Management + Update Orchestration + Recovery Coordination
+→ CompatibilityDecision / UpdateTransactionRecord / RecoveryContext / InstalledBaselineIdentity
+→ IF-COMPAT / IF-UPDATE / IF-RECOVERY
+→ servicing + Privileged Broker + platform evidence
+→ FL-05 Update and Recovery Flow
+→ future Failure / Trust / Verification
 ```
 
 ### Build-time Windows preparation
@@ -301,26 +351,14 @@ DEC-028..032
 → SplitOSRelease / BuildManifest / ComponentClassificationDecision
 → EXT-MS-SOURCE-001
 → source validation + manifest executor + DISM/offline servicing
-→ future Builder Flow / Verification
-```
-
-### Managed game launch
-
-```text
-DEC-006/007/008/009/011..014
-→ FR-GAME / FR-LAUNCHER / FR-HW / FR-OPT
-→ Game Library + Profiles + Hardware + Optimization + Launch Orchestration
-→ Game / GameClient / GameInstallationProjection / GameProfile / HardwareSnapshot
-→ IF-LIB-* / IF-PROFILE-* / IF-HW-* / IF-OPT-* / IF-LAUNCH-*
-→ per-client Game Client Adapter + Windows process/display/input evidence
-→ future Managed Game Launch Flow
+→ future dedicated Builder Specification / Verification
 ```
 
 ---
 
 ## 5. Next traceability extensions
 
-Следующий слой должен продолжить цепочку:
+Следующий слой продолжает цепочку:
 
 ```text
 Requirement ID
@@ -338,4 +376,4 @@ Requirement ID
 
 Трассировка не заменяет сами модели. Её задача — позволить ответить:
 
-> Почему существует это требование, какое решение его породило, какая аналитическая модель его объясняет, каким механизмом оно интегрируется и где проверяется его реализация?
+> Почему существует это требование, какое решение его породило, кто владеет смыслом, каким механизмом оно исполняется, как выглядит полный flow и где проверяется безопасный результат?
