@@ -1,0 +1,50 @@
+flowchart TB
+    U[User]
+
+    subgraph SP[SplitOS Product Boundary]
+        UC[User Context]
+        MP[Mode Policy]
+        MT[Mode Transition]
+        WM[Work Context]
+        GM[Game Context]
+        GL[SplitOS Game Launcher]
+        GP[Game Profiles]
+        SAP[Shared App Policy]
+        UP[Update / Compatibility Policy]
+        RC[Recovery / Diagnostics]
+
+        UC --> MP
+        MP --> MT
+        MT --> WM
+        MT --> GM
+        GM --> GL
+        GL --> GP
+        GM --> SAP
+        UP --> RC
+    end
+
+    subgraph DB[SplitOS Distribution Boundary]
+        SP
+        W[Windows 11 Base]
+    end
+
+    GC[External Game Clients]
+    G[Games]
+    A[Shared Applications]
+    D[Drivers]
+    H[Hardware]
+    MS[Microsoft Update Source]
+
+    U --> UC
+    WM --> W
+    GM --> W
+    GL <--> GC
+    GC --> G
+    GL --> G
+    SAP <--> A
+    W <--> D
+    D <--> H
+    MS --> UP
+
+    classDef external stroke-dasharray: 5 5
+    class GC,G,A,D,H,MS external
