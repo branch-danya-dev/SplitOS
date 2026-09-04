@@ -27,6 +27,7 @@
 - [x] Ответы сохранены в Elicitation Log.
 - [x] Решения отделены от assumptions.
 - [x] Superseded assumptions помечены.
+- [x] Distribution/Builder и Account/Entitlement decisions перенесены в requirements baseline.
 
 ## Scope
 
@@ -40,28 +41,43 @@
 - [x] Technical assumptions не замаскированы под VERIFIED.
 - [x] Performance thresholds остаются OPEN/TBD.
 - [x] Update/recovery details остаются OPEN.
-- [x] Identity/licensing design остаётся OPEN.
+- [x] Identity/licensing implementation остаётся OPEN.
+- [x] Windows Component Matrix и Defender/security baseline остаются subject to validation.
 
 ## Traceability
 
 - [x] Elicitation → Decision связь присутствует.
 - [x] Decision → Concept/Requirements области определены.
-- [ ] Requirement → Analysis & Design mapping — заполнить после слоя 03.
+- [x] Requirement → Analysis & Design mapping начат и доведён через Boundaries / Responsibilities / Ownership / States / Behavior.
+- [ ] Requirement → Data / Interfaces / Integrations / Failures mapping — продолжить на следующих A&D слоях.
 - [ ] Requirement → Verification mapping — заполнить после Specification/QA.
+
+---
+
+## Current Analysis & Design status
+
+```text
+Boundaries        ✅
+Responsibilities  ✅
+Ownership         ✅
+States            ✅
+Behavior          ✅
+Data              NEXT
+Interfaces        pending
+Integrations      pending
+Flows             pending
+Failures          pending
+Trust             pending
+Synthesis         pending
+```
 
 ---
 
 ## Conclusion
 
-Pre-analysis достаточен для перехода к:
+Pre-analysis завершён и достаточен для продолжения Analysis & Design.
 
-```text
-03-Analysis-and-Design
-```
-
-при условии, что оставшиеся `OPEN` рассматриваются явно и не превращаются в неявные архитектурные предположения.
-
-Первый рекомендуемый шаг:
+Текущий reasoning path:
 
 ```text
 Boundaries
@@ -72,5 +88,15 @@ Ownership
     ↓
 States
     ↓
-Flows
+Behavior
+    ↓
+Data
+    ↓
+Interfaces
+    ↓
+Integrations / Flows / Failures / Trust
+    ↓
+Synthesis
 ```
+
+Оставшиеся `OPEN` должны закрываться в соответствующем аналитическом слое и не должны превращаться в неявные архитектурные предположения.
