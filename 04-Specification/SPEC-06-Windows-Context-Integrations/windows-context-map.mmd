@@ -1,0 +1,60 @@
+flowchart TB
+    MODE[Mode / Policy owners\nSPEC-05]
+
+    subgraph RH[SplitOS.RuntimeHost.exe — active user session]
+        DISP[Display Adapter\nCCD]
+        AUD[Audio Adapter\nMMDevice/Core Audio]
+        INP[Input Adapter\nGameInput]
+        HW[Hardware Adapter\nCfgMgr32/SetupAPI]
+        PWR[Power Adapter\nPowrProf]
+        PROC[Process Evidence Adapter\nPSAPI/Kernel32]
+        VERIFY[Windows Evidence / Verification]
+    end
+
+    subgraph BROKER[SplitOS.Broker.Service.exe]
+        SVC[Managed Service Adapter\nSCM allowlist]
+        PRIV[Other bounded machine capabilities\nSPEC-02]
+    end
+
+    subgraph WIN[Windows / drivers / devices]
+        CCD[Display Configuration Database / Drivers]
+        AUDIO[Audio Endpoints]
+        INPUT[Controllers / HID]
+        PNP[PnP Device Tree]
+        POWER[Power Schemes]
+        PROCS[Processes]
+        SCM[Service Control Manager]
+    end
+
+    MODE -->|typed desired targets| DISP
+    MODE --> AUD
+    MODE --> INP
+    MODE --> PWR
+    MODE --> PROC
+    MODE -->|ManagedServiceId| SVC
+
+    DISP <--> CCD
+    AUD <--> AUDIO
+    INP <--> INPUT
+    HW <--> PNP
+    PWR <--> POWER
+    PROC --> PROCS
+    SVC <--> SCM
+
+    DISP --> VERIFY
+    AUD --> VERIFY
+    INP --> VERIFY
+    HW --> VERIFY
+    PWR --> VERIFY
+    PROC --> VERIFY
+    SVC --> VERIFY
+
+    VERIFY -->|fresh actual evidence\nnormalized result| MODE
+
+    classDef owner fill:#fff,stroke:#111,stroke-width:2px;
+    classDef runtime fill:#fff,stroke:#666;
+    classDef external fill:#f7f7f7,stroke:#999;
+
+    class MODE owner;
+    class DISP,AUD,INP,HW,PWR,PROC,VERIFY,SVC,PRIV runtime;
+    class CCD,AUDIO,INPUT,PNP,POWER,PROCS,SCM external;
