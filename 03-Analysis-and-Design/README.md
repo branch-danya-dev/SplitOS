@@ -46,8 +46,8 @@
 | `05-Data` | READY | Domain Model, Identity & Runtime Access, Configuration Model, Data Ownership and Lifecycle |
 | `06-Interfaces` | READY | Interface Model, Internal Runtime Contracts, External Boundary Contracts, interface map |
 | `07-Integrations` | READY | Integration Architecture, Windows Runtime Integration, Game Client Integration, Account/Payment/Builder/Update Integration, integration map |
-| `08-Flows` | NEXT | not started |
-| `09-Failures` | NOT STARTED | — |
+| `08-Flows` | READY | Flow Model, First Run/Subscription, Work→Game, Managed Game Launch, Game→Work, Update/Recovery + sequence diagrams |
+| `09-Failures` | NEXT | not started |
 | `10-Trust` | NOT STARTED | — |
 | `11-Synthesis` | NOT STARTED | — |
 
@@ -101,9 +101,7 @@ Canonical scenario behavior belongs to:
 04-Behavior/
 ```
 
-`First Run and Runtime Access Behavior.md` определяет FREE/PRO branching, account onboarding и upgrade/downgrade behavior.
-
-Behavior documents consume state/ownership knowledge; they do not redefine ownership.
+Behavior defines semantic reaction to triggers/states but does not itself choose integration mechanisms or full multi-party timeline.
 
 ### Data truth
 
@@ -117,16 +115,7 @@ Canonical conceptual data meaning, configuration composition and lifecycle owner
 └── Data Ownership and Lifecycle.md
 ```
 
-Data layer deliberately distinguishes:
-
-```text
-Canonical product truth
-Policy / user intent
-External projections
-Runtime evidence
-Transaction / recovery state
-Diagnostics
-```
+Data layer deliberately distinguishes canonical product truth, policy/user intent, external projections, runtime evidence, transaction/recovery state and diagnostics.
 
 Physical tables, storage engine, API schemas and concrete serialization formats are not yet canonical.
 
@@ -141,20 +130,6 @@ Canonical semantic contracts belong to:
 ├── External Boundary Contracts.md
 └── interface-map.mmd
 ```
-
-Interface layer defines:
-
-```text
-Provider / semantic owner
-Consumer
-Request / query / event meaning
-Input / output semantics
-Errors / rejection reasons
-Temporal / verification semantics
-Ownership boundary
-```
-
-It does not decide transport technology automatically.
 
 ```text
 Interface
@@ -176,19 +151,55 @@ Canonical mechanism-level integration analysis belongs to:
 └── integration-map.mmd
 ```
 
-Integration layer may select or reject technical mechanism families, but must preserve semantic ownership from earlier layers.
-
-Every mechanism is classified explicitly:
-
-```text
-VERIFIED
-CANDIDATE
-BEST_EFFORT
-OPEN
-REJECTED
-```
+Every mechanism is classified explicitly as VERIFIED / CANDIDATE / BEST_EFFORT / OPEN / REJECTED where applicable.
 
 A missing supported mechanism remains OPEN rather than being replaced silently with undocumented behavior.
+
+### Flow truth
+
+Canonical end-to-end temporal composition belongs to:
+
+```text
+08-Flows/
+├── Flow Model.md
+├── First Run and Subscription Flow.md
+├── Work to Game Flow.md
+├── Managed Game Launch Flow.md
+├── Game to Work Flow.md
+├── Update and Recovery Flow.md
+├── first-run-subscription.mmd
+├── work-to-game.mmd
+├── game-launch.mmd
+├── game-to-work.mmd
+└── update-recovery.mmd
+```
+
+Flow layer composes already-owned semantics:
+
+```text
+Trigger
+→ Preconditions
+→ Requests / Evidence
+→ Owner decisions
+→ Integration operations
+→ Actual-state evidence
+→ Verification
+→ Commit / result
+→ User-visible outcome
+```
+
+Critical flow rule:
+
+```text
+command sent
+!= command accepted
+!= operation submitted
+!= target observed
+!= verification passed
+!= canonical commit
+```
+
+Flow does not redefine ownership/state. It shows how several owners and integrations cooperate over time.
 
 ---
 
@@ -221,7 +232,7 @@ Desktop     ↓
             WORK xor GAME
 ```
 
-Runtime integration topology now has an explicit user-session / privileged split:
+Runtime integration topology:
 
 ```text
 Interactive user session
@@ -238,24 +249,48 @@ Interactive user session
          Windows Service / Session 0
 ```
 
-Critical integration rule:
+End-to-end mutation pattern:
 
 ```text
-UI request
+User intent
 → semantic owner/orchestrator
 → integration mechanism
 → immediate technical result
 → actual-state evidence
 → verification
-→ canonical result
+→ canonical commit/result
+→ visible UX
 ```
 
-Not:
+---
+
+## Current canonical flow families
 
 ```text
-API call returned success
-= product target reached
+FL-01 First Run / FREE-PRO / Upgrade
+FL-02 Work → Game
+FL-03 Managed Game Launch and Exit
+FL-04 Game → Work
+FL-05 Update and Recovery
 ```
+
+Direct managed game launch from Work is intentionally composition, not a separate implementation:
+
+```text
+FL-02 Work → Game
++
+FL-03 Managed Game Launch
+```
+
+Major mutating orchestration must be coordinated:
+
+```text
+Mode Transition
+or Update
+or Recovery
+```
+
+should own the machine-transition window rather than interleaving conflicting state mutations.
 
 ---
 
@@ -282,7 +317,7 @@ Stable SplitOS semantic contract
 → Steam / Epic / Xbox / Battle.net specific mechanism
 ```
 
-Support is capability-based; version-sensitive local metadata is never silently promoted to a public stable contract.
+Support is capability-based; version-sensitive local metadata is never silently promoted to a stable public contract.
 
 ### Account / payment
 
@@ -296,48 +331,53 @@ Runtime / Manager
 → Entitlement
 ```
 
-### Builder
+### Builder / update
 
 ```text
 Windows source
 → validate
 → Build Manifest
-→ DISM/offline servicing where applicable
+→ supported servicing mechanism
 → verify baseline
 ```
+
+Update execution remains compatibility-gated and its exact technology/package format is still OPEN.
 
 ---
 
 ## Next analytical target
 
-После `07-Integrations` следующим слоем является `08-Flows`.
+После `08-Flows` следующим слоем является `09-Failures`.
 
-Flow layer должен связать уже определённые:
-
-```text
-state
-behavior
-owned data
-interface contract
-integration mechanism
-```
-
-в end-to-end sequences.
-
-Primary flows:
+Failure analysis должен системно определить:
 
 ```text
-First Run + Account
-FREE → PRO Upgrade
-Startup PRO → Mode Selection
-Work → Game
-Managed Game Launch
-Game Exit → Launcher
-Game → Work
-Hardware/Display Change
-Update
-Recovery
-Builder / Clean Install
+failure source
+failure class
+who detects it
+who owns recovery decision
+retryable vs non-retryable
+user-visible impact
+rollback / safe fallback
+persistence across reboot
+observability requirement
 ```
 
-`Flow != Interface` и `Flow != State Machine`: flow показывает сквозное взаимодействие нескольких owners/integrations во времени.
+Primary failure families:
+
+```text
+Account/backend unavailable
+Entitlement stale/ambiguous
+Privileged Broker unavailable
+Windows platform operation rejected
+Target state not reached after accepted operation
+Mode transition rollback failure
+Game Client unavailable/auth required
+Game launch not confirmed
+Hardware/display disappears mid-flow
+Update apply/verification failure
+Incomplete transaction after crash/reboot
+Recovery target cannot be verified
+```
+
+`Failure != generic exception`: failure semantics must remain tied to owners, states and safe convergence rules.
