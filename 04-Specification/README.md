@@ -17,8 +17,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-05` Mode Runtime | READY FOR REVIEW | ACTIVATE/SWITCH/DEACTIVATE transaction model, blocker engine, mode policy, major mutation lease, rollback/reconciliation |
 | `SPEC-06` Windows Context Integrations | READY FOR REVIEW | display/audio/input/power/process/services/hardware, supported Windows APIs, device identity, hot-plug and read-back verification |
 | `SPEC-07` Game Client Adapters | READY FOR REVIEW | shared adapter contract, Steam/Epic/Microsoft Gaming/Battle.net capability model, library/install evidence, launch handoff and process/session correlation |
-| `SPEC-08` Game Profile & Optimization | NEXT | profile/optimization schema and resolution |
-| `SPEC-09` Game Launcher & Shared Apps UX | NOT STARTED | controller-first UX and Shared Apps |
+| `SPEC-08` Game Profile & Optimization | READY FOR REVIEW | multi-profile scenarios, deterministic hardware matching, field-level overrides, game-config adapters, recommendation engine, performance telemetry/drift reconciliation |
+| `SPEC-09` Game Launcher & Shared Apps UX | NEXT | controller-first UX and Shared Apps |
 | `SPEC-10` Builder & Component Matrix | NOT STARTED | source/build manifest/component decisions |
 | `SPEC-11` Update & Recovery | NOT STARTED | update transaction/reboot/rollback/recovery |
 | `SPEC-12` Release Security & Key Management | NOT STARTED | signing/key hierarchy/revocation |
@@ -298,6 +298,67 @@ Process/session correlation uses named proof sets and `PID + creationTime` where
 
 Adapters are unelevated/read-only integrations. They never collect external client passwords/tokens, modify client databases, inject into games, or convert local metadata into privileged command input.
 
+## Current Game Profile & Optimization baseline
+
+One game may own multiple independent profiles:
+
+```text
+Game
+├── Desktop profile
+└── Living-room / TV profile
+```
+
+A profile carries desired scenario/device/performance intent and field-level user locks. It does not store actual hardware/game state as intent.
+
+Profile resolution:
+
+```text
+fresh hardware/display/input evidence
+→ profile eligibility
+→ deterministic selection order
+→ immutable ResolvedProfileContext
+→ generation validation before apply
+```
+
+No opaque weighted profile score is used. Material ambiguity/fallback requires explicit deterministic handling or user choice.
+
+Optimization precedence:
+
+```text
+hard compatibility/platform constraints
+> valid field-level user locks
+> explicit profile intent
+> current optimizer recommendation for AUTO fields
+> release safe/default game knowledge
+> unmanaged game defaults
+```
+
+Optimization objective:
+
+```text
+stable useful performance target
+subject to user locks / scenario constraints
+then maximize visual quality
+```
+
+Recommendation uses release-owned per-game setting definitions, legal values, dependencies and degradation/upgrade ladders. Game configuration writes are performed only through a typed per-game configuration adapter with source-digest conflict detection and read-back verification.
+
+Normal v1 gameplay is not continuously reconfigured. Static recommendation applies before launch; optional measured evidence refines a future recommendation or explicit calibration run.
+
+Performance telemetry:
+
+```text
+PerformanceTelemetryAdapter
+→ PresentMon-compatible provider is primary v1 candidate
+→ exact service vs embedded packaging remains engineering validation gate
+```
+
+Average FPS alone is not sufficient; frame-time distribution/stability is part of target evaluation.
+
+External game-setting drift is preserved for the immediate launch and surfaced for reconciliation. It does not silently become a permanent SplitOS user override.
+
+Vendor driver profile/tuning APIs are optional future capabilities; core v1 optimization does not require overclock/undervolt/fan control or implicit NVAPI/ADLX mutation.
+
 ## Current specification artifacts
 
 ```text
@@ -308,6 +369,7 @@ SPEC-04-Account-Auth-and-Entitlement/
 SPEC-05-Mode-Runtime/
 SPEC-06-Windows-Context-Integrations/
 SPEC-07-Game-Client-Adapters/
+SPEC-08-Game-Profile-and-Optimization/
 ```
 
 ## Source architecture
