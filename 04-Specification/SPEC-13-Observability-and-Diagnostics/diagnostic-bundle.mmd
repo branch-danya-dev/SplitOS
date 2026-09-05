@@ -1,0 +1,24 @@
+flowchart TD
+    S[Incident selector
+correlation / transition / launch / update / recovery / crash] --> C[Collect bounded diagnostic views]
+    C --> E[Correlated operational events]
+    C --> A[Relevant protected audit subset]
+    C --> ST[State / transaction summaries]
+    C --> ENV[Environment / compatibility summary]
+    C --> O{Optional artifacts selected?}
+    O -->|ETL| T[Detailed ETW trace]
+    O -->|Crash dump| D[Selected WER dump]
+    O -->|None| R[Redaction pipeline]
+    E --> R
+    A --> R
+    ST --> R
+    ENV --> R
+    T --> R
+    D --> R
+    R --> V{Privacy validation passed?}
+    V -->|No| X[Export blocked]
+    V -->|Yes| M[manifest.json + summary.json]
+    M --> Z[DiagnosticBundle.zip]
+    Z --> L[Local export]
+    Z --> U[Explicit support upload
+requirements gated]
