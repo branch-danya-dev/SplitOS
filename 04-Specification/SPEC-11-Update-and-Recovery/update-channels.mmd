@@ -1,0 +1,17 @@
+flowchart TD
+    SRA[SplitOS Release Authority] --> SE[Signed SplitOS Release / Knowledge Envelope]
+    SE --> SU[SplitOS Update Channel]
+    SU --> SO[SplitOS Update Orchestration]
+
+    MS[Microsoft Update Source] --> WUA[Windows Update / Supported Microsoft Servicing]
+    AP[SplitOS Windows Patch Approval Metadata] --> WC[Windows Servicing Coordinator]
+    WUA --> WC
+
+    SO --> G{Major mutation gate}
+    WC --> G
+    G -->|SplitOS wrapper window| SP[Stage / Capsule / Activate SplitOS Release]
+    G -->|Approved Windows servicing window| WP[Install Microsoft-signed approved patch]
+
+    SP --> V[Verify installed SplitOS release]
+    WP --> C[Refresh Windows build + SplitOS compatibility]
+    C --> V

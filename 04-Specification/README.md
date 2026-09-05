@@ -20,8 +20,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-08` Game Profile & Optimization | READY FOR REVIEW | multi-profile scenarios, deterministic hardware matching, field-level overrides, game-config adapters, recommendation engine, performance telemetry/drift reconciliation |
 | `SPEC-09` Game Launcher & Shared Apps UX | READY FOR REVIEW | controller-first Launcher lifecycle/navigation, runtime binding, launch/return/error UX, Shared App assignments/window orchestration and capability-gated in-game panel |
 | `SPEC-10` Builder & Component Matrix | READY FOR REVIEW | Windows source contract, strict Build Manifest, typed offline servicing, versioned component matrix, validation ladder, BuildReceipt and clean-install provisioning |
-| `SPEC-11` Update & Recovery | NEXT | update transaction/reboot/rollback/recovery |
-| `SPEC-12` Release Security & Key Management | NOT STARTED | signing/key hierarchy/revocation |
+| `SPEC-11` Update & Recovery | READY FOR REVIEW | independent SplitOS update channel, validated Windows servicing coexistence, durable update/reboot transaction, previous-release recovery capsule, user-data-preserving rollback, WinRE recovery |
+| `SPEC-12` Release Security & Key Management | NEXT | signing/key hierarchy/revocation |
 | `SPEC-13` Observability & Diagnostics | NOT STARTED | events/correlation/privacy/retention |
 | `SPEC-14` Verification & Acceptance | NOT STARTED | executable acceptance/test cases |
 
@@ -466,6 +466,62 @@ Build success is not a command exit code. All mandatory postconditions and final
 
 Clean installation of the verified prepared baseline is the supported v1 product path. Mutation of an arbitrary existing Windows installation is not equivalent.
 
+## Current Update & Recovery baseline
+
+Update authority is split explicitly:
+
+```text
+Microsoft Windows servicing
+→ Microsoft-signed Windows patch payload source
+
+SplitOS Compatibility
+→ decides whether Windows patch/build is supported
+
+SplitOS Update Channel
+→ SplitOS-owned wrapper/runtime/knowledge/recovery payload source
+```
+
+Automatic application of unvalidated Windows feature/system changes remains controlled per the existing update requirements, but SplitOS does not remove/replace the Windows servicing infrastructure and does not rehost Microsoft patch binaries inside the wrapper feed.
+
+SplitOS wrapper update flow:
+
+```text
+signed release envelope
+→ compatibility / Windows-servicing gate
+→ download + verify
+→ stage target release
+→ create + verify previous-release Recovery Capsule
+→ UPDATE mutation lease
+→ trusted one-shot Update Bootstrap
+→ activate target
+→ [reboot/resume]
+→ verify Broker / Runtime / DB / Windows compatibility
+→ atomic InstalledSplitOSRelease commit
+```
+
+Mandatory local rollback target:
+
+```text
+Current release N
+→ create + seal + verify capsule N
+→ only then activate N+1
+```
+
+The previous-release capsule lives in a hidden SplitOS Recovery Store on the same device, separate from ordinary user data and conceptually separate from Windows RE tools.
+
+Recovery invariant:
+
+```text
+software rollback
+!= user-data rollback
+```
+
+Per-user canonical data remains live. Production releases must preserve at least one previous-release rollback compatibility or provide a tested rollback bridge. Normal rollback never restores an old `%UserProfile%` or old `user.db` snapshot that would erase user changes made after update.
+
+When normal SplitOS runtime cannot recover, a bounded SplitOS Recovery Tool may run from Windows RE and restore validated SplitOS-owned payload/machine state from the local capsule. Windows-level corruption remains a Windows-native recovery responsibility.
+
+A same-device capsule is a fast last-known-good recovery mechanism, not protection against physical disk/device loss.
+
 ## Current specification artifacts
 
 ```text
@@ -479,6 +535,7 @@ SPEC-07-Game-Client-Adapters/
 SPEC-08-Game-Profile-and-Optimization/
 SPEC-09-Game-Launcher-and-Shared-Apps-UX/
 SPEC-10-Builder-and-Component-Matrix/
+SPEC-11-Update-and-Recovery/
 ```
 
 ## Source architecture

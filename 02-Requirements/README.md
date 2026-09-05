@@ -11,6 +11,7 @@
 ├── SplitOS — Non-Functional Requirements.md
 ├── SplitOS Distribution and Entitlement Requirements.md
 ├── SplitOS Runtime Access and Account Requirements.md
+├── SplitOS Update and Recovery Requirements.md
 ├── SplitOS System Context.md
 └── Requirements Open Questions.md
 ```
@@ -39,7 +40,13 @@ SplitOS Distribution and Entitlement Requirements.md
 SplitOS Runtime Access and Account Requirements.md
 ```
 
-Оба extension-документа являются частью того же requirements baseline, а не отдельными продуктами.
+Уточнения update/recovery, появившиеся после исходного baseline — собственный канал обновления SplitOS wrapper/runtime, controlled coexistence с Microsoft servicing, автоматический previous-release backup и user-data-preserving rollback — находятся в:
+
+```text
+SplitOS Update and Recovery Requirements.md
+```
+
+Все extension-документы являются частью того же requirements baseline, а не отдельными продуктами.
 
 Позднее при крупной requirements consolidation эти families могут быть объединены в один document без изменения semantic ownership.
 
@@ -133,4 +140,19 @@ FREE → PRO without reinstall
 offline/degraded account behavior
 SplitOS Manager account/subscription surface
 payment evidence vs entitlement ownership
+```
+
+После product clarification по update/recovery baseline дополнен:
+
+```text
+independent SplitOS wrapper/runtime update channel
+Microsoft Windows patch payload remains Microsoft-serviced
+SplitOS compatibility approval before automatic Windows change
+no conflict between SplitOS update transaction and Windows servicing
+automatic previous SplitOS release recovery capsule
+hidden on-device SplitOS Recovery Store
+software rollback without personal user-data rollback
+at least one-release user-data rollback compatibility / rollback bridge
+WinRE-hosted offline SplitOS recovery path
+same-device recovery != physical-disk backup
 ```
