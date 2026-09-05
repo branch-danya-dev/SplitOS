@@ -1,0 +1,24 @@
+flowchart TD
+    A[SplitOS Update Channel] --> B[Signed Release Envelope]
+    B --> C[Eligibility Check]
+    C --> D{Windows servicing / reboot conflict?}
+    D -- Yes --> E[Defer SplitOS apply]
+    D -- No --> F[Download + Verify Artifacts]
+    F --> G[Stage Target Release]
+    G --> H[Create Previous Release Capsule]
+    H --> I{Capsule verified?}
+    I -- No --> J[Abort update\nCurrent release remains canonical]
+    I -- Yes --> K[Acquire UPDATE Mutation Lease]
+    K --> L[Privileged Update Bootstrap]
+    L --> M[Activate Target Release]
+    M --> N{Reboot required?}
+    N -- Yes --> O[Persist AWAITING_REBOOT]
+    O --> P[Reboot]
+    P --> Q[Resume Transaction]
+    N -- No --> Q
+    Q --> R[Verify Target Broker / Runtime / DB / Compatibility]
+    R --> S{Mandatory predicates pass?}
+    S -- No --> T[Rollback / Recovery]
+    T --> U[Verify Previous Release]
+    S -- Yes --> V[Atomic InstalledRelease Commit]
+    V --> W[COMPLETED\nKeep previous capsule]
