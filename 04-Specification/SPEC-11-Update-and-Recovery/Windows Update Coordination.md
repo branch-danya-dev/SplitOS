@@ -2,92 +2,186 @@
 
 ## 1. Purpose
 
-This document defines how SplitOS avoids unsafe overlap with Windows Update while preserving Windows Update as the authority for Microsoft-serviced Windows content.
+This document defines how SplitOS coordinates its own update lifecycle with Microsoft Windows servicing while preserving the existing product requirement that unvalidated Windows feature/system updates are not automatically applied.
 
 ---
 
-## 2. Non-conflict principle
+## 2. Authority model
 
 ```text
-SplitOS update scheduler
-!= Windows Update scheduler
+Microsoft
+→ source/issuer of Windows quality/feature/security update payloads
+
+SplitOS Compatibility
+→ decides whether a Windows patch/build is supported by SplitOS
+
+SplitOS Update Channel
+→ distributes SplitOS-owned wrapper/runtime/knowledge payloads
 ```
 
-SplitOS does not require Windows Update to be disabled.
+The SplitOS product does not replace the Microsoft servicing stack.
 
-SplitOS does not assume it can own all restart timing on the machine.
-
-The product instead coordinates by detecting known servicing/reboot conditions, deferring its own apply, persisting safe checkpoints, and reconciling after Windows changes.
+The SplitOS product **does** control automatic eligibility/timing of Windows changes according to `FR-UPDATE-001..009` so an unvalidated Windows build does not silently mutate the supported baseline.
 
 ---
 
-## 3. Supported observation surface
+## 3. Windows servicing lane
 
-SplitOS MAY use documented Windows Update Agent APIs as evidence, including:
+Approved Windows patching uses supported Microsoft servicing mechanisms.
+
+Conceptually:
+
+```text
+SplitOS Knowledge Release
+→ approved Windows KB/build metadata
+→ Windows Update Agent / supported Windows servicing source
+→ Microsoft-signed Windows payload
+→ install
+→ reboot if required
+→ SplitOS compatibility + baseline verification
+```
+
+The SplitOS wrapper channel MUST NOT rehost/re-sign Microsoft patch binaries.
+
+---
+
+## 4. Automatic update policy
+
+v1 baseline preserves the existing requirement:
+
+```text
+unvalidated automatic Windows feature/system update
+→ NOT ALLOWED
+```
+
+This means SplitOS may configure supported Windows update policy/timing so unknown changes are not automatically committed before compatibility validation.
+
+It does **not** mean:
+
+```text
+remove Windows Update service
+replace Microsoft servicing engine
+block all security servicing forever
+use undocumented registry/service hacks
+```
+
+Exact Windows policy mechanism must use documented supported policy/WUA surfaces for the supported edition/build.
+
+---
+
+## 5. Supported observation/control evidence
+
+SplitOS MAY use documented Windows Update Agent APIs such as:
 
 ```text
 IUpdateSession
 IUpdateSearcher
+IUpdateDownloader
+IUpdateInstaller
 QueryHistory
-installer reboot-required evidence
+reboot-required evidence
 ```
 
-It may additionally consume documented OS/build/version evidence and supported servicing state evidence.
+The Windows servicing lane may use these APIs to search/download/install an already-approved Microsoft update where supported.
 
-No single evidence source is treated as absolute proof that Windows servicing cannot begin.
+SplitOS may also consume documented OS/build/version and servicing evidence.
+
+No single API response is treated as total proof that Windows servicing cannot begin or that a patch is semantically compatible with SplitOS.
 
 ---
 
-## 4. WindowsServicingSnapshot
+## 6. WindowsServicingSnapshot
 
-Conceptual snapshot:
+Conceptual evidence object:
 
 ```text
 snapshotId
 observedAtUtc
 windowsBuild
 ubr/revision evidence
-updateSearchState
-recentUpdateHistory
+pendingApprovedUpdates[]
+activeServicingEvidence[]
+recentUpdateHistory[]
 rebootRequiredEvidence[]
-servicingActivityEvidence[]
 compatibilityDecision
+approvedPatchSetVersion
 confidence
 ```
 
-The snapshot is ephemeral evidence, not canonical Windows Update state owned by SplitOS.
+This snapshot is evidence only. Microsoft/Windows remain authority for actual servicing state.
 
 ---
 
-## 5. Pre-apply gate
+## 7. Windows patch approval
 
-A SplitOS update that performs machine mutation MUST NOT enter `APPLYING` if any mandatory gate is unresolved:
+A Windows patch/build is accepted only after SplitOS compatibility validation.
+
+Approval metadata may be delivered through a SplitOS `KNOWLEDGE_RELEASE`:
 
 ```text
-known Windows servicing active
-known Windows update install active
-reboot required before safe apply
-current Windows base changed since release eligibility evaluation
-Windows compatibility = UNKNOWN / REJECTED
+WindowsPatchApproval
+├── target Windows edition/build family
+├── KB/update identity
+├── minimum SplitOS release
+├── compatibility status
+├── known constraints
+├── Component Matrix implications
+└── validation evidence/version
 ```
 
-Result:
+Then:
+
+```text
+approved metadata
+!= Windows patch payload
+```
+
+The payload still comes from the supported Microsoft servicing channel.
+
+---
+
+## 8. Pre-apply gate for SplitOS wrapper update
+
+A SplitOS update that performs machine mutation MUST NOT enter `APPLYING` while conflicting Windows servicing is known or unresolved:
+
+```text
+Windows servicing active
+approved Windows update install active
+reboot required before safe SplitOS apply
+Windows build changed since eligibility evaluation
+Windows compatibility UNKNOWN / REJECTED
+Recovery already active
+Mode transition owns machine mutation lease
+another SplitOS update owns mutation lease
+```
+
+Typed outcomes:
 
 ```text
 DEFERRED_WINDOWS_SERVICING
-```
-
-or:
-
-```text
 REBOOT_REQUIRED_BEFORE_SPLITOS_UPDATE
+WINDOWS_COMPATIBILITY_REEVALUATION_REQUIRED
 ```
 
 ---
 
-## 6. Mutation lease interaction
+## 9. Pre-apply gate for Windows patch
 
-The SPEC-05 machine mutation lease serializes SplitOS-owned major mutations:
+The Windows servicing lane likewise MUST NOT start a validated Windows patch while a conflicting SplitOS major mutation is active:
+
+```text
+MODE transition active
+SplitOS UPDATE applying
+RECOVERY active
+```
+
+The system should converge to a stable mode/state first.
+
+---
+
+## 10. Mutation lease scope
+
+The SPEC-05 mutation lease serializes SplitOS-owned major mutations:
 
 ```text
 MODE
@@ -95,45 +189,38 @@ UPDATE
 RECOVERY
 ```
 
-It does not claim that SplitOS can lock Microsoft servicing.
+It cannot globally lock Microsoft servicing.
 
 Therefore:
 
 ```text
 SplitOS mutation lease acquired
-!= Windows servicing globally locked
+!= Windows servicing physically impossible
 ```
 
-Update must remain crash/reboot safe even after the lease is acquired.
+Both update paths remain crash/reboot safe and re-check fresh evidence before machine-visible operations.
 
 ---
 
-## 7. Unexpected Windows servicing
+## 11. Unexpected servicing overlap
 
-If fresh evidence indicates Windows servicing began after SplitOS started preparation:
-
-### Before target activation
-
-SplitOS should stop at a safe checkpoint:
+If Windows servicing begins unexpectedly while SplitOS has prepared but not activated its target release:
 
 ```text
 staging complete
-recovery capsule complete
+capsule complete
 apply not started
 → defer
 ```
 
-### During target activation
-
-Update Bootstrap persists its checkpoint and must avoid beginning additional optional mutations.
-
-After Windows servicing/reboot completes:
+If overlap occurs after target activation began:
 
 ```text
-read UpdateTransaction
-→ refresh Windows base/build
+persist current update checkpoint
+→ stop optional mutations
+→ survive/reconcile reboot
+→ refresh Windows build/servicing evidence
 → compatibility evaluation
-→ verify source/target activation evidence
 → resume or rollback
 ```
 
@@ -141,105 +228,86 @@ Blind continuation is forbidden.
 
 ---
 
-## 8. Windows update completes first
+## 12. Windows patch completion
 
-When Windows Update changes the Windows build/revision:
+After a validated Windows patch is installed:
 
 ```text
-Windows update
-↓
 reboot if required
-↓
-SplitOS startup
-↓
-refresh Windows compatibility
+→ read actual Windows build/revision
+→ verify expected patch state
+→ rerun SplitOS compatibility predicates
+→ refresh Component Matrix/runtime integration evidence
 ```
 
 Possible outcomes:
 
 ### SUPPORTED
 
-Normal SplitOS runtime may continue.
+Normal SplitOS managed runtime continues.
 
-### SUPPORTED_WITH_KNOWLEDGE_REFRESH
+### SUPPORTED_WITH_SPLITOS_UPDATE_REQUIRED
 
-SplitOS may require a signed knowledge/runtime release from its own channel before re-enabling selected managed capabilities.
+Windows remains usable; selected managed SplitOS capabilities may be restricted until a compatible SplitOS release/knowledge package is installed.
 
-### UNSUPPORTED / UNKNOWN
+### UNKNOWN / UNSUPPORTED
 
 Safety target:
 
 ```text
 Windows Desktop usable
-SplitOS managed mutations restricted/disabled
-OperationalMode → NONE when safe
-Manager surfaces compatibility issue
+ManagedRuntime restricted/disabled when safe
+OperationalMode → NONE
+Manager explains compatibility state
 ```
 
-SplitOS must not make Windows login depend on receiving a compatibility update.
+Windows login never depends on receiving the SplitOS update.
 
 ---
 
-## 9. SplitOS update completes first
+## 13. Restart UX
 
-After SplitOS update commit, Windows Update remains free to operate according to Windows/user/admin policy.
+If an approved Windows patch and a SplitOS update both require restart, the UI MAY coordinate them into one user-visible maintenance window when their transaction checkpoints prove that this is safe.
 
-SplitOS must not retain temporary update locks/policies that suppress normal Windows servicing.
-
----
-
-## 10. Restart UX
-
-SplitOS should prefer user-visible coordination over competing restart prompts.
-
-If Windows already requires a restart and SplitOS target also requires one, SplitOS MAY combine its own resume marker with the same next reboot when technically safe.
-
-However:
+But:
 
 ```text
-one reboot
-!= one update authority
+one physical reboot
+!= one semantic transaction
 ```
 
-After boot, each subsystem's completion must be verified independently.
+After boot, Windows patch state and SplitOS release state are verified independently.
 
 ---
 
-## 11. Windows Update policy ownership
+## 14. Feature updates
 
-v1 does not silently impose Windows Update deferral/deadline/active-hours policy.
+Windows feature/build updates have higher compatibility risk than ordinary revision changes.
 
-If a future product feature offers “SplitOS-managed Windows Update timing”, it must be an explicit policy capability using documented Windows policy mechanisms and must be specified separately.
-
-Raw undocumented registry manipulation is not a substitute for such a contract.
-
----
-
-## 12. Feature updates
-
-Windows feature updates can materially change the component/dependency baseline.
-
-Therefore a feature/build transition requires:
+Before a feature/build transition is approved:
 
 ```text
-new Windows base evidence
-→ Compatibility Management decision
-→ Component Matrix / release knowledge validation
+new Windows base candidate
+→ Component Matrix revalidation
+→ boot/OOBE/recovery test
+→ Runtime integration test
+→ game/client compatibility test
+→ SplitOS compatibility release
 ```
 
-A previously accepted `REMOVE / DISABLE / MODE_MANAGED / KEEP` decision is not automatically valid on the new Windows build.
+An old component classification is not automatically valid on a new Windows build.
 
 ---
 
-## 13. Recovery interaction
+## 15. Recovery interaction
 
-If Windows Update itself causes Windows-level boot/servicing failure, SplitOS Recovery does not pretend that a previous SplitOS wrapper payload is a Windows image rollback.
+If an approved Microsoft update causes Windows-level boot/servicing failure, a SplitOS previous-wrapper capsule is not a Windows image backup.
 
 SplitOS may:
 
-- enter WinRE-hosted SplitOS Recovery Tool;
-- validate/repair SplitOS-owned payloads;
-- hand off to Windows-native recovery options;
-- revalidate SplitOS after Windows recovery.
+- use WinRE-hosted SplitOS Recovery Tool to inspect/repair SplitOS-owned state;
+- preserve diagnostics;
+- hand off to Windows-native update rollback/repair where supported;
+- revalidate/recover SplitOS after Windows is stable.
 
-It MUST NOT fabricate Windows rollback success from SplitOS capsule restoration.
+It MUST NOT report Windows rollback success merely because the SplitOS wrapper was restored.
