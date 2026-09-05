@@ -1,0 +1,26 @@
+flowchart LR
+    UI[Manager / Game Launcher] --> EV[Structured Event API]
+    RH[Runtime Host] --> EV
+    BR[Privileged Broker] --> EV
+    UP[Update Bootstrap / Recovery Tool] --> EV
+
+    EV --> PR[Privacy classification]
+    PR --> UL[User operational NDJSON]
+    PR --> ML[Machine operational NDJSON]
+    PR --> AU[Protected security audit]
+    PR --> ETW[ETW / TraceLogging]
+
+    UL --> DB[Diagnostic Bundle Builder]
+    ML --> DB
+    AU --> DB
+    ETW --> ETL[On-demand ETL]
+    ETL --> DB
+    WER[WER LocalDumps] --> DMP[Crash dumps]
+    DMP --> DB
+
+    DB --> RED[Selection + redaction + validation]
+    RED --> EXP[Local export]
+    RED --> SUP[Explicit support upload - future/requirements gated]
+
+    CAN[Canonical SQLite / transaction state] -. diagnostic read-only views .-> DB
+    DB -. never imports/replays .-> CAN

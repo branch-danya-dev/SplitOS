@@ -22,8 +22,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-10` Builder & Component Matrix | READY FOR REVIEW | Windows source contract, strict Build Manifest, typed offline servicing, versioned component matrix, validation ladder, BuildReceipt and clean-install provisioning |
 | `SPEC-11` Update & Recovery | READY FOR REVIEW | independent SplitOS update channel, validated Windows servicing coexistence, durable update/reboot transaction, previous-release recovery capsule, user-data-preserving rollback, WinRE recovery |
 | `SPEC-12` Release Security & Key Management | READY FOR REVIEW | TUF repository trust, offline threshold root/targets/recovery roles, Authenticode publisher trust, key custody/rotation/revocation, anti-rollback and signing pipeline |
-| `SPEC-13` Observability & Diagnostics | NEXT | events/correlation/privacy/retention |
-| `SPEC-14` Verification & Acceptance | NOT STARTED | executable acceptance/test cases |
+| `SPEC-13` Observability & Diagnostics | READY FOR REVIEW | local-first structured events/correlation, protected audit, ETW/TraceLogging, WER crash artifacts, privacy/retention and diagnostic bundle export |
+| `SPEC-14` Verification & Acceptance | NEXT | executable acceptance/test cases |
 
 ## Specification rules
 
@@ -561,6 +561,57 @@ Clients persist trusted metadata/version/security floors outside rebuildable upd
 
 CI/build workers never receive raw production private keys. Signing is performed by capability-scoped signing services/HSM-backed keys after release approval, with immutable final artifact hashes bound into release metadata.
 
+## Current Observability & Diagnostics baseline
+
+Observability is explicitly diagnostic, not authoritative:
+
+```text
+DiagnosticRecord
+!= canonical system truth
+```
+
+v1 is local-first:
+
+```text
+significant SplitOS action
+→ versioned structured event envelope
+→ rotating local NDJSON
+→ protected machine security audit where required
+→ optional ETW/TraceLogging detailed trace
+```
+
+Correlation preserves distinct identifiers:
+
+```text
+correlationId
+operationId
+transactionId
+requestId
+traceId / spanId
+processInstanceId
+```
+
+Durable transaction IDs survive reboot even when process/trace contexts change.
+
+Crash artifacts use per-application Windows Error Reporting LocalDumps. Minidump is the default; full process dump is explicit deep diagnostics only.
+
+Diagnostic export is selective and redacted:
+
+```text
+incident selector
+→ bounded semantic state/transaction views
+→ correlated events/audit
+→ optional ETL/dump
+→ privacy redaction + validation
+→ local DiagnosticBundle.zip
+```
+
+Continuous remote telemetry is not introduced by SPEC-13 because existing privacy requirements require a separate product decision for cloud telemetry. User-initiated support upload may be added later with explicit consent and backend/privacy requirements.
+
+Secrets are forbidden from logs. Default bundle avoids whole game-library/process inventory and pseudonymizes/redacts account IDs, arbitrary user paths and stable device identifiers where exact values are not required.
+
+Initial local retention is bounded by time and size; verbose traces/staging expire before canonical state or Recovery Capsule safety is ever sacrificed for diagnostics.
+
 ## Current specification artifacts
 
 ```text
@@ -576,6 +627,7 @@ SPEC-09-Game-Launcher-and-Shared-Apps-UX/
 SPEC-10-Builder-and-Component-Matrix/
 SPEC-11-Update-and-Recovery/
 SPEC-12-Release-Security-and-Key-Management/
+SPEC-13-Observability-and-Diagnostics/
 ```
 
 ## Source architecture
