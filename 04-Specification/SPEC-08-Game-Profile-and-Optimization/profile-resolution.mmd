@@ -1,0 +1,34 @@
+flowchart TD
+    A[Game selected] --> B[Load GameProfiles]
+    B --> C[Refresh Hardware / Display / Input evidence]
+    C --> D{Explicit profile selected?}
+
+    D -- Yes --> E[Evaluate selected profile]
+    E --> F{Eligible?}
+    F -- Exact --> R[Create ResolvedProfileContext]
+    F -- Approved fallback --> G{Fallback material?}
+    G -- No --> R
+    G -- Yes --> H[User confirms fallback]
+    H --> R
+    F -- No --> I[Offer compatible alternatives]
+
+    D -- No --> J[Evaluate all profiles]
+    J --> K[Exact same-context preference]
+    K --> L{Found unique eligible?}
+    L -- Yes --> R
+    L -- No --> M[Last-used same scenario]
+    M --> N{Found eligible?}
+    N -- Yes --> R
+    N -- No --> O[Game default profile]
+    O --> P{Eligible?}
+    P -- Yes --> R
+    P -- No --> Q{Unique remaining eligible?}
+    Q -- Yes --> R
+    Q -- No --> I
+
+    R --> S[Bind profile revision + snapshot generations]
+    S --> T[Resolve recommendation]
+    T --> U[Before apply validate generations]
+    U --> V{Still current?}
+    V -- Yes --> W[Continue managed launch]
+    V -- No --> C

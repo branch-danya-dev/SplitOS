@@ -1,0 +1,25 @@
+flowchart TD
+    A[GameProfile + user locks] --> B[Fresh hardware/display context]
+    B --> C[Load release-owned game optimization knowledge]
+    C --> D[Resolve hard constraints]
+    D --> E[Preserve valid LOCKED fields]
+    E --> F[Build static recommendation]
+    F --> G[Validate through Game Configuration Adapter]
+    G --> H{AUTO?}
+    H -- No / Suggest only --> I[Show recommendation]
+    H -- Yes --> J[Apply while game not running]
+    J --> K[Read-back verify]
+    K --> L[Managed launch]
+    L --> M[GAME_RUNNING confirmed]
+    M --> N{Telemetry available?}
+    N -- No --> O[Keep static recommendation]
+    N -- Yes --> P[Collect valid representative observation]
+    P --> Q{Target satisfied?}
+    Q -- Yes with margin --> R[Consider quality upgrade ladder]
+    Q -- Yes --> O
+    Q -- No --> S[Use degradation ladder skipping user locks]
+    S --> T{Feasible candidate remains?}
+    T -- Yes --> U[Create refined recommendation for next launch / explicit Optimize]
+    T -- No --> V[TARGET_UNMET with locks or hardware limit]
+    R --> U
+    U --> W[Do not mutate normal gameplay by default]
