@@ -2,19 +2,24 @@
 
 ## Purpose
 
-SPEC-11 defines how an installed SplitOS baseline receives SplitOS-owned updates, coordinates safely with Microsoft Windows Update, preserves a local last-known-good SplitOS release, resumes after reboot/crash, and restores a coherent runtime without rolling back user data.
+SPEC-11 defines how an installed SplitOS baseline receives SplitOS-owned updates, coordinates safely with Microsoft Windows servicing, preserves a local last-known-good SplitOS release, resumes after reboot/crash, and restores a coherent runtime without rolling back user data.
 
-The package preserves the existing ownership rule:
+The package preserves this authority split:
 
 ```text
-Microsoft Windows Update
-→ Windows / Microsoft-serviced OS payload authority
+Microsoft Windows servicing / Windows Update infrastructure
+→ source/authority for Microsoft-serviced Windows payloads
+
+SplitOS Compatibility
+→ authority for whether a Windows patch/build is supported by SplitOS
 
 SplitOS Update Channel
-→ SplitOS-owned runtime / policy / knowledge / recovery payload authority
+→ source/authority for SplitOS-owned runtime / policy / knowledge / recovery payloads
 ```
 
-The two channels MUST remain separate. SplitOS MUST NOT register an undocumented Windows Update provider, replace Windows Update, disable Windows Update as a product invariant, or route Microsoft OS patches through the SplitOS release feed.
+The payload channels MUST remain separate. SplitOS MUST NOT register an undocumented Windows Update provider, replace/remove the Windows Update servicing infrastructure, re-sign/rehost Microsoft OS patches as SplitOS artifacts, or route Microsoft binaries through the SplitOS wrapper feed.
+
+Existing `FR-UPDATE-001..009` still apply: automatic application of unvalidated Windows feature/system updates is controlled/disabled by the SplitOS product policy until compatibility is known. This is an eligibility/scheduling rule over supported Windows servicing mechanisms, not a replacement of Microsoft's servicing stack.
 
 ---
 
@@ -71,7 +76,7 @@ RUNTIME_RELEASE
 
 KNOWLEDGE_RELEASE
 → compatibility knowledge, Game Client capability data, Game Profile optimization knowledge,
-   typed policy catalogs and other release-owned product knowledge
+   typed policy catalogs and Windows-patch approval/compatibility metadata
 
 BASELINE_MAINTENANCE
 → validated SplitOS-owned changes to installed baseline configuration/component state;
@@ -81,13 +86,17 @@ RECOVERY_TOOL_RELEASE
 → SplitOS recovery/bootstrap tooling compatible with current Windows/WinRE baseline
 ```
 
+A `KNOWLEDGE_RELEASE` may declare that a Microsoft KB/build is accepted for a SplitOS release. The Microsoft payload itself remains obtained/applied through supported Microsoft servicing mechanisms.
+
 `STABLE` is the mandatory v1 production channel. Additional preview/test channels MAY exist later, but changing channel MUST be an explicit user/admin action and MUST NOT weaken signature or compatibility validation.
 
 ---
 
-## Windows Update coexistence
+## Windows servicing coexistence
 
-Windows Update remains responsible for Windows quality/feature/security updates and Microsoft-serviced drivers/packages.
+The Windows Update/servicing stack remains the supported mechanism family for Microsoft Windows quality/feature/security updates and applicable Microsoft-serviced drivers/packages.
+
+SplitOS controls **whether an unvalidated Windows change may be automatically applied** according to `FR-UPDATE-001..009`, while preserving the Microsoft servicing infrastructure.
 
 Before applying a SplitOS mutation, Update Orchestration MUST obtain fresh Windows servicing evidence and MUST defer when any of the following is materially true:
 
@@ -352,8 +361,9 @@ SPEC-11 does not define:
 - exact retry thresholds/acceptance test cases — SPEC-14;
 - cloud/user-document backup;
 - protection from physical disk loss;
-- undocumented Windows Update suppression or replacement;
-- automatic rollback of Microsoft Windows quality/feature updates through SplitOS packages.
+- undocumented Windows Update suppression/replacement;
+- rehosting Microsoft Windows update payloads in the SplitOS wrapper feed;
+- automatic rollback of Microsoft Windows quality/feature updates by pretending a SplitOS capsule is a Windows image backup.
 
 ---
 
@@ -361,21 +371,23 @@ SPEC-11 does not define:
 
 ```text
 SPEC-DEC-109  SplitOS uses an independent signed update channel for SplitOS-owned artifacts.
-SPEC-DEC-110  Windows Update remains authority for Microsoft-serviced Windows payloads.
-SPEC-DEC-111  SplitOS does not register an undocumented Windows Update provider or disable Windows Update as a product invariant.
-SPEC-DEC-112  Every update uses a signed release envelope plus per-artifact digests.
-SPEC-DEC-113  Target SplitOS release is staged before privileged activation.
-SPEC-DEC-114  Update uses the shared major machine-mutation lease with fencing.
-SPEC-DEC-115  One verified previous SplitOS release is a mandatory local rollback target.
-SPEC-DEC-116  Previous-release capsule must be created and verified before target activation.
-SPEC-DEC-117  SplitOS Recovery Store is hidden and isolated from ordinary live user-data paths.
-SPEC-DEC-118  Windows RE and SplitOS Recovery Store remain distinct responsibilities.
-SPEC-DEC-119  Software rollback MUST NOT roll back personal/user canonical data.
-SPEC-DEC-120  Canonical user-data schema supports at least one previous release or a tested rollback bridge.
-SPEC-DEC-121  Machine operational state may be snapshotted/restored as part of a recovery capsule.
-SPEC-DEC-122  Update reboot is a continuation point, not completion.
-SPEC-DEC-123  Target installed release commits only after mandatory post-activation verification.
-SPEC-DEC-124  WinRE may host a SplitOS custom recovery tool without replacing Windows RE.
-SPEC-DEC-125  Automatic destructive Windows reset/reinstall is forbidden.
-SPEC-DEC-126  Same-device capsule is recovery, not protection against physical disk loss.
+SPEC-DEC-110  Microsoft remains payload authority/source for Microsoft-serviced Windows updates.
+SPEC-DEC-111  SplitOS preserves the supported Windows servicing infrastructure; it does not register an undocumented Windows Update provider.
+SPEC-DEC-112  Automatic application of unvalidated Windows feature/system updates remains controlled by SplitOS compatibility policy.
+SPEC-DEC-113  Approved Windows patch bits are obtained/applied through supported Microsoft servicing mechanisms, not rehosted as SplitOS wrapper artifacts.
+SPEC-DEC-114  Every SplitOS update uses a signed release envelope plus per-artifact digests.
+SPEC-DEC-115  Target SplitOS release is staged before privileged activation.
+SPEC-DEC-116  Update uses the shared major machine-mutation lease with fencing.
+SPEC-DEC-117  One verified previous SplitOS release is a mandatory local rollback target.
+SPEC-DEC-118  Previous-release capsule must be created and verified before target activation.
+SPEC-DEC-119  SplitOS Recovery Store is hidden and isolated from ordinary live user-data paths.
+SPEC-DEC-120  Windows RE and SplitOS Recovery Store remain distinct responsibilities.
+SPEC-DEC-121  Software rollback MUST NOT roll back personal/user canonical data.
+SPEC-DEC-122  Canonical user-data schema supports at least one previous release or a tested rollback bridge.
+SPEC-DEC-123  Machine operational state may be snapshotted/restored as part of a recovery capsule.
+SPEC-DEC-124  Update reboot is a continuation point, not completion.
+SPEC-DEC-125  Target installed release commits only after mandatory post-activation verification.
+SPEC-DEC-126  WinRE may host a SplitOS custom recovery tool without replacing Windows RE.
+SPEC-DEC-127  Automatic destructive Windows reset/reinstall is forbidden.
+SPEC-DEC-128  Same-device capsule is recovery, not protection against physical disk loss.
 ```
