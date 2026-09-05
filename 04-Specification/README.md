@@ -134,6 +134,16 @@ PRO
 → ManagedRuntime = ENABLED
 ```
 
+Offline premium baseline:
+
+```text
+JWS OfflineEntitlementAssertion v1
+→ accountId + installationId + associationId bound
+→ max 7 days
+→ clock rollback check
+→ never cachedPro=true
+```
+
 Hosted checkout/browser return never grants PRO directly; Runtime Host refreshes backend entitlement before changing access.
 
 ## Current Mode Runtime baseline
@@ -252,6 +262,30 @@ Battle.net         EXPERIMENTAL
 
 Capability support is independent. A client can have a supported public launch mechanism while local library parsing remains version-sensitive.
 
+Current launch mechanisms:
+
+```text
+Steam
+→ Valve-documented steam:// protocol using Steam App ID
+→ local library/install VDF/ACF = version-sensitive evidence
+
+Epic
+→ documented com.epicgames.launcher://apps/... protocol
+→ Sandbox/Catalog/Artifact preferred identity
+→ validated install-path protocol identity fallback
+→ local launcher metadata = version-sensitive evidence
+
+Microsoft Gaming
+→ Windows package/app registration
+→ PFN + AUMID identity
+→ Windows application activation
+→ local registered titles only; no claim of full Xbox/Game Pass cloud library
+
+Battle.net
+→ adapter boundary exists
+→ discovery/launch/product metadata remain experimental until validated
+```
+
 Common launch invariant:
 
 ```text
@@ -286,6 +320,8 @@ fresh hardware/display/input evidence
 → generation validation before apply
 ```
 
+No opaque weighted profile score is used. Material ambiguity/fallback requires explicit deterministic handling or user choice.
+
 Optimization precedence:
 
 ```text
@@ -297,7 +333,31 @@ hard compatibility/platform constraints
 > unmanaged game defaults
 ```
 
+Optimization objective:
+
+```text
+stable useful performance target
+subject to user locks / scenario constraints
+then maximize visual quality
+```
+
+Recommendation uses release-owned per-game setting definitions, legal values, dependencies and degradation/upgrade ladders. Game configuration writes are performed only through a typed per-game configuration adapter with source-digest conflict detection and read-back verification.
+
 Normal v1 gameplay is not continuously reconfigured. Static recommendation applies before launch; optional measured evidence refines a future recommendation or explicit calibration run.
+
+Performance telemetry:
+
+```text
+PerformanceTelemetryAdapter
+→ PresentMon-compatible provider is primary v1 candidate
+→ exact service vs embedded packaging remains engineering validation gate
+```
+
+Average FPS alone is not sufficient; frame-time distribution/stability is part of target evaluation.
+
+External game-setting drift is preserved for the immediate launch and surfaced for reconciliation. It does not silently become a permanent SplitOS user override.
+
+Vendor driver profile/tuning APIs are optional future capabilities; core v1 optimization does not require overclock/undervolt/fan control or implicit NVAPI/ADLX mutation.
 
 ## Current Game Launcher & Shared Apps baseline
 
@@ -310,7 +370,7 @@ Runtime truth
 → Runtime Host owners
 ```
 
-`SplitOS.GameLauncher.exe` is unelevated, presentation-only and normally resident while GAME is committed.
+`SplitOS.GameLauncher.exe` is unelevated, presentation-only and normally resident while GAME is committed. It can reach `READY_PRECOMMIT` to satisfy launcher readiness, but full active Game UX appears only after Runtime reports committed `GAME`.
 
 When a managed game becomes `GAME_RUNNING`:
 
@@ -328,6 +388,8 @@ GAME remains committed
 → pre-launch semantic route/focus bookmark restored when valid
 ```
 
+Controller navigation uses semantic actions and deterministic logical focus. Keyboard/mouse remain recovery-compatible. The exact global controller chord for an in-game SplitOS panel remains an engineering gate; hidden Launcher does not process ordinary gameplay buttons.
+
 Shared Apps:
 
 ```text
@@ -339,9 +401,20 @@ SECONDARY_DISPLAY
 BACKGROUND
 ```
 
-v1 window presentation uses ordinary user-session Win32/DWM top-level window orchestration with generation-bound window/display evidence and read-back verification.
+Shared App assignment/presentation is separate from application/process ownership. v1 window presentation uses ordinary user-session Win32/DWM top-level window orchestration with generation-bound window/display evidence and read-back verification.
+
+Key invariants:
+
+```text
+HWND != persistent app identity
+SetWindowPos success != placement verified
+overlay requested != overlay guaranteed visible
+Shared App configured != currently visible
+```
 
 `OVERLAY` is capability-gated and is not guaranteed over exclusive fullscreen/protected presentation. SplitOS does not use DLL injection, game hooks or anti-cheat bypass to force presentation.
+
+The in-game SplitOS panel is optional/capability-gated. Game/session/mode correctness does not depend on panel availability.
 
 ## Current Builder & Component Matrix baseline
 
@@ -361,6 +434,8 @@ Microsoft-authorized Windows source
 → BuildReceipt + baseline descriptor
 ```
 
+The production Builder supports a user-provided Windows source in v1. Automatic source acquisition remains OPEN pending legal/licensing and technical validation.
+
 `BuildManifest` canonical execution form is strict schema-validated JSON. It contains only typed release-owned operations; arbitrary PowerShell/command/registry/path primitives are forbidden.
 
 Component lifecycle remains:
@@ -373,26 +448,42 @@ KEEP
 TBD
 ```
 
-Classification and validation status are independent. Destructive `REMOVE` requires mechanism, boot, servicing, recovery and compatibility evidence before production acceptance.
+but classification and validation status are independent. Destructive `REMOVE` requires mechanism, boot, servicing, recovery and compatibility evidence before production acceptance.
 
-Build success is not a command exit code. All mandatory postconditions and final output verification must pass.
+Current examples:
+
+```text
+core boot/servicing/recovery/network/display/audio/input → KEEP
+Microsoft Store/application deployment substrate         → KEEP
+Phone Link / Search / Print                              → MODE_MANAGED candidates
+consumer/promotional removable AppX                     → REMOVE candidates
+Defender Antivirus                                      → desired REMOVE candidate, still TBD/not accepted
+Edge browser shell                                      → TBD/remove candidate; separate from WebView2 runtime
+Gaming Services                                         → preserve required Microsoft Gaming dependencies
+```
+
+Build success is not a command exit code. All mandatory postconditions and final output verification must pass. Successful build emits a `BuildReceipt` bound to source identity, manifest/matrix/package digests, Builder/toolchain identity and verification results.
+
+Clean installation of the verified prepared baseline is the supported v1 product path. Mutation of an arbitrary existing Windows installation is not equivalent.
 
 ## Current Update & Recovery baseline
 
-SplitOS now has two separate update lanes:
+Update authority is split explicitly:
 
 ```text
-SplitOS Update Channel
-→ SplitOS-owned runtime / Manager / Launcher / Broker / adapters / knowledge / recovery tooling
+Microsoft Windows servicing
+→ Microsoft-signed Windows patch payload source
 
-Microsoft servicing lane
-→ Microsoft-signed Windows patches
-→ automatic application only after SplitOS compatibility approval
+SplitOS Compatibility
+→ decides whether Windows patch/build is supported
+
+SplitOS Update Channel
+→ SplitOS-owned wrapper/runtime/knowledge/recovery payload source
 ```
 
-SplitOS does not replace/remove Windows servicing infrastructure and does not rehost Microsoft patch binaries inside the wrapper update feed.
+Automatic application of unvalidated Windows feature/system changes remains controlled per the existing update requirements, but SplitOS does not remove/replace the Windows servicing infrastructure and does not rehost Microsoft patch binaries inside the wrapper feed.
 
-Wrapper update transaction:
+SplitOS wrapper update flow:
 
 ```text
 signed release envelope
@@ -408,15 +499,15 @@ signed release envelope
 → atomic InstalledSplitOSRelease commit
 ```
 
-Mandatory previous-release protection:
+Mandatory local rollback target:
 
 ```text
 Current release N
-→ verified local capsule N
+→ create + seal + verify capsule N
 → only then activate N+1
 ```
 
-The capsule lives in a hidden SplitOS Recovery Store on the same physical device, separate from ordinary user storage and conceptually separate from the Windows RE tools partition.
+The previous-release capsule lives in a hidden SplitOS Recovery Store on the same device, separate from ordinary user data and conceptually separate from Windows RE tools.
 
 Recovery invariant:
 
@@ -425,11 +516,11 @@ software rollback
 != user-data rollback
 ```
 
-Canonical user data remains live. Production releases must preserve at least one previous-release rollback compatibility or provide a tested rollback bridge; normal rollback never restores an old `%UserProfile%` or old user database snapshot that discards later user changes.
+Per-user canonical data remains live. Production releases must preserve at least one previous-release rollback compatibility or provide a tested rollback bridge. Normal rollback never restores an old `%UserProfile%` or old `user.db` snapshot that would erase user changes made after update.
 
-If normal runtime cannot recover, Windows RE may host a bounded SplitOS Recovery Tool that validates the capsule and restores SplitOS-owned release/machine state. Windows-level corruption remains a Windows-native recovery responsibility.
+When normal SplitOS runtime cannot recover, a bounded SplitOS Recovery Tool may run from Windows RE and restore validated SplitOS-owned payload/machine state from the local capsule. Windows-level corruption remains a Windows-native recovery responsibility.
 
-Same-device capsule is a fast recovery mechanism, not protection against physical disk/device loss.
+A same-device capsule is a fast last-known-good recovery mechanism, not protection against physical disk/device loss.
 
 ## Current specification artifacts
 
