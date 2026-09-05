@@ -1,0 +1,19 @@
+flowchart TD
+    A[Embedded Trusted Root] --> B[Sequential Root Update]
+    B --> C[Verify Timestamp]
+    C --> D[Verify Snapshot]
+    D --> E[Verify Targets / Delegations]
+    E --> F[Authenticate Release Envelope]
+    F --> G[Check releaseSequence / securityEpoch]
+    G --> H[Download Exact Artifacts]
+    H --> I[Verify SHA-256 / Size]
+    I --> J{Executable?}
+    J -- yes --> K[WinVerifyTrust / Authenticode\n+ allowed SplitOS publisher]
+    J -- no --> L[Typed Schema / Artifact Policy]
+    K --> M[Compatibility / Applicability]
+    L --> M
+    M --> N{Normal Update or Recovery?}
+    N -- Normal --> O[Monotonic Update Policy]
+    N -- Recovery --> P[Verify exact RecoveryAuthorization]
+    O --> Q[Stage / Apply Candidate]
+    P --> Q
