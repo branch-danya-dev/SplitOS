@@ -53,6 +53,10 @@ Decision Log фиксирует продуктовые и системные р�
 | DEC-041 | Первичный SplitOS sign-in/create-account выполняется после создания Windows user и первого Windows sign-in через SplitOS First Run Experience | Привязка account должна происходить к реальному пользовательскому контексту, а не к абстрактной установке до OOBE | ACCEPTED |
 | DEC-042 | SplitOS Manager является desktop control center для SplitOS Account, subscription/plan status, upgrade flow, modes, profiles, updates и recovery | Пользователю нужен штатный интерфейс управления продуктовой учёткой и подпиской | ACCEPTED |
 | DEC-043 | Платёжные данные и payment transaction execution остаются ответственностью внешнего payment provider; SplitOS потребляет payment evidence и владеет resulting entitlement | Не делать SplitOS владельцем карточных/платёжных данных | ACCEPTED |
+| DEC-044 | SplitOS-owned wrapper/runtime/knowledge получает отдельный подписанный update delivery channel, логически независимый от Microsoft Windows servicing payload channel | Обновлять продуктовую оболочку без смешивания собственных артефактов с Windows Update и без конкурирующих неуправляемых updater-механизмов | ACCEPTED |
+| DEC-045 | Перед активацией новой SplitOS-версии предыдущая verified SplitOS release автоматически сохраняется на текущем устройстве как локальный recovery target в изолированной recovery area | Неуспешное обновление оболочки должно иметь быстрый last-known-good rollback без переустановки Windows | ACCEPTED |
+| DEC-046 | Rollback SplitOS software/runtime не должен откатывать личные/канонические пользовательские данные к старому snapshot; data schema должна поддерживать previous-release rollback либо tested rollback bridge | Пользовательские изменения, сделанные после обновления, не должны исчезать при восстановлении старой версии SplitOS | ACCEPTED |
+| DEC-047 | Microsoft остаётся источником Windows patch payload, а SplitOS владеет compatibility approval и контролем автоматического применения неподтверждённых Windows changes; Windows servicing infrastructure не заменяется SplitOS updater'ом | Сохранить DEC-022/023, не смешивая Microsoft binaries с собственным SplitOS wrapper feed | ACCEPTED |
 
 ---
 
@@ -102,6 +106,21 @@ Windows sign-in
 ```
 
 `WORK xor GAME` является invariant полноценного managed SplitOS runtime, а не обязательным состоянием каждого бесплатного пользователя SplitOS.
+
+### Update-channel clarification
+
+DEC-022/023 сохраняются, но теперь уточнены DEC-044/047:
+
+```text
+SplitOS wrapper/runtime/knowledge
+→ independent SplitOS signed update channel
+
+Windows patch payload
+→ Microsoft servicing source
+→ allowed only after SplitOS compatibility approval
+```
+
+То есть SplitOS update lifecycle не требует перепаковывать Microsoft patch binaries в собственный wrapper feed и не заменяет Windows servicing infrastructure.
 
 ---
 
