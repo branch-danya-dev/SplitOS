@@ -1,0 +1,23 @@
+flowchart TD
+    ROOT[Offline Root Authority\n2-of-3] --> TARGETS[Top-level Targets\n2-of-3]
+    ROOT --> SNAP[Snapshot Key\nProtected Online]
+    ROOT --> TS[Timestamp Key\nSeparate Online]
+
+    TARGETS --> REL[splitos-release\nRelease Metadata Key]
+    TARGETS --> KNOW[splitos-knowledge\nKnowledge Metadata Key]
+    TARGETS --> REC[splitos-recovery\nRecovery Authorization\n2-of-3]
+
+    REL --> REM[Release Metadata / Envelope Targets]
+    KNOW --> KPKG[Knowledge Packages]
+    REC --> RA[Exact RecoveryAuthorization]
+
+    CODE[Authenticode Code-Signing Key\nNon-exportable HSM / Signing Service] --> PE[SplitOS EXE / DLL / Bootstrap]
+
+    REM --> VERIFY[Client Release Verification]
+    KPKG --> VERIFY
+    RA --> VERIFY
+    SNAP --> VERIFY
+    TS --> VERIFY
+    PE --> VERIFY
+
+    VERIFY --> APPLY[Staged / Recovery Apply Candidate]
