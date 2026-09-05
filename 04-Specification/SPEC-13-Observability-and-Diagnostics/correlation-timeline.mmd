@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant U as User
+    participant M as Manager/Launcher
+    participant R as Runtime Host
+    participant B as Broker
+    participant W as Windows / Client
+
+    U->>M: User action
+    Note over M,R: correlationId C1
+    M->>R: requestId R1 / operationId O1
+    R->>R: emit operation started
+    R->>B: requestId R2 / C1 / O1
+    B->>B: caller + capability audit
+    B->>W: bounded operation
+    W-->>B: technical result
+    B-->>R: technical result + evidence
+    R->>W: fresh read-back / observation
+    W-->>R: actual-state evidence
+    R->>R: semantic verification
+    alt verified
+        R->>R: canonical owner commit
+        R-->>M: SUCCESS
+    else failed
+        R->>R: rollback / safe fallback / recovery
+        R-->>M: semantic failure outcome
+    end
+    Note over M,B: logs/traces correlate the flow but never replace canonical owners
