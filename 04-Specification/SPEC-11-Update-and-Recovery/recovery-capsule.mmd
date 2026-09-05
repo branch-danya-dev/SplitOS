@@ -1,0 +1,21 @@
+flowchart LR
+    subgraph Disk[System Device]
+        subgraph Windows[Windows OS / User Data]
+            R[Current SplitOS Release N+1]
+            U[Live user.db / user files]
+        end
+        subgraph WinRE[Windows RE Tools Partition]
+            W[Windows RE + SplitOS Recovery Tool]
+        end
+        subgraph Store[Hidden SplitOS Recovery Store]
+            C[Verified Capsule of Release N]
+        end
+    end
+
+    R -->|failure| X[Recovery Coordination]
+    X -->|live path| C
+    X -->|offline path| W
+    W --> C
+    C --> Y[Restore SplitOS release payload + machine state]
+    Y --> Z[Boot Windows + verify previous SplitOS release]
+    U -. preserved; not rolled back .-> Z
