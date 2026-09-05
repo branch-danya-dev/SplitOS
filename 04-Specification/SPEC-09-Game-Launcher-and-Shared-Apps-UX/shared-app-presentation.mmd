@@ -1,0 +1,39 @@
+flowchart TD
+    A[SharedAppAssignment] --> B{presentationMode}
+
+    B -->|BACKGROUND| BG[No visible window required]
+    BG --> BG2[Observe lifecycle only]
+
+    B -->|SECONDARY_DISPLAY| SD[Resolve display selector]
+    SD --> SDG{Display generation current?}
+    SDG -->|No| R[Refresh / re-resolve]
+    SDG -->|Yes| W[Resolve eligible app window]
+
+    B -->|LOCKED_WINDOW| W
+    B -->|OVERLAY| OC{Current game/window context supports overlay?}
+    OC -->|No| OUF[OVERLAY_UNAVAILABLE]
+    OC -->|Yes| W
+
+    W --> WG{Window generation current?}
+    WG -->|No| R
+    WG -->|Yes| P[Calculate target bounds / z-order intent]
+    P --> S[SetWindowPos / supported user-session operation]
+    S --> RB[Fresh bounds/window read-back]
+    RB --> V{Presentation predicates reached?}
+    V -->|Yes| OK[ACTIVE_VISIBLE / effective presentation]
+    V -->|No| D[DRIFTED / PLACEMENT_NOT_REACHED]
+
+    R --> W
+
+    D --> POL{Policy}
+    POL -->|bounded retry| P
+    POL -->|prompt| UA[User action]
+    POL -->|stop fighting app| UM[UNMANAGE / degraded]
+
+    OUF --> ALT[Offer supported alternate presentation]
+
+    classDef note fill:#fff,stroke:#777,stroke-dasharray: 4 4;
+    N1[HWND is ephemeral evidence, not persistent identity]:::note
+    N2[Presentation failure does not change committed GAME by itself]:::note
+    W -.-> N1
+    D -.-> N2
