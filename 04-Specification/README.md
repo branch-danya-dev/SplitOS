@@ -21,8 +21,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-09` Game Launcher & Shared Apps UX | READY FOR REVIEW | controller-first Launcher lifecycle/navigation, runtime binding, launch/return/error UX, Shared App assignments/window orchestration and capability-gated in-game panel |
 | `SPEC-10` Builder & Component Matrix | READY FOR REVIEW | Windows source contract, strict Build Manifest, typed offline servicing, versioned component matrix, validation ladder, BuildReceipt and clean-install provisioning |
 | `SPEC-11` Update & Recovery | READY FOR REVIEW | independent SplitOS update channel, validated Windows servicing coexistence, durable update/reboot transaction, previous-release recovery capsule, user-data-preserving rollback, WinRE recovery |
-| `SPEC-12` Release Security & Key Management | NEXT | signing/key hierarchy/revocation |
-| `SPEC-13` Observability & Diagnostics | NOT STARTED | events/correlation/privacy/retention |
+| `SPEC-12` Release Security & Key Management | READY FOR REVIEW | TUF repository trust, offline threshold root/targets/recovery roles, Authenticode publisher trust, key custody/rotation/revocation, anti-rollback and signing pipeline |
+| `SPEC-13` Observability & Diagnostics | NEXT | events/correlation/privacy/retention |
 | `SPEC-14` Verification & Acceptance | NOT STARTED | executable acceptance/test cases |
 
 ## Specification rules
@@ -522,6 +522,45 @@ When normal SplitOS runtime cannot recover, a bounded SplitOS Recovery Tool may 
 
 A same-device capsule is a fast last-known-good recovery mechanism, not protection against physical disk/device loss.
 
+## Current Release Security & Key Management baseline
+
+Production update trust now has two independent layers:
+
+```text
+TUF repository authorization
++
+Windows Authenticode publisher authorization
+```
+
+Repository trust:
+
+```text
+embedded production Root
+→ sequential Root rotation
+→ Timestamp
+→ Snapshot
+→ Targets / delegated roles
+→ exact Release Envelope target
+→ exact artifact digests
+```
+
+Production key hierarchy uses role separation. Root and top-level Targets are offline threshold authorities; stable release, knowledge, snapshot and timestamp metadata use separate protected signing keys; recovery downgrade authorization has its own threshold-controlled role. Production root baseline is `2-of-3` across three independent root keys.
+
+SplitOS executable artifacts must additionally satisfy Authenticode publisher validation. Production code-signing keys are non-exportable/hardware-backed where supported, use SHA-256 file digests and RFC 3161 SHA-256 timestamping, and are separate from TUF metadata keys.
+
+Normal downgrade remains forbidden even for historically valid signed artifacts. Recovery is a separate capability:
+
+```text
+current release N+1
+→ exact signed RecoveryAuthorization(N+1 → N)
+→ locally trusted security floor/revocation checks
+→ controlled recovery to N
+```
+
+Clients persist trusted metadata/version/security floors outside rebuildable update cache so cache deletion, reboot or CDN rollback cannot reset anti-rollback state.
+
+CI/build workers never receive raw production private keys. Signing is performed by capability-scoped signing services/HSM-backed keys after release approval, with immutable final artifact hashes bound into release metadata.
+
 ## Current specification artifacts
 
 ```text
@@ -536,6 +575,7 @@ SPEC-08-Game-Profile-and-Optimization/
 SPEC-09-Game-Launcher-and-Shared-Apps-UX/
 SPEC-10-Builder-and-Component-Matrix/
 SPEC-11-Update-and-Recovery/
+SPEC-12-Release-Security-and-Key-Management/
 ```
 
 ## Source architecture
