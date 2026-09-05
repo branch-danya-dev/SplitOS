@@ -20,8 +20,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-08` Game Profile & Optimization | READY FOR REVIEW | multi-profile scenarios, deterministic hardware matching, field-level overrides, game-config adapters, recommendation engine, performance telemetry/drift reconciliation |
 | `SPEC-09` Game Launcher & Shared Apps UX | READY FOR REVIEW | controller-first Launcher lifecycle/navigation, runtime binding, launch/return/error UX, Shared App assignments/window orchestration and capability-gated in-game panel |
 | `SPEC-10` Builder & Component Matrix | READY FOR REVIEW | Windows source contract, strict Build Manifest, typed offline servicing, versioned component matrix, validation ladder, BuildReceipt and clean-install provisioning |
-| `SPEC-11` Update & Recovery | NEXT | update transaction/reboot/rollback/recovery |
-| `SPEC-12` Release Security & Key Management | NOT STARTED | signing/key hierarchy/revocation |
+| `SPEC-11` Update & Recovery | READY FOR REVIEW | independent SplitOS update channel, validated Windows servicing coexistence, durable update/reboot transaction, previous-release recovery capsule, user-data-preserving rollback, WinRE recovery |
+| `SPEC-12` Release Security & Key Management | NEXT | signing/key hierarchy/revocation |
 | `SPEC-13` Observability & Diagnostics | NOT STARTED | events/correlation/privacy/retention |
 | `SPEC-14` Verification & Acceptance | NOT STARTED | executable acceptance/test cases |
 
@@ -132,16 +132,6 @@ PRO
 → server entitlement or valid bounded offline assertion
 → required capability present
 → ManagedRuntime = ENABLED
-```
-
-Offline premium baseline:
-
-```text
-JWS OfflineEntitlementAssertion v1
-→ accountId + installationId + associationId bound
-→ max 7 days
-→ clock rollback check
-→ never cachedPro=true
 ```
 
 Hosted checkout/browser return never grants PRO directly; Runtime Host refreshes backend entitlement before changing access.
@@ -262,30 +252,6 @@ Battle.net         EXPERIMENTAL
 
 Capability support is independent. A client can have a supported public launch mechanism while local library parsing remains version-sensitive.
 
-Current launch mechanisms:
-
-```text
-Steam
-→ Valve-documented steam:// protocol using Steam App ID
-→ local library/install VDF/ACF = version-sensitive evidence
-
-Epic
-→ documented com.epicgames.launcher://apps/... protocol
-→ Sandbox/Catalog/Artifact preferred identity
-→ validated install-path protocol identity fallback
-→ local launcher metadata = version-sensitive evidence
-
-Microsoft Gaming
-→ Windows package/app registration
-→ PFN + AUMID identity
-→ Windows application activation
-→ local registered titles only; no claim of full Xbox/Game Pass cloud library
-
-Battle.net
-→ adapter boundary exists
-→ discovery/launch/product metadata remain experimental until validated
-```
-
 Common launch invariant:
 
 ```text
@@ -320,8 +286,6 @@ fresh hardware/display/input evidence
 → generation validation before apply
 ```
 
-No opaque weighted profile score is used. Material ambiguity/fallback requires explicit deterministic handling or user choice.
-
 Optimization precedence:
 
 ```text
@@ -333,31 +297,7 @@ hard compatibility/platform constraints
 > unmanaged game defaults
 ```
 
-Optimization objective:
-
-```text
-stable useful performance target
-subject to user locks / scenario constraints
-then maximize visual quality
-```
-
-Recommendation uses release-owned per-game setting definitions, legal values, dependencies and degradation/upgrade ladders. Game configuration writes are performed only through a typed per-game configuration adapter with source-digest conflict detection and read-back verification.
-
 Normal v1 gameplay is not continuously reconfigured. Static recommendation applies before launch; optional measured evidence refines a future recommendation or explicit calibration run.
-
-Performance telemetry:
-
-```text
-PerformanceTelemetryAdapter
-→ PresentMon-compatible provider is primary v1 candidate
-→ exact service vs embedded packaging remains engineering validation gate
-```
-
-Average FPS alone is not sufficient; frame-time distribution/stability is part of target evaluation.
-
-External game-setting drift is preserved for the immediate launch and surfaced for reconciliation. It does not silently become a permanent SplitOS user override.
-
-Vendor driver profile/tuning APIs are optional future capabilities; core v1 optimization does not require overclock/undervolt/fan control or implicit NVAPI/ADLX mutation.
 
 ## Current Game Launcher & Shared Apps baseline
 
@@ -370,7 +310,7 @@ Runtime truth
 → Runtime Host owners
 ```
 
-`SplitOS.GameLauncher.exe` is unelevated, presentation-only and normally resident while GAME is committed. It can reach `READY_PRECOMMIT` to satisfy launcher readiness, but full active Game UX appears only after Runtime reports committed `GAME`.
+`SplitOS.GameLauncher.exe` is unelevated, presentation-only and normally resident while GAME is committed.
 
 When a managed game becomes `GAME_RUNNING`:
 
@@ -388,8 +328,6 @@ GAME remains committed
 → pre-launch semantic route/focus bookmark restored when valid
 ```
 
-Controller navigation uses semantic actions and deterministic logical focus. Keyboard/mouse remain recovery-compatible. The exact global controller chord for an in-game SplitOS panel remains an engineering gate; hidden Launcher does not process ordinary gameplay buttons.
-
 Shared Apps:
 
 ```text
@@ -401,20 +339,9 @@ SECONDARY_DISPLAY
 BACKGROUND
 ```
 
-Shared App assignment/presentation is separate from application/process ownership. v1 window presentation uses ordinary user-session Win32/DWM top-level window orchestration with generation-bound window/display evidence and read-back verification.
-
-Key invariants:
-
-```text
-HWND != persistent app identity
-SetWindowPos success != placement verified
-overlay requested != overlay guaranteed visible
-Shared App configured != currently visible
-```
+v1 window presentation uses ordinary user-session Win32/DWM top-level window orchestration with generation-bound window/display evidence and read-back verification.
 
 `OVERLAY` is capability-gated and is not guaranteed over exclusive fullscreen/protected presentation. SplitOS does not use DLL injection, game hooks or anti-cheat bypass to force presentation.
-
-The in-game SplitOS panel is optional/capability-gated. Game/session/mode correctness does not depend on panel availability.
 
 ## Current Builder & Component Matrix baseline
 
@@ -434,8 +361,6 @@ Microsoft-authorized Windows source
 → BuildReceipt + baseline descriptor
 ```
 
-The production Builder supports a user-provided Windows source in v1. Automatic source acquisition remains OPEN pending legal/licensing and technical validation.
-
 `BuildManifest` canonical execution form is strict schema-validated JSON. It contains only typed release-owned operations; arbitrary PowerShell/command/registry/path primitives are forbidden.
 
 Component lifecycle remains:
@@ -448,23 +373,63 @@ KEEP
 TBD
 ```
 
-but classification and validation status are independent. Destructive `REMOVE` requires mechanism, boot, servicing, recovery and compatibility evidence before production acceptance.
+Classification and validation status are independent. Destructive `REMOVE` requires mechanism, boot, servicing, recovery and compatibility evidence before production acceptance.
 
-Current examples:
+Build success is not a command exit code. All mandatory postconditions and final output verification must pass.
+
+## Current Update & Recovery baseline
+
+SplitOS now has two separate update lanes:
 
 ```text
-core boot/servicing/recovery/network/display/audio/input → KEEP
-Microsoft Store/application deployment substrate         → KEEP
-Phone Link / Search / Print                              → MODE_MANAGED candidates
-consumer/promotional removable AppX                     → REMOVE candidates
-Defender Antivirus                                      → desired REMOVE candidate, still TBD/not accepted
-Edge browser shell                                      → TBD/remove candidate; separate from WebView2 runtime
-Gaming Services                                         → preserve required Microsoft Gaming dependencies
+SplitOS Update Channel
+→ SplitOS-owned runtime / Manager / Launcher / Broker / adapters / knowledge / recovery tooling
+
+Microsoft servicing lane
+→ Microsoft-signed Windows patches
+→ automatic application only after SplitOS compatibility approval
 ```
 
-Build success is not a command exit code. All mandatory postconditions and final output verification must pass. Successful build emits a `BuildReceipt` bound to source identity, manifest/matrix/package digests, Builder/toolchain identity and verification results.
+SplitOS does not replace/remove Windows servicing infrastructure and does not rehost Microsoft patch binaries inside the wrapper update feed.
 
-Clean installation of the verified prepared baseline is the supported v1 product path. Mutation of an arbitrary existing Windows installation is not equivalent.
+Wrapper update transaction:
+
+```text
+signed release envelope
+→ compatibility / Windows-servicing gate
+→ download + verify
+→ stage target release
+→ create + verify previous-release Recovery Capsule
+→ UPDATE mutation lease
+→ trusted one-shot Update Bootstrap
+→ activate target
+→ [reboot/resume]
+→ verify Broker / Runtime / DB / Windows compatibility
+→ atomic InstalledSplitOSRelease commit
+```
+
+Mandatory previous-release protection:
+
+```text
+Current release N
+→ verified local capsule N
+→ only then activate N+1
+```
+
+The capsule lives in a hidden SplitOS Recovery Store on the same physical device, separate from ordinary user storage and conceptually separate from the Windows RE tools partition.
+
+Recovery invariant:
+
+```text
+software rollback
+!= user-data rollback
+```
+
+Canonical user data remains live. Production releases must preserve at least one previous-release rollback compatibility or provide a tested rollback bridge; normal rollback never restores an old `%UserProfile%` or old user database snapshot that discards later user changes.
+
+If normal runtime cannot recover, Windows RE may host a bounded SplitOS Recovery Tool that validates the capsule and restores SplitOS-owned release/machine state. Windows-level corruption remains a Windows-native recovery responsibility.
+
+Same-device capsule is a fast recovery mechanism, not protection against physical disk/device loss.
 
 ## Current specification artifacts
 
@@ -479,6 +444,7 @@ SPEC-07-Game-Client-Adapters/
 SPEC-08-Game-Profile-and-Optimization/
 SPEC-09-Game-Launcher-and-Shared-Apps-UX/
 SPEC-10-Builder-and-Component-Matrix/
+SPEC-11-Update-and-Recovery/
 ```
 
 ## Source architecture
