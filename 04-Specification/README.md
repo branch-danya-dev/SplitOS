@@ -19,8 +19,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-07` Game Client Adapters | READY FOR REVIEW | shared adapter contract, Steam/Epic/Microsoft Gaming/Battle.net capability model, library/install evidence, launch handoff and process/session correlation |
 | `SPEC-08` Game Profile & Optimization | READY FOR REVIEW | multi-profile scenarios, deterministic hardware matching, field-level overrides, game-config adapters, recommendation engine, performance telemetry/drift reconciliation |
 | `SPEC-09` Game Launcher & Shared Apps UX | READY FOR REVIEW | controller-first Launcher lifecycle/navigation, runtime binding, launch/return/error UX, Shared App assignments/window orchestration and capability-gated in-game panel |
-| `SPEC-10` Builder & Component Matrix | NEXT | source/build manifest/component decisions |
-| `SPEC-11` Update & Recovery | NOT STARTED | update transaction/reboot/rollback/recovery |
+| `SPEC-10` Builder & Component Matrix | READY FOR REVIEW | Windows source contract, strict Build Manifest, typed offline servicing, versioned component matrix, validation ladder, BuildReceipt and clean-install provisioning |
+| `SPEC-11` Update & Recovery | NEXT | update transaction/reboot/rollback/recovery |
 | `SPEC-12` Release Security & Key Management | NOT STARTED | signing/key hierarchy/revocation |
 | `SPEC-13` Observability & Diagnostics | NOT STARTED | events/correlation/privacy/retention |
 | `SPEC-14` Verification & Acceptance | NOT STARTED | executable acceptance/test cases |
@@ -416,6 +416,56 @@ Shared App configured != currently visible
 
 The in-game SplitOS panel is optional/capability-gated. Game/session/mode correctness does not depend on panel availability.
 
+## Current Builder & Component Matrix baseline
+
+Supported v1 composition path:
+
+```text
+Microsoft-authorized Windows source
+→ SourceIdentity / approved release source constraint
+→ immutable working copy
+→ versioned strict BuildManifest
+→ versioned Windows Component Matrix
+→ typed offline servicing executor
+→ offline postcondition verification
+→ image commit
+→ media/deployment assembly
+→ output verification
+→ BuildReceipt + baseline descriptor
+```
+
+The production Builder supports a user-provided Windows source in v1. Automatic source acquisition remains OPEN pending legal/licensing and technical validation.
+
+`BuildManifest` canonical execution form is strict schema-validated JSON. It contains only typed release-owned operations; arbitrary PowerShell/command/registry/path primitives are forbidden.
+
+Component lifecycle remains:
+
+```text
+REMOVE
+DISABLE
+MODE_MANAGED
+KEEP
+TBD
+```
+
+but classification and validation status are independent. Destructive `REMOVE` requires mechanism, boot, servicing, recovery and compatibility evidence before production acceptance.
+
+Current examples:
+
+```text
+core boot/servicing/recovery/network/display/audio/input → KEEP
+Microsoft Store/application deployment substrate         → KEEP
+Phone Link / Search / Print                              → MODE_MANAGED candidates
+consumer/promotional removable AppX                     → REMOVE candidates
+Defender Antivirus                                      → desired REMOVE candidate, still TBD/not accepted
+Edge browser shell                                      → TBD/remove candidate; separate from WebView2 runtime
+Gaming Services                                         → preserve required Microsoft Gaming dependencies
+```
+
+Build success is not a command exit code. All mandatory postconditions and final output verification must pass. Successful build emits a `BuildReceipt` bound to source identity, manifest/matrix/package digests, Builder/toolchain identity and verification results.
+
+Clean installation of the verified prepared baseline is the supported v1 product path. Mutation of an arbitrary existing Windows installation is not equivalent.
+
 ## Current specification artifacts
 
 ```text
@@ -428,6 +478,7 @@ SPEC-06-Windows-Context-Integrations/
 SPEC-07-Game-Client-Adapters/
 SPEC-08-Game-Profile-and-Optimization/
 SPEC-09-Game-Launcher-and-Shared-Apps-UX/
+SPEC-10-Builder-and-Component-Matrix/
 ```
 
 ## Source architecture
