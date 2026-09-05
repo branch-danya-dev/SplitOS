@@ -49,6 +49,8 @@ Initial Request
 | Product clarification | DEC-036/037/038 | FREE vs PRO | FR-ACCESS / Runtime Access |
 | Product clarification | DEC-040 | offline/degraded access | FR-ACCESS / Failure / Trust |
 | Product clarification | DEC-042/043 | Manager/payment boundary | FR-MANAGER / FR-ENT / Trust |
+| Product clarification | DEC-044/047 | independent SplitOS update channel + Windows servicing separation | Update/Compatibility | FR-UPDATE-010..017 / SPEC-11 |
+| Product clarification | DEC-045/046 | previous-release local recovery + user-data-preserving rollback | Recovery/Data | FR-RECOVERY-008..016 / SPEC-11 |
 
 ---
 
@@ -286,15 +288,19 @@ FR-MODE / FR-APP / FR-RECOVERY
 ### 5.5 Update / Recovery
 
 ```text
-DEC-022/023
+DEC-022/023 + DEC-044..047
 → FR-UPDATE / FR-RECOVERY / NFR-UPD
 → Compatibility + Update + Recovery
 → CompatibilityDecision + UpdateTransactionRecord + RecoveryContext + InstalledBaselineIdentity
 → IF-COMPAT / IF-UPDATE / IF-RECOVERY
-→ release validation + Broker/servicing
+→ independent SplitOS signed update channel
+→ Microsoft-serviced Windows patch lane after SplitOS compatibility approval
+→ mandatory previous-release Recovery Capsule
+→ user-data-preserving rollback contract
 → FL-05
-→ UF-* / RC-*
+→ update/recovery failure rules
 → Artifact/Build/Update Trust
+→ SPEC-11 Update & Recovery
 → COMP-RT-14..18 + COMP-PRIV-01/02 + COMP-REL-*
 ```
 
@@ -328,9 +334,9 @@ DEC-028..032
 
 ---
 
-## 7. Remaining traceability extension
+## 7. Specification traceability extension
 
-The A&D chain is now complete through Synthesis:
+The A&D chain is complete through Synthesis:
 
 ```text
 Requirement
@@ -346,13 +352,14 @@ Requirement
 → Synthesis component
 ```
 
-The next extension belongs to Specification/Verification:
+Current update/recovery extension:
 
 ```text
-Synthesis component
-→ Detailed Specification ID
-→ Implementation unit
-→ Verification/Acceptance case
+DEC-044..047
+→ FR-UPDATE-010..017 / FR-RECOVERY-008..016
+→ SPEC-11 Update & Recovery
+→ implementation units
+→ SPEC-14 verification/acceptance cases
 ```
 
 Remaining OPEN engineering decisions must be attached to their owning specification/research item instead of being silently resolved in code.
