@@ -1,0 +1,25 @@
+flowchart TD
+    A[Windows component candidate] --> B[Exact release-specific technical identity]
+    B --> C[Meaning / dependencies / consumers]
+    C --> D{Useful in WORK?}
+    D -->|yes| E{Useful in GAME?}
+    D -->|no| F{Useful in GAME?}
+    E -->|yes| K[KEEP candidate]
+    E -->|no| M[MODE_MANAGED candidate]
+    F -->|yes| M
+    F -->|no| G{Removal technically supported and beneficial?}
+    G -->|no / unknown| H{Disable safely?}
+    H -->|yes| I[DISABLE candidate]
+    H -->|no / unknown| T[TBD / KEEP candidate]
+    G -->|yes| R[REMOVE candidate]
+    R --> V[Mechanism + boot + servicing + recovery + compatibility validation]
+    I --> V2[Disable + re-enable + servicing validation]
+    M --> V3[WORK/GAME transition + verification + rollback validation]
+    K --> V4[Compatibility baseline verification]
+    V -->|pass| AR[ACCEPTED REMOVE]
+    V -->|fail| RJ[REJECT / reclassify]
+    V2 -->|pass| AD[ACCEPTED DISABLE]
+    V2 -->|fail| RJ
+    V3 -->|pass| AM[ACCEPTED MODE_MANAGED]
+    V3 -->|fail| RJ
+    V4 --> AK[ACCEPTED KEEP]

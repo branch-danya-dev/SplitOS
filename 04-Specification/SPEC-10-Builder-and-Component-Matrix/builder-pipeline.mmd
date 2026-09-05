@@ -1,0 +1,25 @@
+flowchart TD
+    A[Microsoft-authorized Windows source] --> B[SourceIdentity + source validation]
+    M[Signed/verified Build Manifest] --> C[Typed Manifest Executor]
+    X[Versioned Component Matrix] --> C
+    P[SplitOS package set] --> C
+    B -->|SUPPORTED| W[Create immutable working copy]
+    B -->|UNSUPPORTED / INVALID| F[BUILD FAILED]
+    W --> I[Inventory offline image]
+    I --> C
+    C --> S1[DISM package/AppX/feature servicing]
+    C --> S2[Typed service/policy baseline adapters]
+    C --> S3[Stage SplitOS packages + setup provisioning]
+    C --> S4[Stage recovery assets]
+    S1 --> V[Offline postcondition verification]
+    S2 --> V
+    S3 --> V
+    S4 --> V
+    V -->|required predicate failed| D[Discard mount/workspace]
+    D --> F
+    V -->|all mandatory predicates pass| K[Commit transformed image]
+    K --> O[Assemble bootable deployment source/media]
+    O --> Q[Output verification]
+    Q -->|failed| F
+    Q -->|passed| R[BuildReceipt + verified baseline descriptor]
+    R --> Z[Verified SplitOS Baseline artifact]
