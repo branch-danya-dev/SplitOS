@@ -1,0 +1,19 @@
+flowchart TD
+    A[Requirements / Decisions] --> B[Owning A&D / SPEC contract]
+    B --> C[Verification Case]
+    C --> D[ReleaseAcceptanceProfile]
+    D --> E[Exact ReleaseCandidate]
+    E --> F[Execute on Matrix Cell]
+    F --> G[VerificationResult]
+    G --> H{Mandatory?}
+    H -->|No| I[Observation / experimental evidence]
+    H -->|Yes| J{PASS?}
+    J -->|No| K[FAIL / BLOCKED]
+    K --> L[Fix or remove support claim]
+    L --> C
+    J -->|Yes| M[Release Gate]
+    M --> N{All mandatory gates PASS?}
+    N -->|No| O[BLOCKED]
+    N -->|Yes| P[ReleaseReadinessRecord]
+    P --> Q[Required sign-offs]
+    Q --> R[PRODUCTION_READY]

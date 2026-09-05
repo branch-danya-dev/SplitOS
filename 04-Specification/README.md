@@ -11,7 +11,7 @@ Specification не переопределяет уже зафиксирован�
 | Package | Status | Scope |
 |---|---|---|
 | `SPEC-01` Runtime Process & Module | READY FOR REVIEW | physical processes, Runtime Host module boundaries, startup/lifecycle, session cardinality, version compatibility |
-| `SPEC-02` Local IPC & Privileged Broker | READY FOR REVIEW | Named Pipe transport, protocol, caller validation, broker capabilities, service hardening; machine-state persistence extension from SPEC-03 |
+| `SPEC-02` Local IPC & Privileged Broker | READY FOR REVIEW | Named Pipe transport, protocol versioning, caller validation, broker capabilities, service hardening; machine-state persistence extension from SPEC-03 |
 | `SPEC-03` Local Data & Persistence | READY FOR REVIEW | SQLite stores, machine/user/cache separation, schemas, durability, migrations, corruption recovery |
 | `SPEC-04` Account/Auth/Entitlement | READY FOR REVIEW | native auth, backend contracts, token protection, account association, FREE/PRO, offline entitlement |
 | `SPEC-05` Mode Runtime | READY FOR REVIEW | ACTIVATE/SWITCH/DEACTIVATE transaction model, blocker engine, mode policy, major mutation lease, rollback/reconciliation |
@@ -23,7 +23,9 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-11` Update & Recovery | READY FOR REVIEW | independent SplitOS update channel, validated Windows servicing coexistence, durable update/reboot transaction, previous-release recovery capsule, user-data-preserving rollback, WinRE recovery |
 | `SPEC-12` Release Security & Key Management | READY FOR REVIEW | TUF repository trust, offline threshold root/targets/recovery roles, Authenticode publisher trust, key custody/rotation/revocation, anti-rollback and signing pipeline |
 | `SPEC-13` Observability & Diagnostics | READY FOR REVIEW | local-first structured events/correlation, protected audit, ETW/TraceLogging, WER crash artifacts, privacy/retention and diagnostic bundle export |
-| `SPEC-14` Verification & Acceptance | NEXT | executable acceptance/test cases |
+| `SPEC-14` Verification & Acceptance | READY FOR REVIEW | release gates, executable acceptance scenarios, fault injection, security/performance/compatibility verification and production-readiness evidence |
+
+Detailed Specification baseline is complete through SPEC-14. The next lifecycle step is Grooming / implementation planning, followed by delivery and execution of the verification contracts against implemented release candidates.
 
 ## Specification rules
 
@@ -612,6 +614,40 @@ Secrets are forbidden from logs. Default bundle avoids whole game-library/proces
 
 Initial local retention is bounded by time and size; verbose traces/staging expire before canonical state or Recovery Capsule safety is ever sacrificed for diagnostics.
 
+## Current Verification & Acceptance baseline
+
+Release qualification is gate-based, not percentage-based:
+
+```text
+ReleaseAcceptanceProfile
+→ immutable ReleaseCandidate
+→ versioned VerificationCases
+→ matrix-cell executions
+→ GATE-00 .. GATE-12
+→ ReleaseReadinessRecord
+→ required sign-offs
+→ PRODUCTION_READY
+```
+
+Critical safety/security/data/recovery invariants are non-waivable. Optional/experimental capability failures are handled by removing or restricting the production support claim, not by keeping `SUPPORTED` and pretending a failed mandatory case passed.
+
+Verification result states are:
+
+```text
+PASS
+FAIL
+BLOCKED
+NOT_APPLICABLE
+```
+
+Required performance/resource thresholds are bound by the release acceptance profile. If a mandatory threshold remains `TBD`, the performance gate is `BLOCKED`.
+
+Compatibility is proven against an explicit Windows/hardware/client/game/update matrix. A single successful machine does not create a production support claim.
+
+Fault injection is mandatory for state-mutating flows, including transition/update kill points, Broker/runtime crash, reboot/power-loss equivalent, stale mutation owner, storage failure, device loss and recovery interruption.
+
+Production readiness requires all mandatory gates to pass against exact candidate artifact identities and a complete evidence/sign-off record.
+
 ## Current specification artifacts
 
 ```text
@@ -628,6 +664,21 @@ SPEC-10-Builder-and-Component-Matrix/
 SPEC-11-Update-and-Recovery/
 SPEC-12-Release-Security-and-Key-Management/
 SPEC-13-Observability-and-Diagnostics/
+SPEC-14-Verification-and-Acceptance/
+```
+
+## Next lifecycle phase
+
+```text
+Detailed Specification baseline complete
+↓
+Grooming / implementation planning
+↓
+Delivery slices
+↓
+Verification execution
+↓
+Release readiness
 ```
 
 ## Source architecture

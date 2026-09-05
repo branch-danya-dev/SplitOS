@@ -1,0 +1,30 @@
+flowchart TD
+    C[Immutable ReleaseCandidate] --> G0[GATE-00 Artifact Identity]
+    G0 --> G1[GATE-01 Build & Clean Install]
+    G1 --> G2[GATE-02 Identity / FREE / PRO]
+    G2 --> G3[GATE-03 Runtime / IPC / Persistence]
+    G3 --> G4[GATE-04 Mode / Windows Context]
+    G4 --> G5[GATE-05 Gaming / Profiles / Launcher]
+    G5 --> G6[GATE-06 Fault Convergence]
+    G6 --> G7[GATE-07 Update / Rollback]
+    G7 --> G8[GATE-08 Security / Trust]
+    G8 --> G9[GATE-09 Performance]
+    G9 --> G10[GATE-10 Compatibility]
+    G10 --> G11[GATE-11 Observability / Privacy]
+    G11 --> G12[GATE-12 Evidence / Sign-off]
+    G12 --> R[PRODUCTION_READY]
+
+    F[Mandatory gate FAIL or BLOCKED] --> B[Release BLOCKED]
+    G0 -.failure.-> F
+    G1 -.failure.-> F
+    G2 -.failure.-> F
+    G3 -.failure.-> F
+    G4 -.failure.-> F
+    G5 -.failure.-> F
+    G6 -.failure.-> F
+    G7 -.failure.-> F
+    G8 -.failure.-> F
+    G9 -.failure.-> F
+    G10 -.failure.-> F
+    G11 -.failure.-> F
+    G12 -.failure.-> F
