@@ -18,8 +18,8 @@ Specification не переопределяет уже зафиксирован�
 | `SPEC-06` Windows Context Integrations | READY FOR REVIEW | display/audio/input/power/process/services/hardware, supported Windows APIs, device identity, hot-plug and read-back verification |
 | `SPEC-07` Game Client Adapters | READY FOR REVIEW | shared adapter contract, Steam/Epic/Microsoft Gaming/Battle.net capability model, library/install evidence, launch handoff and process/session correlation |
 | `SPEC-08` Game Profile & Optimization | READY FOR REVIEW | multi-profile scenarios, deterministic hardware matching, field-level overrides, game-config adapters, recommendation engine, performance telemetry/drift reconciliation |
-| `SPEC-09` Game Launcher & Shared Apps UX | NEXT | controller-first UX and Shared Apps |
-| `SPEC-10` Builder & Component Matrix | NOT STARTED | source/build manifest/component decisions |
+| `SPEC-09` Game Launcher & Shared Apps UX | READY FOR REVIEW | controller-first Launcher lifecycle/navigation, runtime binding, launch/return/error UX, Shared App assignments/window orchestration and capability-gated in-game panel |
+| `SPEC-10` Builder & Component Matrix | NEXT | source/build manifest/component decisions |
 | `SPEC-11` Update & Recovery | NOT STARTED | update transaction/reboot/rollback/recovery |
 | `SPEC-12` Release Security & Key Management | NOT STARTED | signing/key hierarchy/revocation |
 | `SPEC-13` Observability & Diagnostics | NOT STARTED | events/correlation/privacy/retention |
@@ -359,6 +359,63 @@ External game-setting drift is preserved for the immediate launch and surfaced f
 
 Vendor driver profile/tuning APIs are optional future capabilities; core v1 optimization does not require overclock/undervolt/fan control or implicit NVAPI/ADLX mutation.
 
+## Current Game Launcher & Shared Apps baseline
+
+Launcher role:
+
+```text
+Runtime truth
+→ Game Launcher presentation
+→ semantic user requests
+→ Runtime Host owners
+```
+
+`SplitOS.GameLauncher.exe` is unelevated, presentation-only and normally resident while GAME is committed. It can reach `READY_PRECOMMIT` to satisfy launcher readiness, but full active Game UX appears only after Runtime reports committed `GAME`.
+
+When a managed game becomes `GAME_RUNNING`:
+
+```text
+Launcher foreground/input → released
+Launcher process → resident/background by default
+Game → owns ordinary gameplay foreground/input
+```
+
+After confirmed game exit:
+
+```text
+GAME remains committed
+→ Launcher foreground restored
+→ pre-launch semantic route/focus bookmark restored when valid
+```
+
+Controller navigation uses semantic actions and deterministic logical focus. Keyboard/mouse remain recovery-compatible. The exact global controller chord for an in-game SplitOS panel remains an engineering gate; hidden Launcher does not process ordinary gameplay buttons.
+
+Shared Apps:
+
+```text
+maximum active assignments = 3
+
+OVERLAY
+LOCKED_WINDOW
+SECONDARY_DISPLAY
+BACKGROUND
+```
+
+Shared App assignment/presentation is separate from application/process ownership. v1 window presentation uses ordinary user-session Win32/DWM top-level window orchestration with generation-bound window/display evidence and read-back verification.
+
+Key invariants:
+
+```text
+HWND != persistent app identity
+SetWindowPos success != placement verified
+overlay requested != overlay guaranteed visible
+Shared App configured != currently visible
+```
+
+`OVERLAY` is capability-gated and is not guaranteed over exclusive fullscreen/protected presentation. SplitOS does not use DLL injection, game hooks or anti-cheat bypass to force presentation.
+
+The in-game SplitOS panel is optional/capability-gated. Game/session/mode correctness does not depend on panel availability.
+
 ## Current specification artifacts
 
 ```text
@@ -370,6 +427,7 @@ SPEC-05-Mode-Runtime/
 SPEC-06-Windows-Context-Integrations/
 SPEC-07-Game-Client-Adapters/
 SPEC-08-Game-Profile-and-Optimization/
+SPEC-09-Game-Launcher-and-Shared-Apps-UX/
 ```
 
 ## Source architecture

@@ -1,0 +1,35 @@
+stateDiagram-v2
+    [*] --> STOPPED
+
+    STOPPED --> STARTING: Runtime starts Launcher
+    STARTING --> CONNECTING: process initialized
+    CONNECTING --> PREPARING: Runtime IPC established
+    CONNECTING --> DEGRADED_DISCONNECTED: IPC unavailable
+
+    PREPARING --> READY_PRECOMMIT: initial UX + focus ready
+    READY_PRECOMMIT --> ACTIVE: Runtime reports committed GAME
+    READY_PRECOMMIT --> STOPPING: GAME transition cancelled/failed
+
+    ACTIVE --> BACKGROUND_GAME_RUNNING: GAME_RUNNING_CONFIRMED
+    BACKGROUND_GAME_RUNNING --> RESTORING: GAME_EXITED_CONFIRMED
+    RESTORING --> ACTIVE: foreground + route restored
+
+    ACTIVE --> DEGRADED_DISCONNECTED: Runtime IPC lost
+    BACKGROUND_GAME_RUNNING --> DEGRADED_DISCONNECTED: Runtime IPC lost
+    DEGRADED_DISCONNECTED --> ACTIVE: reconnect snapshot says GAME/no running game
+    DEGRADED_DISCONNECTED --> BACKGROUND_GAME_RUNNING: reconnect snapshot says GAME_RUNNING
+    DEGRADED_DISCONNECTED --> STOPPING: reconnect says Launcher no longer valid
+
+    ACTIVE --> STOPPING: GAME leaving / Runtime shutdown
+    RESTORING --> STOPPING: GAME leaving
+    STOPPING --> STOPPED
+    STOPPED --> [*]
+
+    note right of READY_PRECOMMIT
+        Launcher ready != GAME committed
+    end note
+
+    note right of BACKGROUND_GAME_RUNNING
+        Game owns ordinary input/foreground
+        Launcher remains resident by default
+    end note
