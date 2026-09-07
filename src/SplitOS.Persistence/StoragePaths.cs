@@ -20,4 +20,7 @@ public static class StoragePaths
 
     public static string UserCacheRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Cache");
     public static string ProjectionDatabase => Path.Combine(UserCacheRoot, "projection.db");
+
+    public static string UserSecretsRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Secrets");
+    public static string UserAccountSecret => Path.Combine(UserSecretsRoot, "account.v1.dat");
 }

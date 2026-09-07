@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using SplitOS.Persistence.ProtectedSecrets;
 using SplitOS.Persistence.Projection;
 using SplitOS.Persistence.User;
 using SplitOS.RuntimeHost;
@@ -10,6 +11,7 @@ builder.Services.AddSingleton<BrokerHealthState>();
 builder.Services.AddSingleton<RuntimeStateState>();
 builder.Services.AddSingleton<UserStateStore>();
 builder.Services.AddSingleton<ProjectionStore>();
+builder.Services.AddSingleton<IAccountSecretStore, DpapiAccountSecretStore>();
 builder.Services.AddSingleton<MachineStateClient>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, DeterministicFreeRuntimeAccessEvaluator>();
 builder.Services.AddHostedService<RuntimeStateCoordinator>();
