@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph UI[User Session Presentation]
+        M[SplitOS.Manager]
+        L[SplitOS.GameLauncher]
+    end
+
+    subgraph RT[User Session Runtime]
+        RH[SplitOS.RuntimeHost]
+        CORE[Semantic Owners / Orchestration]
+        WIN[Windows Adapters]
+        GC[Game Client / Config Adapters]
+        US[(user.db / projection.db)]
+    end
+
+    subgraph MACH[Machine Boundary]
+        B[SplitOS Broker Service]
+        MS[(machine.db)]
+        UB[Update Bootstrap]
+        RR[Recovery Tool]
+    end
+
+    subgraph DIST[Distribution / Lifecycle]
+        MB[Media Builder]
+        CM[Component Matrix / Build Manifest]
+        UR[SplitOS Update Repository]
+        RK[Release / Recovery Knowledge]
+    end
+
+    subgraph BE[Product Services]
+        ACC[Account / Entitlement Backend]
+    end
+
+    M -->|user-session IPC| RH
+    L -->|user-session IPC| RH
+    RH --> CORE
+    CORE --> WIN
+    CORE --> GC
+    CORE --> US
+    RH -->|bounded privileged IPC| B
+    B --> MS
+    B --> UB
+    RR --> MS
+    RH --> ACC
+    RH --> UR
+    UR --> RK
+    MB --> CM
+    MB -->|prepared baseline| MACH
+
+    classDef boundary fill:#fff,stroke:#333,stroke-width:1px;

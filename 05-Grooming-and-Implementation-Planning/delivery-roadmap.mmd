@@ -1,0 +1,51 @@
+flowchart LR
+    S0[SLICE-00
+Engineering Foundation]
+    S1[SLICE-01
+Persistence / FREE Skeleton]
+    S2[SLICE-02
+Account / Entitlement]
+    S3[SLICE-03
+Mode Transaction]
+    S4[SLICE-04
+Windows Context]
+    S5[SLICE-05
+Launcher + Steam MVP]
+    S6[SLICE-06
+Profiles / TV / Optimization]
+    S7[SLICE-07
+Shared Apps]
+    S8[SLICE-08
+Builder / Prepared Baseline]
+    S9[SLICE-09
+Update / Recovery]
+    S10[SLICE-10
+Release Trust]
+    S11[SLICE-11
+Observability / RC]
+
+    S0 --> S1 --> S3 --> S4 --> S5 --> S6 --> S7
+    S1 --> S2
+    S0 --> S8 --> S9 --> S10 --> S11
+    S2 --> S4
+    S5 --> S11
+    S6 --> S11
+    S9 --> S11
+
+    M0([M0 Secure Skeleton])
+    M1([M1 Prepared Baseline Boots])
+    M2([M2 FREE Product Vertical])
+    M3([M3 Managed Mode Vertical])
+    M4([M4 Gaming MVP])
+    M5([M5 Profile / TV Alpha])
+    M6([M6 Resilient Alpha])
+    M7([M7 Release Candidate Infrastructure])
+
+    S0 --> M0
+    S8 --> M1
+    S2 --> M2
+    S4 --> M3
+    S5 --> M4
+    S6 --> M5
+    S9 --> M6
+    S11 --> M7
