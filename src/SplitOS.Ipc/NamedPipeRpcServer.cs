@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Text.Json;
 using SplitOS.Contracts.Protocol;
 
 namespace SplitOS.Ipc;
