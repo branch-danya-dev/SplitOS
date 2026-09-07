@@ -19,4 +19,26 @@ public sealed record HealthReadResult(
     int SessionId,
     DateTimeOffset ObservedAtUtc);
 
+public sealed record MachineStateReadRequest(string RecordKind, string RecordId);
+
+public sealed record MachineStateReadResult(
+    string RecordKind,
+    string RecordId,
+    int SchemaVersion,
+    int Revision,
+    string PayloadJson,
+    DateTimeOffset ReadAtUtc);
+
+public sealed record RuntimeStateReadRequest;
+
+public sealed record RuntimeStateReadResult(
+    string Status,
+    string ManagedRuntimeAccess,
+    string OperationalMode,
+    string UserAssociationState,
+    int MachineSchemaVersion,
+    int UserSchemaVersion,
+    int ProjectionSchemaVersion,
+    DateTimeOffset ObservedAtUtc);
+
 public sealed record ErrorResponse(string Code, string Message);

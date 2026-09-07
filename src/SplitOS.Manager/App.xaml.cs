@@ -14,10 +14,16 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        if (Environment.GetCommandLineArgs().Any(
-                static argument => string.Equals(argument, "--health-probe", StringComparison.OrdinalIgnoreCase)))
+        var arguments = Environment.GetCommandLineArgs();
+        if (arguments.Any(static argument => string.Equals(argument, "--health-probe", StringComparison.OrdinalIgnoreCase)))
         {
             _ = RunHealthProbeAndExitAsync();
+            return;
+        }
+
+        if (arguments.Any(static argument => string.Equals(argument, "--state-probe", StringComparison.OrdinalIgnoreCase)))
+        {
+            _ = RunStateProbeAndExitAsync();
             return;
         }
 
@@ -30,9 +36,25 @@ public partial class App : Application
         try
         {
             var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0";
-            var client = new RuntimeHealthClient("SplitOS.Manager", version);
-            var health = await client.ReadAsync().ConfigureAwait(false);
+            var health = await new RuntimeHealthClient("SplitOS.Manager", version).ReadAsync().ConfigureAwait(false);
             Environment.Exit(string.Equals(health.Status, "HEALTHY", StringComparison.Ordinal) ? 0 : 3);
+        }
+        catch
+        {
+            Environment.Exit(2);
+        }
+    }
+
+    private static async Task RunStateProbeAndExitAsync()
+    {
+        try
+        {
+            var version = typeof(App).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+            var state = await new RuntimeStateClient("SplitOS.Manager", version).ReadAsync().ConfigureAwait(false);
+            var expectedFree = string.Equals(state.Status, "READY", StringComparison.Ordinal)
+                && string.Equals(state.ManagedRuntimeAccess, "DISABLED", StringComparison.Ordinal)
+                && string.Equals(state.OperationalMode, "NONE", StringComparison.Ordinal);
+            Environment.Exit(expectedFree ? 0 : 4);
         }
         catch
         {

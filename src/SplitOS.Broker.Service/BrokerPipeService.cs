@@ -3,17 +3,20 @@ using Microsoft.Extensions.Logging;
 using SplitOS.Contracts.Protocol;
 using SplitOS.Ipc;
 using SplitOS.Ipc.Windows;
+using SplitOS.Persistence.Machine;
 
 namespace SplitOS.Broker.Service;
 
 public sealed partial class BrokerPipeService(
     ILogger<BrokerPipeService> logger,
     BrokerCallerValidator callerValidator,
-    BrokerMessageHandler messageHandler) : BackgroundService
+    BrokerMessageHandler messageHandler,
+    MachineStateStore machineStateStore) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         BrokerServiceIdentity.EnsureLocalSystem();
+        await machineStateStore.InitializeAsync(stoppingToken).ConfigureAwait(false);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -62,22 +65,11 @@ public sealed partial class BrokerPipeService(
                     var authorization = callerValidator.Validate(identity, expectedSessionId);
                     if (!authorization.Allowed)
                     {
-                        LogCallerDenied(
-                            logger,
-                            identity.ProcessId,
-                            identity.SessionId,
-                            identity.ImagePath,
-                            authorization.Reason,
-                            hello.Component);
+                        LogCallerDenied(logger, identity.ProcessId, identity.SessionId, identity.ImagePath, authorization.Reason, hello.Component);
                         return ValueTask.FromResult(HandshakeDecision.Deny(authorization.Reason ?? ErrorCodes.CallerNotAuthorized));
                     }
 
-                    LogCallerAccepted(
-                        logger,
-                        identity.ProcessId,
-                        identity.SessionId,
-                        identity.ImagePath,
-                        hello.Component);
+                    LogCallerAccepted(logger, identity.ProcessId, identity.SessionId, identity.ImagePath, hello.Component);
                     return ValueTask.FromResult(HandshakeDecision.Allow());
                 },
                 messageHandler.HandleAsync,
@@ -89,19 +81,8 @@ public sealed partial class BrokerPipeService(
     private static partial void LogWaiting(ILogger logger, string pipeName, uint sessionId);
 
     [LoggerMessage(1001, LogLevel.Warning, "Broker caller denied. PID={ProcessId} Session={SessionId} Image={ImagePath} Reason={Reason} ClaimedComponent={ClaimedComponent}")]
-    private static partial void LogCallerDenied(
-        ILogger logger,
-        uint processId,
-        uint sessionId,
-        string? imagePath,
-        string? reason,
-        string claimedComponent);
+    private static partial void LogCallerDenied(ILogger logger, uint processId, uint sessionId, string? imagePath, string? reason, string claimedComponent);
 
     [LoggerMessage(1002, LogLevel.Information, "Broker caller accepted. PID={ProcessId} Session={SessionId} Image={ImagePath} ClaimedComponent={ClaimedComponent}")]
-    private static partial void LogCallerAccepted(
-        ILogger logger,
-        uint processId,
-        uint sessionId,
-        string? imagePath,
-        string claimedComponent);
+    private static partial void LogCallerAccepted(ILogger logger, uint processId, uint sessionId, string? imagePath, string claimedComponent);
 }

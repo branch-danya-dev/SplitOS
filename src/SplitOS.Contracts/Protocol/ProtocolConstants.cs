@@ -12,13 +12,19 @@ public static class MessageTypes
     public const string ProtocolHelloAck = "ProtocolHelloAck";
     public const string HealthReadRequest = "HealthReadRequest";
     public const string HealthReadResult = "HealthReadResult";
+    public const string MachineStateReadRequest = "MachineStateReadRequest";
+    public const string MachineStateReadResult = "MachineStateReadResult";
+    public const string RuntimeStateReadRequest = "RuntimeStateReadRequest";
+    public const string RuntimeStateReadResult = "RuntimeStateReadResult";
     public const string ErrorResponse = "ErrorResponse";
 }
 
 public static class Capabilities
 {
     public const string BrokerHealthRead = "Broker.Health.Read";
+    public const string MachineStateStoreRead = "Machine.StateStore.Read@1";
     public const string RuntimeHealthRead = "Runtime.Health.Read";
+    public const string RuntimeStateRead = "Runtime.State.Read";
 }
 
 public static class ErrorCodes
@@ -28,5 +34,7 @@ public static class ErrorCodes
     public const string UnknownCapability = "UNKNOWN_CAPABILITY";
     public const string UnsupportedMessage = "UNSUPPORTED_MESSAGE";
     public const string InvalidMessage = "INVALID_MESSAGE";
+    public const string InvalidRecordKind = "INVALID_RECORD_KIND";
+    public const string PersistenceUnavailable = "PERSISTENCE_UNAVAILABLE";
     public const string InternalError = "INTERNAL_ERROR";
 }

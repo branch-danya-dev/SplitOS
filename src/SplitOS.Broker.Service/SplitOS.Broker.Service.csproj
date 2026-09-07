@@ -12,5 +12,6 @@
     <ProjectReference Include="../SplitOS.Contracts/SplitOS.Contracts.csproj" />
     <ProjectReference Include="../SplitOS.Ipc/SplitOS.Ipc.csproj" />
     <ProjectReference Include="../SplitOS.Ipc.Windows/SplitOS.Ipc.Windows.csproj" />
+    <ProjectReference Include="../SplitOS.Persistence.Machine/SplitOS.Persistence.Machine.csproj" />
   </ItemGroup>
 </Project>

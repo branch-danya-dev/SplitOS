@@ -1,0 +1,14 @@
+namespace SplitOS.Persistence;
+
+public static class StoragePaths
+{
+    public static string MachineDataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "SplitOS", "Data");
+    public static string MachineDatabase => Path.Combine(MachineDataRoot, "machine.db");
+    public static string MachineBootstrapMarker => Path.Combine(MachineDataRoot, "machine-store.initialized");
+
+    public static string UserDataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Data");
+    public static string UserDatabase => Path.Combine(UserDataRoot, "user.db");
+
+    public static string UserCacheRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Cache");
+    public static string ProjectionDatabase => Path.Combine(UserCacheRoot, "projection.db");
+}

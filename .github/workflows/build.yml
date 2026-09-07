@@ -42,7 +42,22 @@ jobs:
       - name: Test IPC integration
         run: dotnet test tests/SplitOS.IntegrationTests/SplitOS.IntegrationTests.csproj -c Release --no-build -p:Platform=x64
 
-      - name: Publish Slice-00 artifacts
+      - name: Restore persistence tests
+        run: dotnet restore tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -p:Platform=x64
+
+      - name: Build persistence tests
+        run: dotnet build tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-restore -p:Platform=x64
+
+      - name: Test persistence SQLite policy
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~SqlitePolicyTests
+
+      - name: Test persistence machine canonical
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~MachineStateStoreTests
+
+      - name: Test persistence user/projection
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~UserAndProjectionStoreTests
+
+      - name: Publish SplitOS artifacts
         shell: pwsh
         run: ./eng/publish.ps1 -Configuration Release
 
