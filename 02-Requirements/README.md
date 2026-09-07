@@ -12,6 +12,7 @@
 ├── SplitOS Distribution and Entitlement Requirements.md
 ├── SplitOS Runtime Access and Account Requirements.md
 ├── SplitOS Update and Recovery Requirements.md
+├── SplitOS Initial Provisioning Requirements.md
 ├── SplitOS System Context.md
 └── Requirements Open Questions.md
 ```
@@ -44,6 +45,12 @@ SplitOS Runtime Access and Account Requirements.md
 
 ```text
 SplitOS Update and Recovery Requirements.md
+```
+
+Initial Provisioning, package classes, offline first-party readiness и deferred third-party preparation находятся в:
+
+```text
+SplitOS Initial Provisioning Requirements.md
 ```
 
 Все extension-документы являются частью того же requirements baseline, а не отдельными продуктами.
@@ -155,4 +162,18 @@ software rollback without personal user-data rollback
 at least one-release user-data rollback compatibility / rollback bridge
 WinRE-hosted offline SplitOS recovery path
 same-device recovery != physical-disk backup
+```
+
+После решений DEC-048..051 baseline дополнен:
+
+```text
+Windows deployment complete != SplitOS ready for first use
+ordered Initial Provisioning before account/personalization First Run
+REQUIRED_PLATFORM / FIRST_PARTY_BUNDLED / THIRD_PARTY_PROVISIONED
+complete first-party release payload available from installation media
+offline first-party provisioning without SplitOS CDN
+required-package verification before READY_FOR_FIRST_RUN
+READY_WITH_DEFERRED_OPTIONALS for non-critical third-party failures
+vendor-authorized third-party acquisition only
+Manager retry/complete-setup path for deferred optional software
 ```
