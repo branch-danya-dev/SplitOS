@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Projection;
@@ -20,6 +21,7 @@ public sealed class ProjectionStore
         }
         catch (Exception ex) when (ex is not OperationCanceledException && File.Exists(_databasePath))
         {
+            SqliteConnection.ClearAllPools();
             DeleteProjectionFiles();
             await InitializeAsync(cancellationToken).ConfigureAwait(false);
         }

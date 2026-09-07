@@ -22,10 +22,7 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
     public async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken = default)
     {
         var directory = Path.GetDirectoryName(Options.DatabasePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
 
         var builder = new SqliteConnectionStringBuilder
         {
@@ -44,6 +41,14 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
     public async Task InitializeMetadataAsync(SqliteConnection connection, string componentKey, CancellationToken cancellationToken = default)
     {
         var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        var currentPhysicalVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        if (currentPhysicalVersion != 0 && currentPhysicalVersion != Options.SchemaVersion)
+        {
+            throw new InvalidDataException($"SQLite schema version {currentPhysicalVersion} is incompatible with expected {Options.SchemaVersion} for {Options.Role}.");
+        }
+
+        command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS schema_metadata (
                 component_key TEXT PRIMARY KEY,
@@ -54,14 +59,6 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-        command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        var currentPhysicalVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
-        if (currentPhysicalVersion != 0 && currentPhysicalVersion != Options.SchemaVersion)
-        {
-            throw new InvalidDataException($"SQLite schema version {currentPhysicalVersion} is incompatible with expected {Options.SchemaVersion} for {Options.Role}.");
-        }
 
         command = connection.CreateCommand();
         command.CommandText = "SELECT schema_version FROM schema_metadata WHERE component_key = $component;";
@@ -99,17 +96,13 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
         command.CommandText = "PRAGMA quick_check;";
         var quickCheck = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         if (!string.Equals(quickCheck, "ok", StringComparison.OrdinalIgnoreCase))
-        {
             throw new InvalidDataException($"SQLite quick_check failed for {Options.Role}: {quickCheck}");
-        }
 
         command = connection.CreateCommand();
         command.CommandText = "PRAGMA user_version;";
         var userVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         if (userVersion != Options.SchemaVersion)
-        {
             throw new InvalidDataException($"SQLite schema version mismatch for {Options.Role}. Expected {Options.SchemaVersion}, got {userVersion}.");
-        }
     }
 
     private async Task ConfigureAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -125,20 +118,14 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
         var foreignKeys = Convert.ToInt32(await ScalarAsync(connection, "PRAGMA foreign_keys;", cancellationToken).ConfigureAwait(false));
 
         if (!string.Equals(journalMode, "wal", StringComparison.OrdinalIgnoreCase))
-        {
             throw new InvalidOperationException($"SQLite WAL could not be established for {Options.Role}.");
-        }
 
         var expectedSynchronous = Options.Role == SplitOSDatabaseRole.Projection ? 1 : 2;
         if (synchronousValue != expectedSynchronous)
-        {
             throw new InvalidOperationException($"SQLite synchronous policy mismatch for {Options.Role}. Expected {expectedSynchronous}, got {synchronousValue}.");
-        }
 
         if (foreignKeys != 1)
-        {
             throw new InvalidOperationException($"SQLite foreign_keys could not be enabled for {Options.Role}.");
-        }
     }
 
     private static async Task ExecutePragmaAsync(SqliteConnection connection, string sql, CancellationToken cancellationToken)
