@@ -1,0 +1,18 @@
+flowchart TD
+    A[Windows OOBE / Windows user created] --> B[First Windows sign-in]
+    B --> C[Initial Provisioning Coordinator]
+    C --> D[Load release ProvisioningPlan + local package catalog]
+    D --> E[Verify / prepare REQUIRED_PLATFORM]
+    E -->|required failure| X[BLOCKED_REQUIRED_FAILURE / RECOVERY_REQUIRED]
+    E --> F[Install / verify FIRST_PARTY_BUNDLED]
+    F -->|required failure| X
+    F --> G[Attempt THIRD_PARTY_PROVISIONED]
+    G --> H{Optional items deferred?}
+    H -->|No| I[READY_FOR_FIRST_RUN]
+    H -->|Yes| J[READY_WITH_DEFERRED_OPTIONALS]
+    I --> K[FL-01 SplitOS First Run]
+    J --> K
+    K --> L[Account association]
+    L --> M[Entitlement resolution]
+    M --> N[FREE: Windows Desktop]
+    M --> O[PRO: setup / WORK xor GAME]

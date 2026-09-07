@@ -8,6 +8,7 @@ Defines acceptance evidence for the full lifecycle:
 Windows source
 → SplitOS build
 → clean install
+→ Initial Provisioning
 → first run
 → supported operation
 → SplitOS update
@@ -16,6 +17,14 @@ Windows source
 ```
 
 The lifecycle is accepted only if each authority boundary and transition can be proven against exact release artifacts.
+
+Canonical distinction:
+
+```text
+Windows Setup completed
+!= Initial Provisioning completed
+!= First Run/account completed
+```
 
 ---
 
@@ -44,9 +53,11 @@ Verify production BuildManifest:
 - schema validates strictly;
 - manifest version supported;
 - every operation is from typed allowlist;
-- no arbitrary PowerShell/command/path/registry primitive exists;
+- no arbitrary PowerShell/command/path/registry/download-and-run primitive exists;
 - referenced component IDs exist in accepted Component Matrix;
 - package/artifact identities match trusted release definition;
+- Initial Provisioning plan/catalog references match the exact release;
+- every requiredForFirstUse first-party artifact is represented and staged;
 - operation ordering/dependencies are valid.
 
 Malformed/unknown operation fails build before unsafe mutation.
@@ -100,6 +111,7 @@ image index
 BuildManifest digest
 Component Matrix digest
 SplitOS package digests
+ProvisioningPlan/catalog identity/digests
 operation results
 verification results
 output artifact identity/hash
@@ -120,29 +132,133 @@ OOBE completion
 local/Microsoft Windows account paths as supported by Windows baseline
 Windows user creation
 first interactive sign-in
-RuntimeHost startup
+Runtime/Provisioning bootstrap startup
 Broker service installed/running
-Manager availability
-SplitOS First Run
-Windows Desktop usable
+local release package store available
+Initial Provisioning starts
 ```
 
-No SplitOS-first-run failure may make Windows sign-in impossible.
+No SplitOS provisioning/first-run failure may make Windows authentication impossible.
+
+## 3.1 Initial Provisioning mandatory acceptance
+
+For the exact media release, verify:
+
+```text
+ProvisioningPlan belongs to InstalledBaselineIdentity/release
+all REQUIRED_PLATFORM package predicates resolve
+all required FIRST_PARTY_BUNDLED artifacts are locally available
+required first-party acquisition succeeds with SplitOS CDN/backend unavailable
+artifact integrity/provenance is checked before install
+install technical success is followed by actual installed-state read-back
+all required first-party package versions/capabilities verify
+provisioning transaction/item journal survives restart
+normal First Run is blocked until mandatory readiness
+```
+
+Expected terminal readiness:
+
+```text
+READY_FOR_FIRST_RUN
+or
+READY_WITH_DEFERRED_OPTIONALS
+```
+
+`BLOCKED_REQUIRED_FAILURE` must not be relabeled as successful setup.
+
+## 3.2 Offline first-party acceptance
+
+Run a clean install with network unavailable after Windows source/media is prepared.
+
+Required result:
+
+```text
+REQUIRED_PLATFORM            VERIFIED
+required FIRST_PARTY_BUNDLED VERIFIED
+online-only third-party      DEFERRED if configured
+core provisioning            READY_WITH_DEFERRED_OPTIONALS or READY_FOR_FIRST_RUN
+```
+
+Failure to reach required first-party readiness solely because SplitOS CDN/account backend is unavailable is a release blocker.
+
+## 3.3 Third-party provisioning acceptance
+
+For each third-party package claimed supported by the release provisioning catalog verify:
+
+```text
+bounded softwareId/adapterId
+approved acquisition mechanism
+vendor/distribution policy evidence where required
+publisher/integrity verification
+no generic remote url+commandLine authority
+external account/license/update ownership preserved
+```
+
+Negative scenarios:
+
+```text
+network unavailable
+vendor endpoint unavailable
+publisher mismatch
+installer failure
+user declines optional package
+```
+
+Non-critical outcomes must be typed/deferred and must not trap the machine before normal first-use readiness.
+
+## 3.4 Provisioning crash/reboot acceptance
+
+Inject failure at least during:
+
+```text
+required platform verification
+first-party artifact verification
+first-party installation
+first-party read-back verification
+third-party acquisition/install
+finalization
+```
+
+After Runtime/Coordinator restart or reboot:
+
+```text
+load durable provisioning state
+→ read actual installed state
+→ reconcile
+→ resume/repair
+```
+
+Do not infer package success from a persisted `INSTALLING/APPLIED` marker.
+
+## 3.5 First Run handoff acceptance
+
+After provisioning readiness:
+
+```text
+SplitOS First Run starts
+→ account association
+→ entitlement
+```
+
+With deferred optional items, Manager can expose retry/complete-setup without resetting account onboarding.
+
+With account backend unavailable, already completed bundled provisioning remains complete and Windows remains usable.
 
 ---
 
 # 4. Installed component-state acceptance
 
-After clean install, compare actual machine state to release expectations:
+After clean install/provisioning, compare actual machine state to release expectations:
 
 ```text
 KEEP → required component present/functional
 REMOVE → accepted absent/deprovisioned state verified
 DISABLE → present but inactive baseline where specified
 MODE_MANAGED → present with BASE state ready for runtime management
+required SplitOS package → installed/registered at expected release version
 ```
 
-Do not infer component success only from build-time image inspection; installed-state checks are required for selected critical components.
+Do not infer component/package success only from build-time image inspection; installed-state checks are required for selected critical components.
 
 ---
 
@@ -405,6 +521,8 @@ insufficient space for stage + capsule + safety reserve
 
 Updater must not delete required current Recovery Capsule or canonical user data to manufacture free space.
 
+Initial Provisioning must also fail/defer cleanly when package installation cannot satisfy its declared disk-space precondition; it must not report readiness with a partially installed required first-party set.
+
 ---
 
 # 20. Cleanup acceptance
@@ -417,17 +535,26 @@ After successful update:
 - logs/diagnostics cleanup respects retention priority;
 - security floors remain durable outside rebuildable cache.
 
+After successful Initial Provisioning:
+
+- cleanup does not delete installed release identity/package evidence required for repair/update;
+- temporary third-party installer artifacts follow vendor/release retention policy;
+- deferred items retain bounded retry metadata, not arbitrary executable commands.
+
 ---
 
-# 21. Build/update reproducibility evidence
+# 21. Build/update/provisioning reproducibility evidence
 
 Release evidence must be sufficient to answer:
 
 ```text
 which Windows source?
 which manifest/matrix?
-which packages?
+which first-party packages?
+which ProvisioningPlan/catalog?
+which third-party items/mechanisms are claimed supported?
 which final signed hashes?
+which provisioning readiness tests?
 which update source edge?
 which capsule?
 which recovery authorization?
@@ -444,6 +571,12 @@ Examples of release blockers:
 unsupported source accepted
 mandatory build postcondition not verified
 clean install/OOBE broken
+required first-party payload missing from media
+required bundled first-party install depends on SplitOS CDN/backend
+corrupt required first-party package does not block readiness
+First Run begins before mandatory provisioning predicates pass
+third-party provisioning exposes generic arbitrary download/run execution
+provisioning crash/reboot cannot reconcile actual installed state
 Recovery Capsule creation can be bypassed
 update commits before target health verification
 reboot loses transaction identity
@@ -457,4 +590,16 @@ Windows platform rendered unusable by accepted component matrix without supporte
 
 # 23. Result
 
-The build/install/update/recovery lifecycle passes only when SplitOS can prove both creation of a known baseline and safe evolution back and forth across the release edges it publicly supports.
+The build/install/update/recovery lifecycle passes only when SplitOS can prove:
+
+```text
+known Windows baseline created
++
+complete release-owned first-party payload delivered
++
+Initial Provisioning reaches verified first-use readiness
++
+normal Account/Runtime lifecycle works
++
+safe evolution back and forth across supported release edges
+```

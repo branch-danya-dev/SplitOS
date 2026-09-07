@@ -64,6 +64,7 @@ It does not own:
 05-Grooming-and-Implementation-Planning/
 ├── README.md
 ├── Implementation Scope and End-to-End Walkthrough.md
+├── Initial Provisioning Delivery Plan.md
 ├── Repository and Project Topology.md
 ├── Delivery Slices and Milestones.md
 ├── Implementation Backlog.md
@@ -76,6 +77,8 @@ It does not own:
 └── dependency-map.mmd
 ```
 
+`Initial Provisioning Delivery Plan.md` is the current clarification for the clean-install → first-use segment and supersedes older Grooming shorthand that jumped directly from first Windows sign-in to Account First Run.
+
 ---
 
 ## 4. Program-level implementation objective
@@ -85,10 +88,14 @@ The implementation program is not considered successful merely when isolated exe
 The first meaningful product path is:
 
 ```text
-prepared Windows baseline
+prepared Windows baseline/media
 → clean install / Windows OOBE
 → Windows user sign-in
-→ SplitOS Runtime Host starts
+→ SplitOS Initial Provisioning
+→ required platform verified
+→ required first-party feature set installed/verified
+→ optional/recommended third-party preparation attempted/deferred
+→ READY_FOR_FIRST_RUN or READY_WITH_DEFERRED_OPTIONALS
 → SplitOS Account flow
 → FREE Windows desktop remains usable
 → PRO entitlement can activate managed runtime
@@ -100,6 +107,14 @@ prepared Windows baseline
 ```
 
 Delivery slices intentionally reach this path incrementally.
+
+Critical distinction:
+
+```text
+Windows deployed
+!=
+SplitOS ready for first use
+```
 
 ---
 
@@ -118,6 +133,8 @@ Windows machine
     └── SplitOS.GameLauncher.exe        0..1
 ```
 
+Initial Provisioning Coordinator is a semantic responsibility and does not currently require a new permanent process. v1 may host it in RuntimeHost/setup bootstrap while preserving package/provisioning ownership boundaries.
+
 Additional product artifacts include:
 
 ```text
@@ -127,6 +144,7 @@ SplitOS Media Builder
 SplitOS Account / Entitlement backend
 SplitOS Release / Update repository metadata
 versioned release knowledge and adapters
+ProvisioningPlan / package catalogs
 ```
 
 Grooming may propose source-project boundaries for these artifacts, but cannot merge semantic owners just because they are physically hosted in the same process/project.
@@ -151,6 +169,17 @@ Runtime Host
 
 is more useful than implementing twenty unverified Windows wrappers.
 
+For provisioning:
+
+```text
+local release package
+→ typed install handler
+→ actual installed-state read-back
+→ verified package result
+```
+
+is more useful than a generic installer launcher supporting many unverified apps.
+
 ### 6.2 Safety semantics travel with implementation
 
 Transaction durability, verification, rollback, trust and diagnostics are not postponed as a final hardening phase when they are necessary to prove the slice.
@@ -159,10 +188,10 @@ A slice may intentionally use a reduced capability set, but it must preserve the
 
 ### 6.3 Unsupported is better than fake support
 
-If a client/device/feature is not ready:
+If a client/device/feature/external package is not ready:
 
 ```text
-mark unsupported / experimental
+mark unsupported / experimental / deferred
 ```
 
 not:
@@ -202,8 +231,8 @@ Runtime Host / Broker / IPC / persistence / mode orchestration
 TRACK B — Windows & Gaming Experience
 Windows adapters / Game Launcher / clients / profiles / optimization
 
-TRACK C — Distribution & Lifecycle
-Builder / component matrix / install / update / recovery
+TRACK C — Distribution, Provisioning & Lifecycle
+Builder / component matrix / install / Initial Provisioning / update / recovery
 
 TRACK D — Product Services & Trust
 Account / entitlement / release metadata / signing / compatibility knowledge
@@ -212,28 +241,24 @@ TRACK E — Verification Infrastructure
 CI fixtures / Windows integration tests / hardware lab / fault injection / diagnostics
 ```
 
-Tracks can progress in parallel, but the critical-path dependencies are explicit in `Dependency and Critical Path.md`.
+Tracks can progress in parallel, but the critical-path dependencies are explicit in `Dependency and Critical Path.md` and the provisioning-specific handoff is in `Initial Provisioning Delivery Plan.md`.
 
 ---
 
-## 8. Technology choices not yet silently fixed
+## 8. Technology choices / engineering decisions
 
-The current specification fixes Windows mechanisms and contracts, but does not appear to canonically fix all implementation technologies.
+The initial blocking implementation decisions for Slice 0 have been closed in `Engineering-Decisions/` and the codebase has entered delivery.
 
-Therefore this Grooming package does **not** silently declare:
+Other choices remain explicit research/decision items rather than hidden assumptions, including:
 
-- desktop implementation language/runtime;
-- Manager/Game Launcher UI framework;
-- concrete test framework;
-- concrete CI provider;
 - HSM/CA/CDN vendors;
 - Recovery Capsule container technology;
 - exact PresentMon packaging model;
-- unsupported public default-audio setter.
+- unsupported public default-audio setter;
+- exact first supported third-party auto-provisioning catalog;
+- vendor-specific acquisition/redistribution mechanisms.
 
-These are explicit items in `Engineering Decisions and Research Queue.md`.
-
-Where a slice depends on one of them, its readiness is conditional until the decision has sufficient evidence.
+Where a slice depends on one of them, its readiness is conditional until sufficient evidence exists.
 
 ---
 
@@ -243,11 +268,11 @@ Where a slice depends on one of them, its readiness is conditional until the dec
 M0 — Engineering Skeleton
 processes build and communicate on developer Windows
 
-M1 — Prepared Baseline Boots
-Builder produces a validated lab baseline that clean-installs and starts SplitOS skeleton
+M1 — Prepared Baseline + First-Use Readiness
+Builder produces a validated lab baseline that clean-installs and Initial Provisioning reaches READY_FOR_FIRST_RUN / READY_WITH_DEFERRED_OPTIONALS
 
 M2 — FREE Product Vertical
-Windows user → SplitOS Account → FREE → usable Windows desktop
+provisioned Windows user → SplitOS Account → FREE → usable Windows desktop
 
 M3 — Managed Mode Vertical
 PRO → ACTIVATE WORK → SWITCH GAME → verified commit → return WORK
@@ -303,30 +328,40 @@ Critical OPEN questions absent
 At this stage:
 
 ```text
-Architecture / Specification baseline     READY FOR DELIVERY PLANNING
-Program decomposition                     READY FOR REVIEW
-Slice 0 engineering foundation            READY / decision-driven
+Architecture / Specification baseline     READY FOR DELIVERY
+Program decomposition                     READY
+Slice 0 engineering foundation            IMPLEMENTED BASELINE / continuing lab hardening
+Initial Provisioning semantics             READY FOR DELIVERY PLANNING
 Later slices                               dependency-gated
 Production acceptance                     defined by SPEC-14
 ```
 
-The first implementation activity should not be a random UI screen or a full Windows image modification.
-
-It should close the minimum engineering decisions required by Slice 0 and prove the process/security skeleton end to end.
+The first code vertical already proves the process/IPC skeleton. Initial Provisioning engineering can now be introduced incrementally through package schemas/fixtures while Runtime/Broker/persistence work continues.
 
 ---
 
-## 12. Next lifecycle step after Grooming
+## 12. Next lifecycle step
 
-Once the implementation split is agreed and blocking decisions for a slice are closed:
+For each groomed slice/feature:
 
 ```text
-Groomed slice
+Groomed scope
 → implementation task set
 → Delivery Support
 → implementation evidence
 → Verification execution
 → knowledge update when evidence changes the model
+```
+
+Initial Provisioning follows the same rule:
+
+```text
+ProvisioningPlan/package schema
+→ local first-party fixture
+→ durable coordinator
+→ VM evidence
+→ Builder/media integration
+→ third-party adapters only after bounded first-party model works
 ```
 
 This package should therefore be treated as a live planning boundary, not a replacement for issue tracking.

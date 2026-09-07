@@ -51,6 +51,8 @@ Initial Request
 | Product clarification | DEC-042/043 | Manager/payment boundary | FR-MANAGER / FR-ENT / Trust |
 | Product clarification | DEC-044/047 | independent SplitOS update channel + Windows servicing separation | Update/Compatibility | FR-UPDATE-010..017 / SPEC-11 |
 | Product clarification | DEC-045/046 | previous-release local recovery + user-data-preserving rollback | Recovery/Data | FR-RECOVERY-008..016 / SPEC-11 |
+| Product clarification | DEC-048/049 | complete first-party release payload + Initial Provisioning before First Run | Setup / Provisioning | FR-PROV / FL-00 / SPEC-10 |
+| Product clarification | DEC-050/051 | package classes + bounded/deferred third-party provisioning | Package Delivery / External Software | FR-PROV / FL-00 / SPEC-10 |
 
 ---
 
@@ -72,7 +74,7 @@ Initial Request
 └── 11-Synthesis/
 ```
 
-All layers are READY after merge of `11-Synthesis`.
+All layers are READY after merge of `11-Synthesis`, with later accepted product clarifications carried through their owning artifacts.
 
 ---
 
@@ -83,15 +85,17 @@ All layers are READY after merge of `11-Synthesis`.
 | Artifact | Primary source |
 |---|---|
 | System Boundary Analysis | DEC-001, DEC-028, DEC-032 |
-| SplitOS Build Pipeline | DEC-028, DEC-029, DEC-034 |
+| SplitOS Build Pipeline | DEC-028, DEC-029, DEC-034, DEC-048 |
 | Windows Component Classification Model | DEC-030, DEC-031 |
 | Installed Runtime Boundary | DEC-002, DEC-032, DEC-033 |
+| Initial Provisioning boundary | DEC-048..051 / FR-PROV / FL-00 |
 
 ### 4.2 Responsibilities / Ownership
 
 | Responsibility | Canonical owner/fact |
 |---|---|
 | Product Identity & Entitlement | SplitOS Account / Entitlement / Runtime Access |
+| Initial Provisioning | Provisioning plan/transaction/readiness; external vendor retains third-party ownership |
 | Mode State | committed OperationalModeState |
 | Mode Transition | ModeTransitionRecord / transition result |
 | Mode Policy | target semantic Work/Game policy |
@@ -110,13 +114,14 @@ All layers are READY after merge of `11-Synthesis`.
 
 | Invariant/scenario | Canonical model |
 |---|---|
+| New clean install readiness | FL-00 Initial Provisioning → READY_FOR_FIRST_RUN / READY_WITH_DEFERRED_OPTIONALS |
 | FREE experience | ManagedRuntime=DISABLED, OperationalMode=NONE |
 | PRO experience | ManagedRuntime=ENABLED, WORK xor GAME |
 | Work→Game | Mode Transition Model + Work to Game Behavior |
 | Managed launch | Game Session Model + Game Launch Behavior |
 | Game exit | returns Launcher, committed GAME stays |
 | Game→Work | Game to Work Behavior |
-| startup/account | Runtime Access State + First Run/Startup Behavior |
+| startup/account | Runtime Access State + First Run Behavior, gated by provisioning readiness on clean install |
 
 ### 4.4 Data
 
@@ -126,6 +131,7 @@ All layers are READY after merge of `11-Synthesis`.
 | user association | WindowsUserAccountAssociation |
 | entitlement/access | Entitlement / ManagedRuntimeAccessDecision |
 | installed baseline | SplitOSInstallation / InstalledBaselineIdentity |
+| initial provisioning | ProvisioningPlan / ProvisioningTransaction / ProvisioningItemResult / readiness |
 | mode truth | OperationalModeState |
 | transition durability | ModeTransitionRecord |
 | game library | Game / GameClient / GameInstallationProjection |
@@ -138,6 +144,7 @@ All layers are READY after merge of `11-Synthesis`.
 
 | Area | Contract / mechanism family |
 |---|---|
+| Provisioning | local release package store + typed first-party handlers + bounded third-party adapters + Broker where required |
 | Account/access | IF-ID / IF-ACCESS / HTTPS backend |
 | Mode/transition | IF-MODE / IF-TRANS / Runtime Host orchestration |
 | App lifecycle | IF-APP / process-window evidence |
@@ -147,11 +154,12 @@ All layers are READY after merge of `11-Synthesis`.
 | Game clients | IF-LIB / IF-LAUNCH / per-client adapters |
 | Privileged mutation | bounded IPC → Privileged Broker |
 | Update/recovery | IF-UPDATE / IF-RECOVERY / Broker + servicing |
-| Builder | Windows source validation + manifest executor + supported servicing |
+| Builder | Windows source validation + manifest executor + supported servicing + package/provisioning staging |
 
 ### 4.6 Flows
 
 ```text
+FL-00 Initial Provisioning
 FL-01 First Run / FREE-PRO / Upgrade
 FL-02 Work → Game
 FL-03 Managed Game Launch / Exit
@@ -159,9 +167,17 @@ FL-04 Game → Work
 FL-05 Update / Recovery
 ```
 
+New clean installation composition:
+
+```text
+Windows OOBE / first user
+→ FL-00 Initial Provisioning
+→ FL-01 First Run
+```
+
 Direct managed launch from Work = `FL-02 + FL-03`.
 
-Major conflicting mutation families:
+Major conflicting machine mutation families:
 
 ```text
 Mode Transition
@@ -169,7 +185,7 @@ or Update
 or Recovery
 ```
 
-must be coordinated.
+must be coordinated. Initial Provisioning has its own setup transaction and must not blindly interleave with normal post-readiness lifecycle mutations.
 
 ### 4.7 Failures
 
@@ -177,6 +193,10 @@ Core safe-convergence rules:
 
 ```text
 technical operation success != semantic success
+installer success != package verified
+Windows booted != SplitOS ready for first use
+required provisioning failure → First Run readiness prohibited
+optional third-party unavailable → deferred/retryable, not core failure
 partial application != target commit
 verification failure → target commit prohibited
 rollback/recovery require verification
@@ -215,6 +235,8 @@ Key controls/candidates:
 
 - Runtime Host → Broker: explicit ACL/caller-session validation + bounded capability protocol;
 - no generic arbitrary admin command contract;
+- Initial Provisioning plan/catalog is release-owned trust input, not arbitrary remote execution metadata;
+- third-party provisioning uses bounded package/adapter IDs and approved vendor/store mechanisms;
 - account auth: external browser + PKCE candidate;
 - reusable user token protection: DPAPI candidate;
 - entitlement: backend or bounded verifiable offline assertion;
@@ -227,7 +249,21 @@ Key controls/candidates:
 
 ## 5. Synthesis component mapping
 
-### 5.1 Product identity / FREE-PRO
+### 5.1 Initial Provisioning / package delivery
+
+```text
+DEC-048..051
+→ FR-PROV-*
+→ FL-00 Initial Provisioning
+→ local release package store + ProvisioningPlan/catalog
+→ REQUIRED_PLATFORM / FIRST_PARTY_BUNDLED / THIRD_PARTY_PROVISIONED
+→ read-back verified readiness
+→ SPEC-10 Initial Provisioning and Package Delivery
+→ Grooming Initial Provisioning Delivery Plan / IMP-170..179
+→ SPEC-14 verification
+```
+
+### 5.2 Product identity / FREE-PRO
 
 ```text
 DEC-035..043
@@ -237,7 +273,7 @@ DEC-035..043
 → Entitlement + ManagedRuntimeAccessDecision
 → IF-ID / IF-ACCESS
 → Account Backend
-→ FL-01
+→ FL-01 after FL-00 readiness on clean install
 → account/access failures
 → Identity/Entitlement Trust
 → COMP-UX-01/02 Manager + First Run
@@ -245,7 +281,7 @@ DEC-035..043
 → COMP-BE-01..05 Account/Auth/Entitlement Backend
 ```
 
-### 5.2 Work → Game
+### 5.3 Work → Game
 
 ```text
 DEC-002 + DEC-016/017 + DEC-031
@@ -260,7 +296,7 @@ DEC-002 + DEC-016/017 + DEC-031
 → COMP-RT-02..07 + COMP-PRIV-01
 ```
 
-### 5.3 Managed game launch
+### 5.4 Managed game launch
 
 ```text
 DEC-006..014
@@ -275,7 +311,7 @@ DEC-006..014
 → COMP-UX-03 + COMP-RT-07..13 + COMP-ADP-08..12
 ```
 
-### 5.4 Game → Work
+### 5.5 Game → Work
 
 ```text
 FR-MODE / FR-APP / FR-RECOVERY
@@ -285,7 +321,7 @@ FR-MODE / FR-APP / FR-RECOVERY
 → COMP-RT-02..06 + COMP-RT-12
 ```
 
-### 5.5 Update / Recovery
+### 5.6 Update / Recovery
 
 ```text
 DEC-022/023 + DEC-044..047
@@ -304,16 +340,17 @@ DEC-022/023 + DEC-044..047
 → COMP-RT-14..18 + COMP-PRIV-01/02 + COMP-REL-*
 ```
 
-### 5.6 Build-time Windows preparation
+### 5.7 Build-time Windows preparation
 
 ```text
-DEC-028..032
-→ FR-BUILD / NFR-INSTALL
+DEC-028..032 + DEC-048
+→ FR-BUILD / FR-PROV / NFR-INSTALL
 → Distribution Engineering
-→ BuildManifest + ComponentClassificationDecision
+→ BuildManifest + ComponentClassificationDecision + package/provisioning input set
 → source/build external contracts
-→ source validation + manifest executor + servicing
+→ source validation + manifest executor + servicing + media staging
 → Artifact Build Trust
+→ SPEC-10
 → COMP-BLD-01..04 + COMP-REL-*
 ```
 
@@ -331,6 +368,8 @@ DEC-028..032
 11-Synthesis/system-architecture.mmd
 11-Synthesis/deployment-topology.mmd
 ```
+
+Later accepted clarifications such as Initial Provisioning extend the relevant downstream flow/specification without invalidating the synthesized runtime ownership model.
 
 ---
 
@@ -350,6 +389,18 @@ Requirement
 → Failure behavior
 → Trust rule
 → Synthesis component
+```
+
+Current Initial Provisioning extension:
+
+```text
+DEC-048..051
+→ FR-PROV-*
+→ FL-00 Initial Provisioning
+→ SPEC-10 Initial Provisioning and Package Delivery
+→ Grooming Initial Provisioning Delivery Plan / IMP-170..179
+→ implementation evidence
+→ SPEC-14 verification/acceptance
 ```
 
 Current update/recovery extension:
