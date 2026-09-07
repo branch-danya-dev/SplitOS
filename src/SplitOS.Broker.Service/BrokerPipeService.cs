@@ -6,7 +6,7 @@ using SplitOS.Ipc.Windows;
 
 namespace SplitOS.Broker.Service;
 
-public sealed class BrokerPipeService(
+public sealed partial class BrokerPipeService(
     ILogger<BrokerPipeService> logger,
     BrokerCallerValidator callerValidator,
     BrokerMessageHandler messageHandler) : BackgroundService
@@ -28,7 +28,7 @@ public sealed class BrokerPipeService(
             var server = NamedPipeRpcServer.Create(pipeName);
             try
             {
-                logger.LogDebug("Broker waiting on pipe {PipeName}.", pipeName);
+                LogWaiting(logger, pipeName);
                 await server.WaitForConnectionAsync(stoppingToken).ConfigureAwait(false);
                 _ = HandleConnectionAsync(server, activeSessionId, stoppingToken);
             }
@@ -62,8 +62,8 @@ public sealed class BrokerPipeService(
                     var authorization = callerValidator.Validate(identity, expectedSessionId);
                     if (!authorization.Allowed)
                     {
-                        logger.LogWarning(
-                            "Broker caller denied. PID={ProcessId} Session={SessionId} Image={ImagePath} Reason={Reason} ClaimedComponent={ClaimedComponent}",
+                        LogCallerDenied(
+                            logger,
                             identity.ProcessId,
                             identity.SessionId,
                             identity.ImagePath,
@@ -72,8 +72,8 @@ public sealed class BrokerPipeService(
                         return ValueTask.FromResult(HandshakeDecision.Deny(authorization.Reason ?? ErrorCodes.CallerNotAuthorized));
                     }
 
-                    logger.LogInformation(
-                        "Broker caller accepted. PID={ProcessId} Session={SessionId} Image={ImagePath} ClaimedComponent={ClaimedComponent}",
+                    LogCallerAccepted(
+                        logger,
                         identity.ProcessId,
                         identity.SessionId,
                         identity.ImagePath,
@@ -84,4 +84,24 @@ public sealed class BrokerPipeService(
                 cancellationToken).ConfigureAwait(false);
         }
     }
+
+    [LoggerMessage(1000, LogLevel.Debug, "Broker waiting on pipe {PipeName}.")]
+    private static partial void LogWaiting(ILogger logger, string pipeName);
+
+    [LoggerMessage(1001, LogLevel.Warning, "Broker caller denied. PID={ProcessId} Session={SessionId} Image={ImagePath} Reason={Reason} ClaimedComponent={ClaimedComponent}")]
+    private static partial void LogCallerDenied(
+        ILogger logger,
+        uint processId,
+        uint sessionId,
+        string? imagePath,
+        string? reason,
+        string claimedComponent);
+
+    [LoggerMessage(1002, LogLevel.Information, "Broker caller accepted. PID={ProcessId} Session={SessionId} Image={ImagePath} ClaimedComponent={ClaimedComponent}")]
+    private static partial void LogCallerAccepted(
+        ILogger logger,
+        uint processId,
+        uint sessionId,
+        string? imagePath,
+        string claimedComponent);
 }

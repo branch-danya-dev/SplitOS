@@ -16,6 +16,9 @@ $projects = @(
     @{ Name = 'GameLauncher'; Path = 'src\SplitOS.GameLauncher\SplitOS.GameLauncher.csproj' }
 )
 
+if (Test-Path $output) {
+    Remove-Item -Path $output -Recurse -Force
+}
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 
 foreach ($project in $projects) {
@@ -34,7 +37,7 @@ foreach ($project in $projects) {
 
 $files = Get-ChildItem -Path $output -File -Recurse | ForEach-Object {
     [pscustomobject]@{
-        path = [System.IO.Path]::GetRelativePath($output, $_.FullName).Replace('\\', '/')
+        path = [System.IO.Path]::GetRelativePath($output, $_.FullName).Replace('\', '/')
         length = $_.Length
         sha256 = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLowerInvariant()
     }

@@ -7,15 +7,16 @@ using SplitOS.Ipc.Windows;
 
 namespace SplitOS.RuntimeHost;
 
-public sealed class RuntimeUiPipeService(
+public sealed partial class RuntimeUiPipeService(
     ILogger<RuntimeUiPipeService> logger,
     RuntimeUiCallerValidator callerValidator) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var sessionId = Process.GetCurrentProcess().SessionId;
+        using var process = Process.GetCurrentProcess();
+        var sessionId = process.SessionId;
         var pipeName = NamedPipeNames.RuntimeForSession(sessionId);
-        logger.LogInformation("Runtime UI pipe {PipeName} starting for session {SessionId}.", pipeName, sessionId);
+        LogPipeStarting(logger, pipeName, sessionId);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -55,8 +56,8 @@ public sealed class RuntimeUiPipeService(
                     var authorization = callerValidator.Validate(identity, expectedSessionId);
                     if (!authorization.Allowed)
                     {
-                        logger.LogWarning(
-                            "Runtime UI caller denied. PID={ProcessId} Session={SessionId} Image={ImagePath} Reason={Reason}",
+                        LogCallerDenied(
+                            logger,
                             identity.ProcessId,
                             identity.SessionId,
                             identity.ImagePath,
@@ -64,8 +65,8 @@ public sealed class RuntimeUiPipeService(
                         return ValueTask.FromResult(HandshakeDecision.Deny(authorization.Reason ?? ErrorCodes.CallerNotAuthorized));
                     }
 
-                    logger.LogInformation(
-                        "Runtime UI caller accepted. PID={ProcessId} Session={SessionId} Image={ImagePath} ClaimedComponent={ClaimedComponent}",
+                    LogCallerAccepted(
+                        logger,
                         identity.ProcessId,
                         identity.SessionId,
                         identity.ImagePath,
@@ -95,7 +96,7 @@ public sealed class RuntimeUiPipeService(
                 new ErrorResponse(ErrorCodes.UnsupportedMessage, "Capability does not support this message type.")));
         }
 
-        var process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         return ValueTask.FromResult(WireMessage.Respond(
             request,
             MessageTypes.HealthReadResult,
@@ -107,4 +108,23 @@ public sealed class RuntimeUiPipeService(
                 process.SessionId,
                 DateTimeOffset.UtcNow)));
     }
+
+    [LoggerMessage(2000, LogLevel.Information, "Runtime UI pipe {PipeName} starting for session {SessionId}.")]
+    private static partial void LogPipeStarting(ILogger logger, string pipeName, int sessionId);
+
+    [LoggerMessage(2001, LogLevel.Warning, "Runtime UI caller denied. PID={ProcessId} Session={SessionId} Image={ImagePath} Reason={Reason}")]
+    private static partial void LogCallerDenied(
+        ILogger logger,
+        uint processId,
+        uint sessionId,
+        string? imagePath,
+        string? reason);
+
+    [LoggerMessage(2002, LogLevel.Information, "Runtime UI caller accepted. PID={ProcessId} Session={SessionId} Image={ImagePath} ClaimedComponent={ClaimedComponent}")]
+    private static partial void LogCallerAccepted(
+        ILogger logger,
+        uint processId,
+        uint sessionId,
+        string? imagePath,
+        string claimedComponent);
 }

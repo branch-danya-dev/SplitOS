@@ -10,7 +10,7 @@ public sealed record BrokerAuthorization(bool Allowed, string? Reason)
 
 public sealed class BrokerCallerValidator
 {
-    private const string AllowedRuntimeImage = "SplitOS.RuntimeHost.exe";
+    private readonly string _allowedRuntimeImage = "SplitOS.RuntimeHost.exe";
 
     public BrokerAuthorization Validate(PipeClientIdentity identity, uint expectedSessionId)
     {
@@ -27,7 +27,7 @@ public sealed class BrokerCallerValidator
         }
 
         var imageName = Path.GetFileName(identity.ImagePath);
-        if (!string.Equals(imageName, AllowedRuntimeImage, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(imageName, _allowedRuntimeImage, StringComparison.OrdinalIgnoreCase))
         {
             return BrokerAuthorization.Deny("CALLER_IMAGE_NOT_RUNTIMEHOST");
         }

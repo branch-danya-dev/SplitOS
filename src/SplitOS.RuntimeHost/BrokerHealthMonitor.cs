@@ -6,7 +6,7 @@ using SplitOS.Ipc;
 
 namespace SplitOS.RuntimeHost;
 
-public sealed class BrokerHealthMonitor(ILogger<BrokerHealthMonitor> logger) : BackgroundService
+public sealed partial class BrokerHealthMonitor(ILogger<BrokerHealthMonitor> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -21,7 +21,8 @@ public sealed class BrokerHealthMonitor(ILogger<BrokerHealthMonitor> logger) : B
     {
         try
         {
-            var sessionId = Process.GetCurrentProcess().SessionId;
+            using var process = Process.GetCurrentProcess();
+            var sessionId = process.SessionId;
             var client = new NamedPipeRpcClient(
                 NamedPipeNames.BrokerForSession(sessionId),
                 ComponentIdentity.Name,
@@ -37,20 +38,25 @@ public sealed class BrokerHealthMonitor(ILogger<BrokerHealthMonitor> logger) : B
             if (string.Equals(response.MessageType, MessageTypes.HealthReadResult, StringComparison.Ordinal))
             {
                 var health = response.ReadPayload<HealthReadResult>();
-                logger.LogInformation(
-                    "Broker health {Status}. BrokerPID={ProcessId} Session={SessionId}.",
-                    health.Status,
-                    health.ProcessId,
-                    health.SessionId);
+                LogHealth(logger, health.Status, health.ProcessId, health.SessionId);
                 return;
             }
 
             var error = response.ReadPayload<ErrorResponse>();
-            logger.LogWarning("Broker health probe returned {Code}: {Message}", error.Code, error.Message);
+            LogProbeError(logger, error.Code, error.Message);
         }
         catch (Exception ex) when (ex is IOException or TimeoutException or UnauthorizedAccessException or InvalidDataException)
         {
-            logger.LogWarning("Broker health probe unavailable: {Message}", ex.Message);
+            LogUnavailable(logger, ex.Message);
         }
     }
+
+    [LoggerMessage(2100, LogLevel.Information, "Broker health {Status}. BrokerPID={ProcessId} Session={SessionId}.")]
+    private static partial void LogHealth(ILogger logger, string status, int processId, int sessionId);
+
+    [LoggerMessage(2101, LogLevel.Warning, "Broker health probe returned {Code}: {Message}")]
+    private static partial void LogProbeError(ILogger logger, string code, string message);
+
+    [LoggerMessage(2102, LogLevel.Warning, "Broker health probe unavailable: {Message}")]
+    private static partial void LogUnavailable(ILogger logger, string message);
 }

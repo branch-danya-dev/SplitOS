@@ -10,7 +10,7 @@ public sealed record CallerAuthorization(bool Allowed, string? Reason)
 
 public sealed class RuntimeUiCallerValidator
 {
-    private static readonly HashSet<string> AllowedImages = new(StringComparer.OrdinalIgnoreCase)
+    private readonly HashSet<string> _allowedImages = new(StringComparer.OrdinalIgnoreCase)
     {
         "SplitOS.Manager.exe",
         "SplitOS.GameLauncher.exe"
@@ -31,7 +31,7 @@ public sealed class RuntimeUiCallerValidator
         }
 
         var imageName = Path.GetFileName(identity.ImagePath);
-        return AllowedImages.Contains(imageName)
+        return _allowedImages.Contains(imageName)
             ? CallerAuthorization.Allow()
             : CallerAuthorization.Deny("CALLER_IMAGE_NOT_ALLOWED");
     }

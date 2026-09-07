@@ -5,6 +5,9 @@ namespace SplitOS.Broker.Service;
 
 public sealed class BrokerMessageHandler
 {
+    private readonly string _componentName = ComponentIdentity.Name;
+    private readonly string _componentVersion = ComponentIdentity.Version;
+
     public ValueTask<WireMessage> HandleAsync(WireMessage request, CancellationToken _)
     {
         if (!string.Equals(request.Capability, Capabilities.BrokerHealthRead, StringComparison.Ordinal))
@@ -23,13 +26,13 @@ public sealed class BrokerMessageHandler
                 new ErrorResponse(ErrorCodes.UnsupportedMessage, "Capability does not support this message type.")));
         }
 
-        var process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         return ValueTask.FromResult(WireMessage.Respond(
             request,
             MessageTypes.HealthReadResult,
             new HealthReadResult(
-                ComponentIdentity.Name,
-                ComponentIdentity.Version,
+                _componentName,
+                _componentVersion,
                 "HEALTHY",
                 Environment.ProcessId,
                 process.SessionId,

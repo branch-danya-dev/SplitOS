@@ -9,7 +9,7 @@ public sealed class RuntimeUiCallerValidatorTests
 {
     private readonly RuntimeUiCallerValidator _validator = new();
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("SplitOS.Manager.exe")]
     [DataRow("SplitOS.GameLauncher.exe")]
     public void ApprovedUiImagesInSameSessionAreAllowed(string imageName)
