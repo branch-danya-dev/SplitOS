@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../SplitOS.Contracts/SplitOS.Contracts.csproj" />
+  </ItemGroup>
+</Project>

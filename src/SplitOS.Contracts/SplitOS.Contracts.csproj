@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Stable SplitOS protocol, capability and diagnostic contracts.</Description>
+  </PropertyGroup>
+</Project>
