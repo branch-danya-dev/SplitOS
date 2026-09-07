@@ -29,6 +29,18 @@ public sealed record MachineStateReadResult(
     string PayloadJson,
     DateTimeOffset ReadAtUtc);
 
+public sealed record MachineOperationalModeWriteRequest(
+    string TargetMode,
+    int ExpectedRevision);
+
+public sealed record MachineOperationalModeWriteResult(
+    string Disposition,
+    string CommittedMode,
+    int Revision,
+    Guid OperationId,
+    Guid CorrelationId,
+    DateTimeOffset CommittedUtc);
+
 public sealed record RuntimeStateReadRequest;
 
 public sealed record RuntimeStateReadResult(

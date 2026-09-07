@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using SplitOS.Contracts.Protocol;
 using SplitOS.Persistence.Machine;
 
@@ -47,10 +48,71 @@ public sealed class BrokerMessageHandler(MachineStateStore machineStateStore)
                         JsonSerializer.Serialize(record),
                         DateTimeOffset.UtcNow));
             }
-            catch (Exception ex) when (ex is IOException or InvalidDataException)
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
             {
-                return WireMessage.Respond(request, MessageTypes.ErrorResponse,
-                    new ErrorResponse(ErrorCodes.PersistenceUnavailable, ex.Message));
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (string.Equals(request.Capability, Capabilities.MachineOperationalModeWrite, StringComparison.Ordinal))
+        {
+            if (!string.Equals(request.MessageType, MessageTypes.MachineOperationalModeWriteRequest, StringComparison.Ordinal))
+                return Unsupported(request);
+
+            try
+            {
+                var write = request.ReadPayload<MachineOperationalModeWriteRequest>();
+                if (write.ExpectedRevision < 1)
+                {
+                    return WireMessage.Respond(request, MessageTypes.ErrorResponse,
+                        new ErrorResponse(ErrorCodes.InvalidMessage, "ExpectedRevision must be greater than zero."));
+                }
+
+                if (!string.Equals(write.TargetMode, "NONE", StringComparison.Ordinal))
+                {
+                    return WireMessage.Respond(request, MessageTypes.ErrorResponse,
+                        new ErrorResponse(
+                            ErrorCodes.ManagedModeWriteNotAvailable,
+                            "SLICE-01 permits only NONE convergence. WORK/GAME writes require the managed mode engine."));
+                }
+
+                var outcome = await machineStateStore.WriteOperationalModeAsync(
+                    write.TargetMode,
+                    write.ExpectedRevision,
+                    request.OperationId,
+                    request.CorrelationId,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (outcome.Disposition == OperationalModeWriteDisposition.RevisionConflict)
+                {
+                    return WireMessage.Respond(request, MessageTypes.ErrorResponse,
+                        new ErrorResponse(
+                            ErrorCodes.PersistenceRevisionConflict,
+                            outcome.Detail ?? $"Machine state revision conflict. Actual revision: {outcome.ActualRevision}."));
+                }
+
+                if (outcome.Disposition == OperationalModeWriteDisposition.IdempotencyConflict)
+                {
+                    return WireMessage.Respond(request, MessageTypes.ErrorResponse,
+                        new ErrorResponse(
+                            ErrorCodes.IdempotencyConflict,
+                            outcome.Detail ?? "OperationId conflicts with an already committed request."));
+                }
+
+                var record = outcome.Record
+                    ?? throw new InvalidDataException("Successful machine-state write did not return a committed record.");
+                return WireMessage.Respond(request, MessageTypes.MachineOperationalModeWriteResult,
+                    new MachineOperationalModeWriteResult(
+                        outcome.Disposition.ToString().ToUpperInvariant(),
+                        record.CommittedMode,
+                        record.Revision,
+                        request.OperationId,
+                        request.CorrelationId,
+                        record.CommittedUtc));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
             }
         }
 
@@ -62,4 +124,9 @@ public sealed class BrokerMessageHandler(MachineStateStore machineStateStore)
         request,
         MessageTypes.ErrorResponse,
         new ErrorResponse(ErrorCodes.UnsupportedMessage, "Capability does not support this message type."));
+
+    private static WireMessage PersistenceUnavailable(WireMessage request, string message) => WireMessage.Respond(
+        request,
+        MessageTypes.ErrorResponse,
+        new ErrorResponse(ErrorCodes.PersistenceUnavailable, message));
 }
