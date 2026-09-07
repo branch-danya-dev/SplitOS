@@ -1,0 +1,21 @@
+flowchart TD
+    A[State-mutating operation] --> B[Durable source state / transaction]
+    B --> C[Apply mutations]
+    C --> D{Injected fault}
+    D --> E[Restart / resume / observe failure]
+    E --> F[Read durable commit marker]
+    F --> G[Read fresh actual Windows / client state]
+    G --> H{Target committed durably?}
+    H -->|No| I[Source remains canonical]
+    I --> J[Rollback / reconcile source]
+    H -->|Yes| K[Target remains canonical]
+    K --> L[Repair / reconcile target]
+    J --> M{Verification passes?}
+    L --> M
+    M -->|Yes| N[Coherent verified state]
+    M -->|No| O[Recovery Coordination]
+    O --> P[Apply bounded recovery]
+    P --> Q[Read actual state]
+    Q --> R{Recovery verified?}
+    R -->|Yes| N
+    R -->|No| S[Safe degraded / manual repair / Windows recovery]
