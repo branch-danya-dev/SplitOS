@@ -38,17 +38,28 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
         return connection;
     }
 
-    public async Task InitializeMetadataAsync(SqliteConnection connection, string componentKey, CancellationToken cancellationToken = default)
+    public async Task<int> ReadSchemaVersionAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken = default)
     {
         var command = connection.CreateCommand();
         command.CommandText = "PRAGMA user_version;";
-        var currentPhysicalVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task InitializeMetadataAsync(
+        SqliteConnection connection,
+        string componentKey,
+        CancellationToken cancellationToken = default)
+    {
+        var currentPhysicalVersion = await ReadSchemaVersionAsync(connection, cancellationToken).ConfigureAwait(false);
         if (currentPhysicalVersion != 0 && currentPhysicalVersion != Options.SchemaVersion)
         {
-            throw new InvalidDataException($"SQLite schema version {currentPhysicalVersion} is incompatible with expected {Options.SchemaVersion} for {Options.Role}.");
+            throw new InvalidDataException(
+                $"SQLite schema version {currentPhysicalVersion} is incompatible with expected {Options.SchemaVersion} for {Options.Role}.");
         }
 
-        command = connection.CreateCommand();
+        var command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS schema_metadata (
                 component_key TEXT PRIMARY KEY,
@@ -66,7 +77,8 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
         var metadataVersionRaw = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         if (metadataVersionRaw is not null and not DBNull && Convert.ToInt32(metadataVersionRaw) != Options.SchemaVersion)
         {
-            throw new InvalidDataException($"SplitOS schema metadata is incompatible with expected version {Options.SchemaVersion} for {Options.Role}.");
+            throw new InvalidDataException(
+                $"SplitOS schema metadata is incompatible with expected version {Options.SchemaVersion} for {Options.Role}.");
         }
 
         var now = DateTimeOffset.UtcNow.ToString("O");
@@ -90,19 +102,30 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
         }
     }
 
-    public async Task VerifyIntegrityAsync(SqliteConnection connection, CancellationToken cancellationToken = default)
+    public async Task VerifyQuickCheckAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken = default)
     {
         var command = connection.CreateCommand();
         command.CommandText = "PRAGMA quick_check;";
         var quickCheck = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
         if (!string.Equals(quickCheck, "ok", StringComparison.OrdinalIgnoreCase))
+        {
             throw new InvalidDataException($"SQLite quick_check failed for {Options.Role}: {quickCheck}");
+        }
+    }
 
-        command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        var userVersion = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+    public async Task VerifyIntegrityAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken = default)
+    {
+        await VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
+        var userVersion = await ReadSchemaVersionAsync(connection, cancellationToken).ConfigureAwait(false);
         if (userVersion != Options.SchemaVersion)
-            throw new InvalidDataException($"SQLite schema version mismatch for {Options.Role}. Expected {Options.SchemaVersion}, got {userVersion}.");
+        {
+            throw new InvalidDataException(
+                $"SQLite schema version mismatch for {Options.Role}. Expected {Options.SchemaVersion}, got {userVersion}.");
+        }
     }
 
     private async Task ConfigureAsync(SqliteConnection connection, CancellationToken cancellationToken)

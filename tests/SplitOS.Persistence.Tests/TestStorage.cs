@@ -11,7 +11,16 @@ internal sealed class TestStorage : IDisposable
     }
 
     public string Root { get; }
-    public string PathFor(string name) => Path.Combine(Root, name);
+
+    public string PathFor(params string[] segments)
+    {
+        var path = Root;
+        foreach (var segment in segments)
+        {
+            path = Path.Combine(path, segment);
+        }
+        return path;
+    }
 
     public void Dispose()
     {

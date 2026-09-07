@@ -13,6 +13,19 @@ function Assert-Administrator {
     }
 }
 
+function Wait-ServiceRunning([string]$Name) {
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
+    do {
+        Start-Sleep -Milliseconds 250
+        $service = Get-CimInstance Win32_Service -Filter "Name='$Name'"
+    } while ($service.State -ne 'Running' -and [DateTimeOffset]::UtcNow -lt $deadline)
+
+    if ($service.State -ne 'Running') {
+        throw "Broker service did not reach Running state. Current state: $($service.State)"
+    }
+    return $service
+}
+
 Assert-Administrator
 
 $serviceName = 'SplitOSBrokerCiSmoke'
@@ -41,14 +54,8 @@ try {
 
     New-Service -Name $serviceName -BinaryPathName ('"{0}"' -f $brokerExe) -DisplayName 'SplitOS Broker CI Smoke' -StartupType Automatic | Out-Null
     Start-Service -Name $serviceName
+    $service = Wait-ServiceRunning $serviceName
 
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(15)
-    do {
-        Start-Sleep -Milliseconds 250
-        $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
-    } while ($service.State -ne 'Running' -and [DateTimeOffset]::UtcNow -lt $deadline)
-
-    if ($service.State -ne 'Running') { throw "Broker service did not reach Running state. Current state: $($service.State)" }
     if ($service.StartMode -ne 'Auto') { throw "Broker service StartMode must be Auto, got $($service.StartMode)." }
     if ($service.StartName -notin @('LocalSystem', 'LocalSystem ')) { throw "Broker service must run as LocalSystem, got '$($service.StartName)'." }
     if (-not $service.ProcessId) { throw 'Broker service has no process id.' }
@@ -65,7 +72,25 @@ try {
     if (-not (Test-Path $machineDb)) { throw 'Broker did not bootstrap machine.db.' }
     if (-not (Test-Path $marker)) { throw 'Broker did not create the canonical machine-store bootstrap marker.' }
 
-    Write-Host 'Broker Windows Service smoke passed: LocalSystem, Automatic, Session 0, exact image, machine canonical store bootstrapped.'
+    $machineDbCreationUtc = (Get-Item $machineDb).CreationTimeUtc
+    $markerHash = (Get-FileHash $marker -Algorithm SHA256).Hash
+
+    Stop-Service -Name $serviceName -Force
+    Start-Service -Name $serviceName
+    $restarted = Wait-ServiceRunning $serviceName
+    if (-not $restarted.ProcessId) { throw 'Restarted Broker service has no process id.' }
+
+    $creationAfterRestart = (Get-Item $machineDb).CreationTimeUtc
+    if ($creationAfterRestart -ne $machineDbCreationUtc) {
+        throw 'Broker restart recreated machine.db instead of reopening durable canonical storage.'
+    }
+
+    $markerHashAfterRestart = (Get-FileHash $marker -Algorithm SHA256).Hash
+    if ($markerHashAfterRestart -ne $markerHash) {
+        throw 'Broker restart unexpectedly replaced the canonical machine-store bootstrap marker.'
+    }
+
+    Write-Host 'Broker Windows Service smoke passed: LocalSystem, Automatic, Session 0, exact image, machine canonical store survives service restart.'
 }
 finally {
     Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue

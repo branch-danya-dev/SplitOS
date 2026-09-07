@@ -14,6 +14,8 @@ public static class MessageTypes
     public const string HealthReadResult = "HealthReadResult";
     public const string MachineStateReadRequest = "MachineStateReadRequest";
     public const string MachineStateReadResult = "MachineStateReadResult";
+    public const string MachineOperationalModeWriteRequest = "MachineOperationalModeWriteRequest";
+    public const string MachineOperationalModeWriteResult = "MachineOperationalModeWriteResult";
     public const string RuntimeStateReadRequest = "RuntimeStateReadRequest";
     public const string RuntimeStateReadResult = "RuntimeStateReadResult";
     public const string ErrorResponse = "ErrorResponse";
@@ -23,6 +25,7 @@ public static class Capabilities
 {
     public const string BrokerHealthRead = "Broker.Health.Read";
     public const string MachineStateStoreRead = "Machine.StateStore.Read@1";
+    public const string MachineOperationalModeWrite = "Machine.OperationalMode.Write@1";
     public const string RuntimeHealthRead = "Runtime.Health.Read";
     public const string RuntimeStateRead = "Runtime.State.Read";
 }
@@ -36,5 +39,8 @@ public static class ErrorCodes
     public const string InvalidMessage = "INVALID_MESSAGE";
     public const string InvalidRecordKind = "INVALID_RECORD_KIND";
     public const string PersistenceUnavailable = "PERSISTENCE_UNAVAILABLE";
+    public const string PersistenceRevisionConflict = "PERSISTENCE_REVISION_CONFLICT";
+    public const string IdempotencyConflict = "IDEMPOTENCY_CONFLICT";
+    public const string ManagedModeWriteNotAvailable = "MANAGED_MODE_WRITE_NOT_AVAILABLE";
     public const string InternalError = "INTERNAL_ERROR";
 }
