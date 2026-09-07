@@ -15,5 +15,6 @@
     <ProjectReference Include="../../src/SplitOS.Persistence.Machine/SplitOS.Persistence.Machine.csproj" />
     <ProjectReference Include="../../src/SplitOS.Persistence.User/SplitOS.Persistence.User.csproj" />
     <ProjectReference Include="../../src/SplitOS.Persistence.Projection/SplitOS.Persistence.Projection.csproj" />
+    <ProjectReference Include="../../src/SplitOS.Persistence.ProtectedSecrets/SplitOS.Persistence.ProtectedSecrets.csproj" />
   </ItemGroup>
 </Project>
