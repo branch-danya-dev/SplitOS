@@ -48,6 +48,7 @@ Trigger
 
 ```text
 User
+SplitOS Initial Provisioning UI
 SplitOS First Run Experience
 SplitOS Manager
 SplitOS Game Launcher
@@ -62,6 +63,7 @@ UI не является владельцем canonical state.
 
 ```text
 SplitOS Runtime Host
+Initial Provisioning Coordination
 Product Identity & Entitlement
 Mode Intent & Active Mode State
 Mode Transition Coordination
@@ -94,6 +96,7 @@ Input Integration
 Power Integration
 SplitOS Privileged Broker
 Game Client Adapter
+Provisioning Package Handler / Third-Party Provisioning Adapter
 ```
 
 ---
@@ -104,6 +107,7 @@ Game Client Adapter
 SplitOS Account Backend
 Payment Provider
 External Game Client / Platform
+Approved Third-Party Software Vendor/Store
 Microsoft Windows Source / Update Ecosystem
 Physical Device / Driver evidence
 ```
@@ -117,6 +121,7 @@ Physical Device / Driver evidence
 Conceptual examples:
 
 ```text
+ProvisioningFlowId
 OnboardingFlowId
 ModeTransitionId
 GameLaunchId
@@ -169,6 +174,14 @@ Steam launch handoff accepted
 != GAME_RUNNING
 ```
 
+Пример provisioning:
+
+```text
+installer returned success
+!= package identity/version verified
+!= READY_FOR_FIRST_RUN
+```
+
 ---
 
 ## 6. Flow kinds
@@ -189,6 +202,7 @@ Examples:
 
 Examples:
 
+- initial provisioning transaction/journal;
 - mode transition;
 - update;
 - recovery.
@@ -201,16 +215,18 @@ Examples:
 
 - game library reconciliation;
 - entitlement refresh;
-- hardware refresh.
+- hardware refresh;
+- provisioning resume/read-back of actual installed package state.
 
 ### 6.4 Handoff flow
 
 SplitOS инициирует действие у external authority, после чего обязан отдельно наблюдать результат.
 
-Example:
+Examples:
 
 ```text
 Game launch → External Game Client
+Third-party provisioning → approved vendor/store mechanism
 ```
 
 ---
@@ -235,7 +251,23 @@ GAME committed
 Game Launcher ready
 ```
 
-В зависимости от contract user-visible success может требовать последнего milestone, а не только commit.
+Example Initial Provisioning:
+
+```text
+Windows deployed
+↓
+required platform verified
+↓
+first-party packages verified
+↓
+third-party optional preparation attempted
+↓
+READY_FOR_FIRST_RUN / READY_WITH_DEFERRED_OPTIONALS
+↓
+First Run onboarding may begin
+```
+
+В зависимости от contract user-visible success может требовать последнего milestone, а не только отдельного installer/process success.
 
 ---
 
@@ -276,6 +308,8 @@ Game Launcher
 → OperationalModeCommitted(GAME)
 ```
 
+То же правило применяется к provisioning readiness: UI не может самостоятельно отметить setup complete без owner verification.
+
 ---
 
 ## 10. Privilege rule
@@ -286,9 +320,9 @@ Flow pattern:
 
 ```text
 UI
-→ Runtime Host
+→ Runtime Host / semantic coordinator
 → validated semantic operation
-→ secured local IPC
+→ secured local IPC where privilege required
 → Privileged Broker
 → Windows privileged mechanism
 → actual-state evidence
@@ -334,11 +368,26 @@ SplitOS cache
 → platform license truth
 ```
 
+Для Initial Provisioning:
+
+```text
+Approved vendor/store mechanism
+→ third-party installer/package evidence
+→ SplitOS provisioning result
+```
+
+не:
+
+```text
+remote JSON
+→ arbitrary privileged command
+```
+
 ---
 
 ## 12. Offline/degraded rule
 
-Account/backend dependency не является Windows authentication dependency.
+Account/backend dependency не является Windows authentication dependency и не является dependency для bundled first-party provisioning.
 
 Flow must preserve:
 
@@ -347,23 +396,35 @@ Windows sign-in success
 ↓
 SplitOS backend unavailable
 ↓
-apply offline/degraded runtime-access policy
+required bundled provisioning still resolvable locally
+↓
+account uses offline/degraded policy later
 ↓
 Windows Desktop remains usable
 ```
+
+External third-party item requiring network may become deferred without invalidating core provisioning readiness.
 
 ---
 
 ## 13. Canonical v1 flows
 
-Текущий Flow layer фиксирует пять основных end-to-end families:
+Текущий Flow layer фиксирует шесть основных end-to-end families:
 
 ```text
+FL-00 Initial Provisioning
 FL-01 First Run / FREE-PRO / Upgrade
 FL-02 Work → Game
 FL-03 Managed Game Launch and Exit
 FL-04 Game → Work
 FL-05 Update and Recovery
+```
+
+For a clean installation:
+
+```text
+FL-00
+→ FL-01
 ```
 
 Direct game launch from Work является composition:
@@ -396,6 +457,8 @@ Refresh entitlement
 - manual refresh;
 - downgrade detection.
 
+Provisioning package verification similarly reuses package identity/integrity/read-back semantics across first install, repair and future release lifecycle where applicable.
+
 Но exact transport/trigger может различаться.
 
 ---
@@ -411,6 +474,7 @@ Flow layer пока не фиксирует:
 - physical DB transactions;
 - exact thread/process implementation;
 - exact UI wording;
+- exact third-party default package list;
 - SLA/SLO values.
 
 Это будет уточняться в Failures, Trust, Specification и implementation design.
@@ -422,8 +486,8 @@ Flow layer пока не фиксирует:
 После Flow layer SplitOS можно читать как целостную систему:
 
 ```text
-User intent
-→ product/runtime gate
+User/install intent
+→ provisioning/runtime gate
 → semantic owners
 → interfaces
 → integration mechanisms
