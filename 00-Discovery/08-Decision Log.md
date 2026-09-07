@@ -57,6 +57,10 @@ Decision Log фиксирует продуктовые и системные р�
 | DEC-045 | Перед активацией новой SplitOS-версии предыдущая verified SplitOS release автоматически сохраняется на текущем устройстве как локальный recovery target в изолированной recovery area | Неуспешное обновление оболочки должно иметь быстрый last-known-good rollback без переустановки Windows | ACCEPTED |
 | DEC-046 | Rollback SplitOS software/runtime не должен откатывать личные/канонические пользовательские данные к старому snapshot; data schema должна поддерживать previous-release rollback либо tested rollback bridge | Пользовательские изменения, сделанные после обновления, не должны исчезать при восстановлении старой версии SplitOS | ACCEPTED |
 | DEC-047 | Microsoft остаётся источником Windows patch payload, а SplitOS владеет compatibility approval и контролем автоматического применения неподтверждённых Windows changes; Windows servicing infrastructure не заменяется SplitOS updater'ом | Сохранить DEC-022/023, не смешивая Microsoft binaries с собственным SplitOS wrapper feed | ACCEPTED |
+| DEC-048 | Installation media конкретного SplitOS release должно содержать полный release-owned first-party package set, необходимый для supported initial provisioning; эти пакеты могут быть staged на media и устанавливаться после Windows Setup, а не обязательно быть заранее разложены внутри offline Windows image | После чистой установки first-party SplitOS functionality должна подниматься без обязательной докачки product binaries из сети | ACCEPTED |
+| DEC-049 | Supported installation lifecycle SplitOS включает отдельный Initial Provisioning после Windows OOBE/создания пользователя и до обычного SplitOS First Run onboarding; `Windows deployed != SplitOS ready for first use` | Пользователь должен получить подготовленную систему, а не голую Windows, которую затем вручную доустанавливает и настраивает | ACCEPTED |
+| DEC-050 | Initial Provisioning различает `REQUIRED_PLATFORM`, `FIRST_PARTY_BUNDLED` и `THIRD_PARTY_PROVISIONED`; required platform/required first-party failures блокируют `READY_FOR_FIRST_RUN`, а failure/defer стороннего conceptual software не должен делать Windows или core SplitOS неработоспособными | Разделить продуктовую готовность core SplitOS и best-effort подготовку внешней экосистемы | ACCEPTED |
+| DEC-051 | Conceptual third-party software может автоматически устанавливаться Initial Provisioning только через release-approved, vendor-authorized acquisition/distribution mechanism; если online acquisition недоступен или установка не завершена, item остаётся deferred/retryable через SplitOS Manager | SplitOS может давать готовое пользовательское окружение, не присваивая ownership внешнего ПО и не завися от неавторизованных зеркал/скриптов | ACCEPTED |
 
 ---
 
@@ -95,10 +99,16 @@ Windows sign-in
 
 Это понимание **SUPERSEDED**.
 
-Текущая модель:
+Текущая модель с учётом DEC-048..051:
 
 ```text
-Windows sign-in
+Windows OOBE / user creation
+→ first Windows sign-in
+→ SplitOS Initial Provisioning
+   → REQUIRED_PLATFORM
+   → FIRST_PARTY_BUNDLED
+   → THIRD_PARTY_PROVISIONED where available
+→ READY_FOR_FIRST_RUN or READY_WITH_DEFERRED_OPTIONALS
 → SplitOS Account context
 → Entitlement resolution
 → FREE: normal Windows desktop on SplitOS baseline
@@ -106,6 +116,23 @@ Windows sign-in
 ```
 
 `WORK xor GAME` является invariant полноценного managed SplitOS runtime, а не обязательным состоянием каждого бесплатного пользователя SplitOS.
+
+### Initial-provisioning clarification
+
+`SplitOS package is part of the release` не означает, что каждый first-party EXE обязан быть physically installed into the offline Windows image.
+
+Каноническая модель:
+
+```text
+installation media
+→ contains complete required first-party release payload
+→ Windows Setup installs baseline
+→ Initial Provisioning installs/verifies staged SplitOS packages
+→ optional/recommended third-party software is provisioned through approved mechanisms
+→ First Run personalization/account begins only after required readiness
+```
+
+Network availability is not a prerequisite for installing the release-owned first-party package set. External software may require network/vendor services and therefore uses deferred/retryable semantics.
 
 ### Update-channel clarification
 
