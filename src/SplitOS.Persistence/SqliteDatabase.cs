@@ -33,9 +33,17 @@ public sealed class SqliteDatabase(SqliteDatabaseOptions options)
         };
 
         var connection = new SqliteConnection(builder.ConnectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await ConfigureAsync(connection, cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await ConfigureAsync(connection, cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     public async Task<int> ReadSchemaVersionAsync(
