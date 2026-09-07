@@ -1,0 +1,54 @@
+flowchart TB
+    D1[EDR-001
+Runtime Stack]
+    D2[EDR-002
+UI Framework]
+    D3[EDR-003
+Build / Packaging]
+    D4[EDR-004
+Windows Test Environment]
+
+    P0[Process Skeleton]
+    IPC[IPC / Caller Validation]
+    DB[Persistence]
+    AUTH[Account / Entitlement]
+    MODE[Mode Transaction]
+    WIN[Windows Context]
+    LAUNCHER[Game Launcher]
+    STEAM[Steam Adapter]
+    PROFILE[Profiles / Optimization]
+    BUILDER[Builder / Prepared Baseline]
+    UPDATE[Update / Recovery]
+    TRUST[Release Trust]
+    VERIFY[Verification / RC]
+
+    D1 --> P0
+    D2 --> LAUNCHER
+    D3 --> P0
+    D3 --> BUILDER
+    D4 --> VERIFY
+
+    P0 --> IPC
+    IPC --> DB
+    DB --> AUTH
+    DB --> MODE
+    MODE --> WIN
+    WIN --> LAUNCHER
+    LAUNCHER --> STEAM
+    STEAM --> PROFILE
+
+    P0 --> BUILDER
+    DB --> UPDATE
+    BUILDER --> UPDATE
+    UPDATE --> TRUST
+
+    IPC --> VERIFY
+    DB --> VERIFY
+    AUTH --> VERIFY
+    MODE --> VERIFY
+    WIN --> VERIFY
+    STEAM --> VERIFY
+    PROFILE --> VERIFY
+    BUILDER --> VERIFY
+    UPDATE --> VERIFY
+    TRUST --> VERIFY
