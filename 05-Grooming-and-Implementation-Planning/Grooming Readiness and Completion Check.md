@@ -46,19 +46,19 @@ Status: `PASS`
 
 Status: `PASS`
 
-SPEC-01..13 already define semantic owners/process boundaries.
+SPEC-01..13 define semantic owners/process boundaries.
 
 ### Behavior understood
 
 Status: `PASS`
 
-States, flows, failures, trust and detailed contracts are already specified.
+States, flows, failures, trust and detailed contracts are specified.
 
 ### Contracts sufficiently stable
 
-Status: `PASS_WITH_IMPLEMENTATION_DECISIONS_PENDING`
+Status: `PASS_FOR_SLICE-00`
 
-Protocol semantics are stable; language/framework-specific bindings are not yet selected.
+Protocol semantics were already stable and the implementation bindings are now selected by EDR-001..004.
 
 ### Dependencies known
 
@@ -74,9 +74,11 @@ SPEC-14 plus `QA and Acceptance Handoff.md` define acceptance semantics.
 
 ### Critical OPEN questions absent
 
-Status: `PASS_AT_PROGRAM_LEVEL / FAIL_FOR_SLICE-00_UNTIL_EDR-001..004`
+Status: `PASS_FOR_SLICE-00`
 
-The unknowns are visible and assigned, not hidden.
+The implementation stack, UI framework, build/package orchestration and disposable Windows integration environment are closed decisions.
+
+Open research still exists for later capabilities, but none of it blocks the first code slice.
 
 ---
 
@@ -84,51 +86,70 @@ The unknowns are visible and assigned, not hidden.
 
 | Slice | Status | Main reason |
 |---|---|---|
-| SLICE-00 Engineering Foundation | `BLOCKED_BY_DECISION` | EDR-001 runtime stack, EDR-002 UI, EDR-003 build, EDR-004 test environment |
-| SLICE-01 Local State / FREE Skeleton | `CONDITIONALLY_READY` | can start immediately after stack/build baseline |
-| SLICE-02 Account / Entitlement | `CONDITIONALLY_READY` | backend/provider implementation choices needed, contracts stable |
+| SLICE-00 Engineering Foundation | `READY_FOR_DELIVERY` | EDR-001..004 closed; code handoff exists |
+| SLICE-01 Local State / FREE Skeleton | `CONDITIONALLY_READY` | starts after Slice-0 process/build skeleton |
+| SLICE-02 Account / Entitlement | `CONDITIONALLY_READY` | contracts stable; provider/backend implementation choices can be refined in slice |
 | SLICE-03 Mode Transaction | `CONDITIONALLY_READY` | depends on persistence + Broker skeleton |
-| SLICE-04 Windows Context | `CONDITIONALLY_READY` | depends on stack + mode core; mechanisms specified |
-| SLICE-05 Launcher + Steam MVP | `CONDITIONALLY_READY` | depends on UI, GameInput, mode and Steam vertical |
+| SLICE-04 Windows Context | `CONDITIONALLY_READY` | depends on mode core; mechanisms specified |
+| SLICE-05 Launcher + Steam MVP | `CONDITIONALLY_READY` | UI stack closed; still depends on mode and Steam vertical |
 | SLICE-06 Profiles / Optimization | `CONDITIONALLY_READY` | first game/config-adapter set must be selected |
 | SLICE-07 Shared Apps | `LATER_SCOPE` | core modes/gaming should stabilize first |
-| SLICE-08 Builder | `CONDITIONALLY_READY` | can run parallel after packaging/build baseline |
+| SLICE-08 Builder | `CONDITIONALLY_READY` | can run parallel after Slice-0 build/publish skeleton |
 | SLICE-09 Update / Recovery | `BLOCKED_BY_DECISION` | Recovery Capsule container + WinRE prototype required |
 | SLICE-10 Release Trust | `CONDITIONALLY_READY` | trust code can use fixtures before production HSM selection |
-| SLICE-11 Observability / RC | `CONDITIONALLY_READY` | base observability begins earlier; full gate automation later |
+| SLICE-11 Observability / RC | `CONDITIONALLY_READY` | base observability starts in Slice 0; full gate automation later |
 
 ---
 
-## 4. Immediate next actions
-
-The first Grooming-to-Delivery handoff should close these four items:
+## 4. Closed Slice-0 decisions
 
 ```text
-EDR-001  runtime implementation stack
-EDR-002  Manager/Launcher UI framework
-EDR-003  source/build/package orchestration
-EDR-004  disposable Windows test environment
+EDR-001  C# / .NET 10 LTS, x64-first, self-contained Windows executables
+EDR-002  WinUI 3 / Windows App SDK stable 2.4.x, unpackaged+self-contained UI
+EDR-003  monorepo + dotnet/MSBuild + pinned dependencies + GitHub Actions lanes
+EDR-004  Hyper-V Gen2 disposable VMs + differencing disks + PowerShell Direct + physical lab
 ```
 
-Once closed, issue the first delivery batch:
+Canonical decision records:
 
 ```text
-IMP-003
-IMP-004
-IMP-005
-IMP-020
-IMP-021
-IMP-022
-IMP-023
-IMP-024
-IMP-025
-IMP-027
-IMP-028
-IMP-029
-IMP-160
+Engineering-Decisions/
+├── EDR-001 Implementation Stack.md
+├── EDR-002 UI Framework.md
+├── EDR-003 Source Build Packaging Orchestration.md
+├── EDR-004 Windows Integration Test Environment.md
+└── SLICE-00 Delivery Handoff.md
 ```
 
-The first desired demo is intentionally boring:
+---
+
+## 5. Immediate next action — start implementation
+
+The next branch should be code-oriented:
+
+```text
+delivery/slice-00-engineering-foundation
+```
+
+First implementation batch:
+
+```text
+IMP-003   repository/source build skeleton
+IMP-004   component version metadata
+IMP-005   structured event envelope
+IMP-020   Runtime Host skeleton
+IMP-021   Broker Service skeleton
+IMP-022   Broker Named Pipe
+IMP-023   UI Runtime pipe
+IMP-024   protocol hello/versioning
+IMP-025   caller/session validation
+IMP-027   capability dispatch
+IMP-028   generic privileged-surface rejection tests
+IMP-029   correlation/idempotency
+IMP-160   verification result schema
+```
+
+The first desired demo remains intentionally boring:
 
 ```text
 RuntimeHost.exe running as user
@@ -142,13 +163,13 @@ one read-only health capability succeeds
 all events share correlation/version metadata
 ```
 
-This proves the architecture before product breadth.
+This proves the architecture in running code before product breadth.
 
 ---
 
-## 5. Questions explicitly not required before Slice 0
+## 6. Questions explicitly not required before Slice 0
 
-The following do **not** need to block first implementation:
+The following do **not** block first implementation:
 
 - default audio setter;
 - Battle.net support;
@@ -159,13 +180,15 @@ The following do **not** need to block first implementation:
 - in-game global controller chord;
 - automatic Windows source acquisition;
 - production HSM/CDN provider;
-- final numeric performance budgets.
+- final numeric performance budgets;
+- Recovery Capsule physical container;
+- final WinRE recovery runtime packaging.
 
-They remain visible research/decision items and block only their relevant capabilities/gates.
+They remain visible research/decision items and block only their relevant later capabilities/gates.
 
 ---
 
-## 6. Review checklist for the Grooming package
+## 7. Review checklist
 
 ### System context
 
@@ -180,16 +203,19 @@ They remain visible research/decision items and block only their relevant capabi
 - [x] critical paths are documented;
 - [x] parallel tracks are identified;
 - [x] hard vs contract vs evidence dependencies are distinguished;
-- [x] blocking engineering decisions are explicit;
+- [x] Slice-0 blocking engineering decisions are closed;
 - [x] optional research does not unnecessarily block the entire product.
 
 ### Implementation split
 
 - [x] delivery slices are defined;
 - [x] milestones are evidence-based rather than date-based;
-- [x] first implementation backlog exists;
-- [x] first issue batch is identified;
-- [x] no story-point estimation was invented before team refinement.
+- [x] implementation backlog exists;
+- [x] first code batch is identified;
+- [x] implementation stack is selected;
+- [x] UI framework is selected;
+- [x] build/package baseline is selected;
+- [x] Windows integration lab baseline is selected.
 
 ### Acceptance / QA
 
@@ -197,44 +223,50 @@ They remain visible research/decision items and block only their relevant capabi
 - [x] happy/control/failure scenarios are distinguished;
 - [x] Windows/hardware/fault/security test lanes are identified;
 - [x] SPEC-14 remains production authority;
-- [x] unsupported scope handling is explicit.
+- [x] Slice-0 positive and negative IPC/security acceptance is explicit.
 
 ### Knowledge discipline
 
 - [x] Grooming does not redefine architecture;
-- [x] OPEN items are explicit work;
+- [x] OPEN later-scope items remain explicit work;
 - [x] newly discovered contradictions must return to SSAD source layers;
-- [x] implementation tickets are not allowed to become hidden source of truth.
+- [x] implementation tickets/code are not allowed to become hidden source of truth.
 
 ---
 
-## 7. Completion state of this Grooming pass
+## 8. Completion state
 
 Program-level Grooming status:
 
 ```text
-READY FOR REVIEW
+READY
+```
+
+Slice-0 status:
+
+```text
+READY_FOR_DELIVERY
 ```
 
 Meaning:
 
-- the team can review a coherent implementation split;
-- critical dependencies and OPEN decisions are visible;
-- Slice 0 is not yet `READY` until its four blocking decisions are closed;
-- no missing decision is disguised as an implementation detail.
-
-This is the intended outcome of Grooming.
+- the delivery team has a coherent first implementation scope;
+- implementation technologies needed by Slice 0 are selected;
+- dependencies and acceptance are explicit;
+- no remaining planning document is required before the first code PR.
 
 ---
 
-## 8. Next SSAD lifecycle step
-
-After the team accepts this decomposition and closes Slice 0 blockers:
+## 9. Lifecycle transition
 
 ```text
 05 Grooming
 ↓
+Slice 0 READY
+↓
 06 Delivery Support
+↓
+IMPLEMENTATION CODE
 ```
 
-Delivery Support should then operate against concrete implementation PRs/issues, helping resolve new evidence without allowing code to silently diverge from the documented system model.
+Delivery Support now works alongside concrete source PRs/issues. If implementation evidence contradicts a semantic decision, the change returns to Decision/Requirement/A&D/Specification instead of silently diverging in code.
