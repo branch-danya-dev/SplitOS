@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using Microsoft.Win32.SafeHandles;
 
 namespace SplitOS.Ipc.Windows;
@@ -36,7 +37,7 @@ public static class PipeClientIdentityReader
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
         {
-            // Fail-closed authorization decisions can reject a caller whose image path cannot be established.
+            // Authorization fails closed when the image path cannot be established.
         }
 
         return new PipeClientIdentity(processId, sessionId, process.ProcessName, imagePath);
@@ -53,8 +54,34 @@ public static class PipeClientIdentityReader
 
 public static class WindowsSessionInfo
 {
+    public const uint NoConsoleSession = uint.MaxValue;
+
     public static uint ActiveConsoleSessionId => WTSGetActiveConsoleSessionId();
+
+    public static SecurityIdentifier GetLoggedOnUserSid(uint sessionId)
+    {
+        if (sessionId == NoConsoleSession)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sessionId), "No physical console session is attached.");
+        }
+
+        if (!WTSQueryUserToken(sessionId, out var token))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "WTSQueryUserToken failed.");
+        }
+
+        using (token)
+        using (var identity = new WindowsIdentity(token.DangerousGetHandle()))
+        {
+            return identity.User
+                ?? throw new InvalidOperationException("Logged-on Windows user SID is unavailable.");
+        }
+    }
 
     [DllImport("kernel32.dll")]
     private static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSQueryUserToken(uint sessionId, out SafeAccessTokenHandle token);
 }

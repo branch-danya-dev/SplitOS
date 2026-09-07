@@ -8,9 +8,11 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="MSTest.TestFramework" />
+    <PackageReference Include="System.IO.Pipes.AccessControl" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/SplitOS.Contracts/SplitOS.Contracts.csproj" />
     <ProjectReference Include="../../src/SplitOS.Ipc/SplitOS.Ipc.csproj" />
+    <ProjectReference Include="../../src/SplitOS.Ipc.Windows/SplitOS.Ipc.Windows.csproj" />
   </ItemGroup>
 </Project>
