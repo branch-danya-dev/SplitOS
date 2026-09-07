@@ -25,7 +25,8 @@ SplitOS:
 - не использует dual boot для Work/Game;
 - не является обычной `.exe`-прослойкой поверх произвольной пользовательской Windows;
 - сохраняет Windows Shell как базовую desktop shell;
-- предоставляет собственный Game Mode UX / Game Launcher при соответствующем entitlement.
+- предоставляет собственный Game Mode UX / Game Launcher при соответствующем entitlement;
+- включает release-owned first-party feature ecosystem, который может расширяться независимо от Work/Game core: audio/equalizer, hotkeys, widgets, pins, controller/performance/display tools и другие SplitOS-owned capabilities.
 
 `WORK xor GAME` является invariant полноценного managed SplitOS runtime, а не обязательным состоянием каждого FREE пользователя.
 
@@ -46,11 +47,15 @@ SplitOS Build Manifest / Packages
         +
 Windows Component Classification
         ↓
-locally prepared supported baseline
+locally prepared supported baseline/media
         ↓
 clean installation
         ↓
-Installed SplitOS Runtime
+Windows OOBE / first user
+        ↓
+SplitOS Initial Provisioning
+        ↓
+Installed SplitOS release ready for First Run
 ```
 
 Windows source является внешним Microsoft-owned build input.
@@ -62,7 +67,48 @@ SplitOS владеет:
 - SplitOS packages;
 - component classification;
 - compatibility knowledge;
+- Initial Provisioning plan;
 - runtime product logic.
+
+### 2.1 Release package and Initial Provisioning model
+
+Installation media конкретного release содержит полный required first-party payload этого release.
+
+```text
+installation media
+├── Windows setup/baseline assets
+├── REQUIRED_PLATFORM packages
+├── FIRST_PARTY_BUNDLED packages
+└── approved THIRD_PARTY_PROVISIONING descriptors/assets where redistribution is permitted
+```
+
+First-party package принадлежит release даже если он не installed directly into offline `install.wim`.
+
+Каноническая модель:
+
+```text
+Windows Setup
+↓
+SplitOS staged payload available locally
+↓
+Initial Provisioning
+   1. REQUIRED_PLATFORM
+   2. FIRST_PARTY_BUNDLED
+   3. THIRD_PARTY_PROVISIONED where available
+↓
+READY_FOR_FIRST_RUN
+or READY_WITH_DEFERRED_OPTIONALS
+```
+
+Основной first-party SplitOS release должен подниматься без обязательной докачки его binaries из SplitOS CDN/backend.
+
+External conceptual software — например поддерживаемые game clients или companion applications — может устанавливаться автоматически в provisioning flow, но остаётся внешним ПО. Его acquisition/distribution зависит от approved vendor mechanism и может быть deferred без повреждения core SplitOS.
+
+```text
+bundled with / provisioned by SplitOS
+!=
+owned by SplitOS
+```
 
 ---
 
@@ -106,7 +152,7 @@ SplitOS Account
 SplitOS Entitlement
 ```
 
-Канонический first-run flow:
+Канонический clean-install / first-run flow:
 
 ```text
 Windows OOBE
@@ -115,6 +161,15 @@ Windows user created
     ↓
 First Windows sign-in
     ↓
+SplitOS Initial Provisioning
+    ↓
+required platform + first-party verification
+    ↓
+optional/recommended third-party provisioning
+    ↓
+READY_FOR_FIRST_RUN
+or READY_WITH_DEFERRED_OPTIONALS
+    ↓
 SplitOS First Run Experience
     ↓
 Sign in / Create SplitOS Account
@@ -122,7 +177,17 @@ Sign in / Create SplitOS Account
 Entitlement resolution
 ```
 
-После этого:
+Критическая граница:
+
+```text
+Windows deployed
+!=
+SplitOS provisioning ready
+!=
+SplitOS account onboarding complete
+```
+
+После entitlement resolution:
 
 ```text
 FREE
@@ -136,10 +201,19 @@ PRO
 
 SplitOS Account является product identity и не заменяет Windows authentication principal.
 
-Подробная модель находится в:
+Bundled first-party provisioning не зависит от успешной SplitOS Account authentication.
+
+Подробная account/access модель находится в:
 
 ```text
 Runtime Access and Subscription Model.md
+```
+
+Provisioning requirements/specification находятся в:
+
+```text
+02-Requirements/SplitOS Initial Provisioning Requirements.md
+04-Specification/SPEC-10-Builder-and-Component-Matrix/Initial Provisioning and Package Delivery.md
 ```
 
 ---
@@ -156,9 +230,10 @@ FREE пользователь получает модернизированны�
 - Game Clients могут запускать игры обычным Windows/client path;
 - mode selection не является обязательным gate;
 - Work/Game managed runtime не активируется;
-- SplitOS Manager остаётся доступен как account/subscription/product control surface.
+- SplitOS Manager остаётся доступен как account/subscription/product control surface;
+- installed first-party SplitOS features доступны согласно своей capability/entitlement policy и не требуют повторной установки при FREE → PRO, если package уже присутствует.
 
-Build-time изменения baseline сохраняются независимо от подписки.
+Build-time изменения baseline и успешно provisioned release packages сохраняются независимо от подписки.
 
 ---
 
@@ -215,7 +290,8 @@ SplitOS владеет:
 - SplitOS game/profile relation;
 - managed launch orchestration при active Pro Runtime;
 - Game Mode preparation;
-- SplitOS UX.
+- SplitOS UX;
+- approved provisioning intent for supported external clients where product policy chooses to prepare them during Initial Provisioning.
 
 В FREE experience обычный game launch может идти напрямую через external Game Client без managed mode transition.
 
@@ -268,7 +344,7 @@ FREE entitlement → Windows desktop on SplitOS baseline
 PRO entitlement → managed Work/Game runtime and premium capabilities
 ```
 
-Pro capabilities могут быть предустановлены, но entitlement определяет право на их активное product behavior.
+Pro capabilities могут быть заранее provisioned, но entitlement определяет право на их активное product behavior.
 
 Upgrade FREE → PRO не должен требовать reinstall при наличии required installed components.
 
@@ -289,7 +365,10 @@ Game Profiles
 Devices
 Updates
 Recovery
+Setup / deferred optional provisioning
 ```
+
+Если Initial Provisioning завершён как `READY_WITH_DEFERRED_OPTIONALS`, Manager является штатным surface для просмотра и retry незавершённых optional/recommended packages.
 
 Payment execution остаётся внешней responsibility; SplitOS владеет resulting entitlement semantics.
 
@@ -307,4 +386,5 @@ Concept отвечает на вопрос **что такое SplitOS как п
 - `02-Ownership` → authority/canonical truth;
 - `03-States` → state semantics;
 - `04-Behavior` → сценарное поведение;
-- `05-Data` → meaning/ownership/lifecycle данных.
+- `05-Data` → meaning/ownership/lifecycle данных;
+- `08-Flows` → Initial Provisioning и First Run ordering.
