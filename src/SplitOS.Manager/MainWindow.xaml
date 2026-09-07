@@ -6,8 +6,9 @@
     <Grid Padding="32" Loaded="OnLoaded">
         <StackPanel Spacing="12">
             <TextBlock Text="SplitOS Manager" FontSize="32" FontWeight="SemiBold" />
-            <TextBlock Text="SLICE-00 Engineering Foundation" Opacity="0.7" />
+            <TextBlock Text="SLICE-01 Local State / FREE Runtime" Opacity="0.7" />
             <TextBlock x:Name="StatusText" Text="Connecting to Runtime Host…" TextWrapping="Wrap" />
+            <TextBlock x:Name="StateText" Text="Reading canonical state…" TextWrapping="Wrap" />
         </StackPanel>
     </Grid>
 </Window>

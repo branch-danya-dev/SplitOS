@@ -11,8 +11,9 @@
     <PackageReference Include="MSTest.TestFramework" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/SplitOS.Broker.Service/SplitOS.Broker.Service.csproj" />
-    <ProjectReference Include="../../src/SplitOS.Ipc.Windows/SplitOS.Ipc.Windows.csproj" />
+    <ProjectReference Include="../../src/SplitOS.Persistence/SplitOS.Persistence.csproj" />
     <ProjectReference Include="../../src/SplitOS.Persistence.Machine/SplitOS.Persistence.Machine.csproj" />
+    <ProjectReference Include="../../src/SplitOS.Persistence.User/SplitOS.Persistence.User.csproj" />
+    <ProjectReference Include="../../src/SplitOS.Persistence.Projection/SplitOS.Persistence.Projection.csproj" />
   </ItemGroup>
 </Project>

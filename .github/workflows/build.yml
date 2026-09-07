@@ -42,7 +42,10 @@ jobs:
       - name: Test IPC integration
         run: dotnet test tests/SplitOS.IntegrationTests/SplitOS.IntegrationTests.csproj -c Release --no-build -p:Platform=x64
 
-      - name: Publish Slice-00 artifacts
+      - name: Test persistence contracts
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release -p:Platform=x64
+
+      - name: Publish SplitOS artifacts
         shell: pwsh
         run: ./eng/publish.ps1 -Configuration Release
 
