@@ -17,6 +17,7 @@ public static class StoragePaths
 
     public static string UserDataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Data");
     public static string UserDatabase => Path.Combine(UserDataRoot, "user.db");
+    public static string UserBackupRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Backups", "User");
 
     public static string UserCacheRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SplitOS", "Cache");
     public static string ProjectionDatabase => Path.Combine(UserCacheRoot, "projection.db");
