@@ -54,3 +54,7 @@ jobs:
           $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
           if ($manifest.architecture -ne 'x64') { throw 'Unexpected artifact architecture.' }
           if ($manifest.files.Count -lt 4) { throw 'Published artifact set is unexpectedly empty.' }
+
+      - name: Broker Windows Service smoke
+        shell: pwsh
+        run: ./eng/lab/test-broker-service-ci.ps1

@@ -10,11 +10,27 @@ public sealed record CallerAuthorization(bool Allowed, string? Reason)
 
 public sealed class RuntimeUiCallerValidator
 {
-    private readonly HashSet<string> _allowedImages = new(StringComparer.OrdinalIgnoreCase)
+    private readonly IReadOnlyDictionary<string, string> _allowedImagePaths;
+
+    public RuntimeUiCallerValidator()
+        : this(ReleaseLayout.ResolveCurrentReleaseRoot("RuntimeHost"))
     {
-        "SplitOS.Manager.exe",
-        "SplitOS.GameLauncher.exe"
-    };
+    }
+
+    public RuntimeUiCallerValidator(string trustedReleaseRoot)
+    {
+        _allowedImagePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SplitOS.Manager.exe"] = ReleaseLayout.ComponentExecutable(
+                trustedReleaseRoot,
+                "Manager",
+                "SplitOS.Manager.exe"),
+            ["SplitOS.GameLauncher.exe"] = ReleaseLayout.ComponentExecutable(
+                trustedReleaseRoot,
+                "GameLauncher",
+                "SplitOS.GameLauncher.exe")
+        };
+    }
 
     public CallerAuthorization Validate(PipeClientIdentity identity, uint expectedSessionId)
     {
@@ -31,8 +47,13 @@ public sealed class RuntimeUiCallerValidator
         }
 
         var imageName = Path.GetFileName(identity.ImagePath);
-        return _allowedImages.Contains(imageName)
+        if (!_allowedImagePaths.TryGetValue(imageName, out var expectedPath))
+        {
+            return CallerAuthorization.Deny("CALLER_IMAGE_NOT_ALLOWED");
+        }
+
+        return ReleaseLayout.IsExactPath(identity.ImagePath, expectedPath)
             ? CallerAuthorization.Allow()
-            : CallerAuthorization.Deny("CALLER_IMAGE_NOT_ALLOWED");
+            : CallerAuthorization.Deny("CALLER_RELEASE_PATH_MISMATCH");
     }
 }

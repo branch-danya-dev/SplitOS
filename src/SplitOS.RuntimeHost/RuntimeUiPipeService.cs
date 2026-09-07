@@ -9,7 +9,8 @@ namespace SplitOS.RuntimeHost;
 
 public sealed partial class RuntimeUiPipeService(
     ILogger<RuntimeUiPipeService> logger,
-    RuntimeUiCallerValidator callerValidator) : BackgroundService
+    RuntimeUiCallerValidator callerValidator,
+    BrokerHealthState brokerHealthState) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -20,7 +21,7 @@ public sealed partial class RuntimeUiPipeService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var server = NamedPipeRpcServer.Create(pipeName);
+            var server = WindowsNamedPipeServerFactory.CreateCurrentUserOnly(pipeName);
             try
             {
                 await server.WaitForConnectionAsync(stoppingToken).ConfigureAwait(false);
@@ -78,7 +79,7 @@ public sealed partial class RuntimeUiPipeService(
         }
     }
 
-    private static ValueTask<WireMessage> HandleMessageAsync(WireMessage request, CancellationToken _)
+    private ValueTask<WireMessage> HandleMessageAsync(WireMessage request, CancellationToken _)
     {
         if (!string.Equals(request.Capability, Capabilities.RuntimeHealthRead, StringComparison.Ordinal))
         {
@@ -97,16 +98,17 @@ public sealed partial class RuntimeUiPipeService(
         }
 
         using var process = Process.GetCurrentProcess();
+        var broker = brokerHealthState.Snapshot;
         return ValueTask.FromResult(WireMessage.Respond(
             request,
             MessageTypes.HealthReadResult,
             new HealthReadResult(
                 ComponentIdentity.Name,
                 ComponentIdentity.Version,
-                "HEALTHY",
+                broker.Status,
                 Environment.ProcessId,
                 process.SessionId,
-                DateTimeOffset.UtcNow)));
+                broker.ObservedAtUtc)));
     }
 
     [LoggerMessage(2000, LogLevel.Information, "Runtime UI pipe {PipeName} starting for session {SessionId}.")]

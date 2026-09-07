@@ -11,24 +11,24 @@ public sealed partial class BrokerPipeService(
     BrokerCallerValidator callerValidator,
     BrokerMessageHandler messageHandler) : BackgroundService
 {
-    private const uint NoConsoleSession = uint.MaxValue;
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        BrokerServiceIdentity.EnsureLocalSystem();
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var activeSessionId = WindowsSessionInfo.ActiveConsoleSessionId;
-            if (activeSessionId == NoConsoleSession)
+            if (activeSessionId == WindowsSessionInfo.NoConsoleSession)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
                 continue;
             }
 
             var pipeName = NamedPipeNames.BrokerForSession(checked((int)activeSessionId));
-            var server = NamedPipeRpcServer.Create(pipeName);
+            var server = WindowsNamedPipeServerFactory.CreateBrokerForSession(pipeName, activeSessionId);
             try
             {
-                LogWaiting(logger, pipeName);
+                LogWaiting(logger, pipeName, activeSessionId);
                 await server.WaitForConnectionAsync(stoppingToken).ConfigureAwait(false);
                 _ = HandleConnectionAsync(server, activeSessionId, stoppingToken);
             }
@@ -85,8 +85,8 @@ public sealed partial class BrokerPipeService(
         }
     }
 
-    [LoggerMessage(1000, LogLevel.Debug, "Broker waiting on pipe {PipeName}.")]
-    private static partial void LogWaiting(ILogger logger, string pipeName);
+    [LoggerMessage(1000, LogLevel.Debug, "Broker waiting on pipe {PipeName} for physical console session {SessionId}.")]
+    private static partial void LogWaiting(ILogger logger, string pipeName, uint sessionId);
 
     [LoggerMessage(1001, LogLevel.Warning, "Broker caller denied. PID={ProcessId} Session={SessionId} Image={ImagePath} Reason={Reason} ClaimedComponent={ClaimedComponent}")]
     private static partial void LogCallerDenied(

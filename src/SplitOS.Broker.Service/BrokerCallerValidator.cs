@@ -10,7 +10,21 @@ public sealed record BrokerAuthorization(bool Allowed, string? Reason)
 
 public sealed class BrokerCallerValidator
 {
-    private readonly string _allowedRuntimeImage = "SplitOS.RuntimeHost.exe";
+    private const string RuntimeHostExecutable = "SplitOS.RuntimeHost.exe";
+    private readonly string _expectedRuntimeHostPath;
+
+    public BrokerCallerValidator()
+        : this(ReleaseLayout.ResolveCurrentReleaseRoot("Broker"))
+    {
+    }
+
+    public BrokerCallerValidator(string trustedReleaseRoot)
+    {
+        _expectedRuntimeHostPath = ReleaseLayout.ComponentExecutable(
+            trustedReleaseRoot,
+            "RuntimeHost",
+            RuntimeHostExecutable);
+    }
 
     public BrokerAuthorization Validate(PipeClientIdentity identity, uint expectedSessionId)
     {
@@ -27,9 +41,14 @@ public sealed class BrokerCallerValidator
         }
 
         var imageName = Path.GetFileName(identity.ImagePath);
-        if (!string.Equals(imageName, _allowedRuntimeImage, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(imageName, RuntimeHostExecutable, StringComparison.OrdinalIgnoreCase))
         {
             return BrokerAuthorization.Deny("CALLER_IMAGE_NOT_RUNTIMEHOST");
+        }
+
+        if (!ReleaseLayout.IsExactPath(identity.ImagePath, _expectedRuntimeHostPath))
+        {
+            return BrokerAuthorization.Deny("CALLER_RELEASE_PATH_MISMATCH");
         }
 
         return BrokerAuthorization.Allow();

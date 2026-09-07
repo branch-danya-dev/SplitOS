@@ -6,7 +6,9 @@ using SplitOS.Ipc;
 
 namespace SplitOS.RuntimeHost;
 
-public sealed partial class BrokerHealthMonitor(ILogger<BrokerHealthMonitor> logger) : BackgroundService
+public sealed partial class BrokerHealthMonitor(
+    ILogger<BrokerHealthMonitor> logger,
+    BrokerHealthState healthState) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -38,15 +40,18 @@ public sealed partial class BrokerHealthMonitor(ILogger<BrokerHealthMonitor> log
             if (string.Equals(response.MessageType, MessageTypes.HealthReadResult, StringComparison.Ordinal))
             {
                 var health = response.ReadPayload<HealthReadResult>();
+                healthState.ReportHealthy(health.ProcessId, health.SessionId);
                 LogHealth(logger, health.Status, health.ProcessId, health.SessionId);
                 return;
             }
 
             var error = response.ReadPayload<ErrorResponse>();
+            healthState.ReportUnavailable($"{error.Code}: {error.Message}");
             LogProbeError(logger, error.Code, error.Message);
         }
         catch (Exception ex) when (ex is IOException or TimeoutException or UnauthorizedAccessException or InvalidDataException)
         {
+            healthState.ReportUnavailable(ex.Message);
             LogUnavailable(logger, ex.Message);
         }
     }
