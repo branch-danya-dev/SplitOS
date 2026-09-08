@@ -157,9 +157,9 @@ public sealed class TcpNativeAuthLoopbackListener : INativeAuthLoopbackListener
         }
 
         var target = requestLine[1];
-        if (!target.StartsWith('/', StringComparison.Ordinal) ||
+        if (!target.StartsWith("/", StringComparison.Ordinal) ||
             target.StartsWith("//", StringComparison.Ordinal) ||
-            target.Contains('#', StringComparison.Ordinal) ||
+            target.Contains('#') ||
             target.Any(static character => char.IsControl(character) || char.IsWhiteSpace(character)))
         {
             throw new InvalidDataException("Native-auth loopback request target is invalid.");
