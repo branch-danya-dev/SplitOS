@@ -43,18 +43,18 @@ public sealed class NativeAuthTokenExchangeService
     private const int MaximumBearerTokenCharacters = 32 * 1024;
 
     private readonly HttpClient _httpClient;
-    private readonly NativeAuthTrustConfiguration _trust;
+    private readonly NativeAuthAuthorityConfiguration _authority;
     private readonly TimeProvider _timeProvider;
 
     public NativeAuthTokenExchangeService(
         HttpClient httpClient,
-        NativeAuthTrustConfiguration trust,
+        NativeAuthAuthorityConfiguration authority,
         TimeProvider? timeProvider = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _trust = trust ?? throw new ArgumentNullException(nameof(trust));
+        _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _trust.Validate();
+        _authority.Validate();
     }
 
     public async Task<NativeAuthTokenExchangeResult> ExchangeAsync(
@@ -62,15 +62,14 @@ public sealed class NativeAuthTokenExchangeService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(exchangeContext);
-        if (!string.Equals(exchangeContext.ClientId, _trust.ClientId, StringComparison.Ordinal))
+        if (!string.Equals(exchangeContext.ClientId, _authority.ClientId, StringComparison.Ordinal))
         {
             return Reject(NativeAuthTokenExchangeDisposition.IdentityRejected, "AUTH_RESULT_REJECTED");
         }
 
-        OidcDiscoveryMetadata metadata;
         try
         {
-            metadata = await FetchDiscoveryAsync(cancellationToken).ConfigureAwait(false);
+            await ValidateDiscoveryAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -88,7 +87,7 @@ public sealed class NativeAuthTokenExchangeService
         TokenEndpointResult tokenResult;
         try
         {
-            tokenResult = await ExchangeCodeAsync(metadata.TokenEndpoint, exchangeContext, cancellationToken).ConfigureAwait(false);
+            tokenResult = await ExchangeCodeAsync(_authority.TokenEndpoint, exchangeContext, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -121,7 +120,7 @@ public sealed class NativeAuthTokenExchangeService
         IReadOnlyList<OidcJsonWebKey> jwks;
         try
         {
-            jwks = await FetchJwksAsync(metadata.JwksUri, cancellationToken).ConfigureAwait(false);
+            jwks = await FetchJwksAsync(_authority.JwksEndpoint, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -172,9 +171,9 @@ public sealed class NativeAuthTokenExchangeService
             session);
     }
 
-    private async Task<OidcDiscoveryMetadata> FetchDiscoveryAsync(CancellationToken cancellationToken)
+    private async Task ValidateDiscoveryAsync(CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, _trust.DiscoveryEndpoint);
+        using var request = new HttpRequestMessage(HttpMethod.Get, _authority.DiscoveryEndpoint);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         using var response = await _httpClient.SendAsync(
             request,
@@ -198,10 +197,12 @@ public sealed class NativeAuthTokenExchangeService
         var tokenEndpoint = GetRequiredHttpsUri(root, "token_endpoint");
         var jwksUri = GetRequiredHttpsUri(root, "jwks_uri");
 
-        if (!string.Equals(issuer, _trust.Issuer.AbsoluteUri, StringComparison.Ordinal) ||
-            !UriEquals(authorizationEndpoint, _trust.AuthorizationEndpoint))
+        if (!string.Equals(issuer, _authority.Issuer.AbsoluteUri, StringComparison.Ordinal) ||
+            !UriEquals(authorizationEndpoint, _authority.AuthorizationEndpoint) ||
+            !UriEquals(tokenEndpoint, _authority.TokenEndpoint) ||
+            !UriEquals(jwksUri, _authority.JwksEndpoint))
         {
-            throw new InvalidDataException("OIDC discovery metadata does not match release-owned trust configuration.");
+            throw new InvalidDataException("OIDC discovery metadata does not match release-owned authority configuration.");
         }
 
         var responseTypes = GetOptionalStringArray(root, "response_types_supported");
@@ -221,8 +222,6 @@ public sealed class NativeAuthTokenExchangeService
         {
             throw new InvalidDataException("OIDC provider does not advertise public-client token endpoint authentication.");
         }
-
-        return new OidcDiscoveryMetadata(tokenEndpoint, jwksUri);
     }
 
     private async Task<TokenEndpointResult> ExchangeCodeAsync(
@@ -362,17 +361,17 @@ public sealed class NativeAuthTokenExchangeService
         var validationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = _trust.Issuer.AbsoluteUri,
+            ValidIssuer = _authority.Issuer.AbsoluteUri,
             ValidateAudience = true,
-            ValidAudience = _trust.ClientId,
+            ValidAudience = _authority.ClientId,
             ValidateIssuerSigningKey = true,
             IssuerSigningKeys = signingKeys,
             TryAllIssuerSigningKeys = false,
             RequireSignedTokens = true,
             RequireExpirationTime = true,
             ValidateLifetime = true,
-            ClockSkew = _trust.ClockSkew,
-            ValidAlgorithms = _trust.AllowedIdTokenAlgorithms.ToArray(),
+            ClockSkew = _authority.ClockSkew,
+            ValidAlgorithms = _authority.AllowedIdTokenAlgorithms.ToArray(),
             LifetimeValidator = ValidateLifetime
         };
 
@@ -399,7 +398,7 @@ public sealed class NativeAuthTokenExchangeService
 
         var audiences = token.Audiences.ToArray();
         if ((audiences.Length > 1 || !string.IsNullOrWhiteSpace(token.Azp)) &&
-            !string.Equals(token.Azp, _trust.ClientId, StringComparison.Ordinal))
+            !string.Equals(token.Azp, _authority.ClientId, StringComparison.Ordinal))
         {
             throw new InvalidDataException("OIDC ID token authorized party does not match the native client ID.");
         }
@@ -431,7 +430,7 @@ public sealed class NativeAuthTokenExchangeService
         {
             if (!string.Equals(jwk.KeyType, "RSA", StringComparison.Ordinal) ||
                 (jwk.Use is not null && !string.Equals(jwk.Use, "sig", StringComparison.Ordinal)) ||
-                (jwk.Algorithm is not null && !_trust.AllowedIdTokenAlgorithms.Contains(jwk.Algorithm, StringComparer.Ordinal)))
+                (jwk.Algorithm is not null && !_authority.AllowedIdTokenAlgorithms.Contains(jwk.Algorithm, StringComparer.Ordinal)))
             {
                 continue;
             }
@@ -483,7 +482,7 @@ public sealed class NativeAuthTokenExchangeService
         }
 
         var now = _timeProvider.GetUtcNow();
-        var skew = _trust.ClockSkew;
+        var skew = _authority.ClockSkew;
         var expiration = new DateTimeOffset(DateTime.SpecifyKind(expires.Value, DateTimeKind.Utc));
         if (now > expiration.Add(skew))
         {
@@ -657,6 +656,7 @@ public sealed class NativeAuthTokenExchangeService
         if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
             !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.IsNullOrEmpty(uri.Query) ||
             !string.IsNullOrEmpty(uri.Fragment))
         {
             throw new InvalidDataException($"OIDC endpoint '{propertyName}' is not a trusted HTTPS URI shape.");
@@ -700,8 +700,6 @@ public sealed class NativeAuthTokenExchangeService
         NativeAuthTokenExchangeDisposition disposition,
         string productCode)
         => new(disposition, productCode, null);
-
-    private sealed record OidcDiscoveryMetadata(Uri TokenEndpoint, Uri JwksUri);
 
     private sealed record OidcJsonWebKey(
         string KeyType,
