@@ -69,6 +69,9 @@ jobs:
       - name: Test offline entitlement assertion validation
         run: dotnet test tests/SplitOS.RuntimeHost.Tests/SplitOS.RuntimeHost.Tests.csproj -c Release --no-build -p:Platform=x64 --filter FullyQualifiedName~OfflineEntitlementAssertionValidatorTests
 
+      - name: Test semantic runtime Auth.Start
+        run: dotnet test tests/SplitOS.RuntimeHost.Tests/SplitOS.RuntimeHost.Tests.csproj -c Release --no-build -p:Platform=x64 --filter FullyQualifiedName~RuntimeAuthStartCoordinatorTests
+
       - name: Test Broker
         run: dotnet test tests/SplitOS.Broker.Tests/SplitOS.Broker.Tests.csproj -c Release --no-build -p:Platform=x64
 
