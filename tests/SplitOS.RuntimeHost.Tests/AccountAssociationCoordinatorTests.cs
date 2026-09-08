@@ -97,6 +97,30 @@ public sealed class AccountAssociationCoordinatorTests
         Assert.AreEqual(1, associationStore.MarkReauthCount);
     }
 
+    [TestMethod]
+    public async Task RevisionConflictReloadsCanonicalAssociationAndReevaluatesIntent()
+    {
+        var original = ActiveAssociation("S-1-5-21-current", "acc_one");
+        var replacement = ActiveAssociation("S-1-5-21-current", "acc_two") with { Revision = 2 };
+        var associationStore = new FakeAssociationStore(original, replacement);
+        var secretStore = new FakeSecretStore(
+            AccountSecretReadResult.Available(Secret("different-account")),
+            AccountSecretReadResult.Available(Secret("acc_two")));
+        var coordinator = new AccountAssociationCoordinator(
+            associationStore,
+            secretStore,
+            new FakeWindowsUserContext("S-1-5-21-current"));
+
+        var result = await coordinator.EvaluateAsync();
+
+        Assert.AreEqual("ACTIVE", result.AssociationState);
+        Assert.AreEqual("acc_two", result.AccountId);
+        Assert.IsNull(result.Reason);
+        Assert.AreEqual(2, result.Revision);
+        Assert.AreEqual(1, associationStore.MarkReauthCount);
+        Assert.AreEqual(2, secretStore.ReadCount);
+    }
+
     private static UserAccountAssociationRecord ActiveAssociation(string sid, string accountId)
     {
         var now = DateTimeOffset.UtcNow;
@@ -122,14 +146,21 @@ public sealed class AccountAssociationCoordinatorTests
         public string GetCurrentUserSid() => sid;
     }
 
-    private sealed class FakeSecretStore(AccountSecretReadResult result) : IAccountSecretStore
+    private sealed class FakeSecretStore(params AccountSecretReadResult[] results) : IAccountSecretStore
     {
+        private readonly AccountSecretReadResult[] _results = results;
         public int ReadCount { get; private set; }
 
         public Task<AccountSecretReadResult> ReadAsync(CancellationToken cancellationToken = default)
         {
+            if (_results.Length == 0)
+            {
+                throw new InvalidOperationException("Fake secret store has no configured result.");
+            }
+
+            var index = Math.Min(ReadCount, _results.Length - 1);
             ReadCount++;
-            return Task.FromResult(result);
+            return Task.FromResult(_results[index]);
         }
 
         public Task WriteAsync(AccountSecretEnvelope secret, CancellationToken cancellationToken = default)
@@ -139,8 +170,11 @@ public sealed class AccountAssociationCoordinatorTests
             => throw new NotSupportedException();
     }
 
-    private sealed class FakeAssociationStore(UserAccountAssociationRecord? association) : IUserAccountAssociationStore
+    private sealed class FakeAssociationStore(
+        UserAccountAssociationRecord? association,
+        UserAccountAssociationRecord? conflictReplacement = null) : IUserAccountAssociationStore
     {
+        private UserAccountAssociationRecord? _conflictReplacement = conflictReplacement;
         public UserAccountAssociationRecord? Current { get; private set; } = association;
         public int MarkReauthCount { get; private set; }
 
@@ -170,6 +204,17 @@ public sealed class AccountAssociationCoordinatorTests
             {
                 return Task.FromResult(new UserAssociationWriteOutcome(
                     UserAssociationWriteDisposition.Missing, null, null, null));
+            }
+
+            if (_conflictReplacement is not null)
+            {
+                Current = _conflictReplacement;
+                _conflictReplacement = null;
+                return Task.FromResult(new UserAssociationWriteOutcome(
+                    UserAssociationWriteDisposition.RevisionConflict,
+                    Current,
+                    Current.Revision,
+                    null));
             }
 
             if (Current.Revision != expectedRevision)
