@@ -359,7 +359,7 @@ public sealed class NativeAuthTokenExchangeService
         string expectedNonce,
         IReadOnlyList<OidcJsonWebKey> jwks)
     {
-        IReadOnlyList<SecurityKey> signingKeys = CreateSigningKeys(jwks);
+        var signingKeys = CreateSigningKeys(jwks);
         var validationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -386,7 +386,8 @@ public sealed class NativeAuthTokenExchangeService
         {
             validation = await handler.ValidateTokenAsync(idToken, validationParameters).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is ArgumentException or SecurityTokenException)
+        catch (Exception exception) when (
+            exception is ArgumentException or SecurityTokenException or FormatException or CryptographicException)
         {
             throw new InvalidDataException("OIDC ID token could not be parsed or validated.", exception);
         }
@@ -421,7 +422,7 @@ public sealed class NativeAuthTokenExchangeService
         return subject;
     }
 
-    private IReadOnlyList<SecurityKey> CreateSigningKeys(IReadOnlyList<OidcJsonWebKey> jwks)
+    private List<SecurityKey> CreateSigningKeys(IReadOnlyList<OidcJsonWebKey> jwks)
     {
         var keyIds = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<SecurityKey>();
@@ -442,34 +443,24 @@ public sealed class NativeAuthTokenExchangeService
                 throw new InvalidDataException("OIDC JWKS contains an incomplete or ambiguous signing key.");
             }
 
-            byte[] modulus;
-            byte[] exponent;
-            try
+            var key = new JsonWebKey
             {
-                modulus = Base64UrlDecode(jwk.Modulus);
-                exponent = Base64UrlDecode(jwk.Exponent);
-            }
-            catch (FormatException exception)
+                Kty = jwk.KeyType,
+                Kid = jwk.KeyId,
+                N = jwk.Modulus,
+                E = jwk.Exponent
+            };
+            if (jwk.Use is not null)
             {
-                throw new InvalidDataException("OIDC JWKS contains invalid RSA key material.", exception);
+                key.Use = jwk.Use;
             }
 
-            try
+            if (jwk.Algorithm is not null)
             {
-                result.Add(new RsaSecurityKey(new RSAParameters
-                {
-                    Modulus = modulus,
-                    Exponent = exponent
-                })
-                {
-                    KeyId = jwk.KeyId
-                });
+                key.Alg = jwk.Algorithm;
             }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(modulus);
-                CryptographicOperations.ZeroMemory(exponent);
-            }
+
+            result.Add(key);
         }
 
         if (result.Count == 0)
@@ -483,8 +474,8 @@ public sealed class NativeAuthTokenExchangeService
     private bool ValidateLifetime(
         DateTime? notBefore,
         DateTime? expires,
-        SecurityToken token,
-        TokenValidationParameters parameters)
+        SecurityToken _,
+        TokenValidationParameters __)
     {
         if (expires is null)
         {
@@ -676,19 +667,6 @@ public sealed class NativeAuthTokenExchangeService
 
     private static bool UriEquals(Uri left, Uri right)
         => string.Equals(left.AbsoluteUri, right.AbsoluteUri, StringComparison.Ordinal);
-
-    private static byte[] Base64UrlDecode(string value)
-    {
-        var normalized = value.Replace('-', '+').Replace('_', '/');
-        normalized += (normalized.Length % 4) switch
-        {
-            0 => string.Empty,
-            2 => "==",
-            3 => "=",
-            _ => throw new FormatException("Invalid base64url length.")
-        };
-        return Convert.FromBase64String(normalized);
-    }
 
     private static bool FixedTimeEquals(string expected, string actual)
     {
