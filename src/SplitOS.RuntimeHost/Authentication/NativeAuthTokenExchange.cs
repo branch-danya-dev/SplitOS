@@ -247,7 +247,6 @@ public sealed class NativeAuthTokenExchangeService
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
-
         if (!response.IsSuccessStatusCode)
         {
             if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.TooManyRequests)
@@ -368,6 +367,7 @@ public sealed class NativeAuthTokenExchangeService
             ValidAudience = _trust.ClientId,
             ValidateIssuerSigningKey = true,
             IssuerSigningKeys = signingKeys,
+            TryAllIssuerSigningKeys = false,
             RequireSignedTokens = true,
             RequireExpirationTime = true,
             ValidateLifetime = true,
