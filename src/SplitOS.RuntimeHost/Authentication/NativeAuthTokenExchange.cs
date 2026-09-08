@@ -1,4 +1,4 @@
-using System.Globalization;
+using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -143,10 +143,20 @@ public sealed class NativeAuthTokenExchangeService
             return Reject(NativeAuthTokenExchangeDisposition.IdentityRejected, "AUTH_RESULT_REJECTED");
         }
 
+        DateTimeOffset accessTokenExpiresUtc;
+        try
+        {
+            accessTokenExpiresUtc = _timeProvider.GetUtcNow().AddSeconds(tokenResult.TokenSet.ExpiresInSeconds);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return Reject(NativeAuthTokenExchangeDisposition.TokenResponseRejected, "AUTH_RESULT_REJECTED");
+        }
+
         var session = new ValidatedNativeAuthSession(
             subject,
             tokenResult.TokenSet.AccessToken,
-            _timeProvider.GetUtcNow().AddSeconds(tokenResult.TokenSet.ExpiresInSeconds),
+            accessTokenExpiresUtc,
             tokenResult.TokenSet.RefreshToken,
             tokenResult.TokenSet.Scope);
 
@@ -173,8 +183,7 @@ public sealed class NativeAuthTokenExchangeService
                 response.StatusCode);
         }
 
-        using var document = await ReadBoundedJsonAsync(response, MaximumDiscoveryBytes, cancellationToken).ConfigureAwait(false);
-        var root = document.RootElement;
+        var root = await ReadBoundedJsonAsync(response, MaximumDiscoveryBytes, cancellationToken).ConfigureAwait(false);
         RequireObject(root, "OIDC discovery document");
         EnsureNoDuplicateProperties(root, "OIDC discovery document");
 
@@ -240,10 +249,9 @@ public sealed class NativeAuthTokenExchangeService
                 return new TokenEndpointResult(TokenEndpointDisposition.BackendUnavailable, null);
             }
 
-            using var errorDocument = await TryReadBoundedJsonAsync(response, MaximumTokenResponseBytes, cancellationToken).ConfigureAwait(false);
-            if (errorDocument is not null &&
-                errorDocument.RootElement.ValueKind == JsonValueKind.Object &&
-                errorDocument.RootElement.TryGetProperty("error", out var error) &&
+            var errorRoot = await TryReadBoundedJsonAsync(response, MaximumTokenResponseBytes, cancellationToken).ConfigureAwait(false);
+            if (errorRoot is { ValueKind: JsonValueKind.Object } &&
+                errorRoot.Value.TryGetProperty("error", out var error) &&
                 error.ValueKind == JsonValueKind.String &&
                 string.Equals(error.GetString(), "invalid_grant", StringComparison.Ordinal))
             {
@@ -253,8 +261,7 @@ public sealed class NativeAuthTokenExchangeService
             return new TokenEndpointResult(TokenEndpointDisposition.Rejected, null);
         }
 
-        using var document = await ReadBoundedJsonAsync(response, MaximumTokenResponseBytes, cancellationToken).ConfigureAwait(false);
-        var root = document.RootElement;
+        var root = await ReadBoundedJsonAsync(response, MaximumTokenResponseBytes, cancellationToken).ConfigureAwait(false);
         RequireObject(root, "OAuth token response");
         EnsureNoDuplicateProperties(root, "OAuth token response");
 
@@ -300,8 +307,7 @@ public sealed class NativeAuthTokenExchangeService
             throw new HttpRequestException("OIDC JWKS endpoint did not return success.", null, response.StatusCode);
         }
 
-        using var document = await ReadBoundedJsonAsync(response, MaximumJwksBytes, cancellationToken).ConfigureAwait(false);
-        var root = document.RootElement;
+        var root = await ReadBoundedJsonAsync(response, MaximumJwksBytes, cancellationToken).ConfigureAwait(false);
         RequireObject(root, "OIDC JWKS document");
         EnsureNoDuplicateProperties(root, "OIDC JWKS document");
         if (!root.TryGetProperty("keys", out var keysElement) || keysElement.ValueKind != JsonValueKind.Array)
@@ -383,22 +389,36 @@ public sealed class NativeAuthTokenExchangeService
                 throw new InvalidDataException("OIDC ID token signature algorithm is not implemented by this release.");
             }
 
-            var key = keys.SingleOrDefault(candidate =>
-                string.Equals(candidate.KeyId, keyId, StringComparison.Ordinal) &&
-                string.Equals(candidate.KeyType, "RSA", StringComparison.Ordinal) &&
-                (candidate.Use is null || string.Equals(candidate.Use, "sig", StringComparison.Ordinal)) &&
-                (candidate.Algorithm is null || string.Equals(candidate.Algorithm, algorithm, StringComparison.Ordinal)));
-            if (key is null || string.IsNullOrWhiteSpace(key.Modulus) || string.IsNullOrWhiteSpace(key.Exponent))
+            var matchingKeys = keys.Where(candidate =>
+                    string.Equals(candidate.KeyId, keyId, StringComparison.Ordinal) &&
+                    string.Equals(candidate.KeyType, "RSA", StringComparison.Ordinal) &&
+                    (candidate.Use is null || string.Equals(candidate.Use, "sig", StringComparison.Ordinal)) &&
+                    (candidate.Algorithm is null || string.Equals(candidate.Algorithm, algorithm, StringComparison.Ordinal)))
+                .Take(2)
+                .ToArray();
+            if (matchingKeys.Length != 1 ||
+                string.IsNullOrWhiteSpace(matchingKeys[0].Modulus) ||
+                string.IsNullOrWhiteSpace(matchingKeys[0].Exponent))
             {
                 throw new InvalidDataException("OIDC ID token signing key is unavailable or ambiguous.");
             }
 
+            var modulusBytes = Base64UrlDecode(matchingKeys[0].Modulus);
+            var exponentBytes = Base64UrlDecode(matchingKeys[0].Exponent);
             using var rsa = RSA.Create();
-            rsa.ImportParameters(new RSAParameters
+            try
             {
-                Modulus = Base64UrlDecode(key.Modulus),
-                Exponent = Base64UrlDecode(key.Exponent)
-            });
+                rsa.ImportParameters(new RSAParameters
+                {
+                    Modulus = modulusBytes,
+                    Exponent = exponentBytes
+                });
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(modulusBytes);
+                CryptographicOperations.ZeroMemory(exponentBytes);
+            }
 
             var signingInput = Encoding.ASCII.GetBytes($"{segments[0]}.{segments[1]}");
             try
@@ -436,9 +456,13 @@ public sealed class NativeAuthTokenExchangeService
 
             return subject;
         }
-        catch (JsonException exception)
+        catch (InvalidDataException)
         {
-            throw new InvalidDataException("OIDC ID token JSON is malformed.", exception);
+            throw;
+        }
+        catch (Exception exception) when (exception is JsonException or FormatException or CryptographicException or ArgumentException)
+        {
+            throw new InvalidDataException("OIDC ID token validation failed closed.", exception);
         }
         finally
         {
@@ -504,7 +528,7 @@ public sealed class NativeAuthTokenExchangeService
                 throw new InvalidDataException("OIDC ID token nbf claim is malformed.");
             }
 
-            var notBefore = DateTimeOffset.FromUnixTimeSeconds(notBeforeSeconds);
+            var notBefore = ParseUnixTime(notBeforeSeconds, "nbf");
             if (now.Add(_trust.ClockSkew) < notBefore)
             {
                 throw new InvalidDataException("OIDC ID token is not yet valid.");
@@ -521,6 +545,11 @@ public sealed class NativeAuthTokenExchangeService
             throw new InvalidDataException($"Required numeric claim '{propertyName}' is missing or malformed.");
         }
 
+        return ParseUnixTime(seconds, propertyName);
+    }
+
+    private static DateTimeOffset ParseUnixTime(long seconds, string propertyName)
+    {
         try
         {
             return DateTimeOffset.FromUnixTimeSeconds(seconds);
@@ -531,7 +560,7 @@ public sealed class NativeAuthTokenExchangeService
         }
     }
 
-    private static async Task<JsonDocument> ReadBoundedJsonAsync(
+    private static async Task<JsonElement> ReadBoundedJsonAsync(
         HttpResponseMessage response,
         int maximumBytes,
         CancellationToken cancellationToken)
@@ -542,29 +571,58 @@ public sealed class NativeAuthTokenExchangeService
             throw new InvalidDataException("HTTP JSON response exceeded the allowed size.");
         }
 
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        if (bytes.Length > maximumBytes)
-        {
-            CryptographicOperations.ZeroMemory(bytes);
-            throw new InvalidDataException("HTTP JSON response exceeded the allowed size.");
-        }
-
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var memory = new MemoryStream(declaredLength is > 0 and <= int.MaxValue ? (int)declaredLength.Value : 4096);
+        var rented = ArrayPool<byte>.Shared.Rent(8192);
         try
         {
-            return JsonDocument.Parse(bytes, new JsonDocumentOptions
+            while (true)
             {
-                AllowTrailingCommas = false,
-                CommentHandling = JsonCommentHandling.Disallow,
-                MaxDepth = 32
-            });
+                var read = await stream.ReadAsync(rented.AsMemory(0, rented.Length), cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                if (memory.Length + read > maximumBytes)
+                {
+                    throw new InvalidDataException("HTTP JSON response exceeded the allowed size.");
+                }
+
+                memory.Write(rented, 0, read);
+            }
+
+            if (!memory.TryGetBuffer(out var segment) || segment.Array is null)
+            {
+                throw new InvalidDataException("HTTP JSON response buffer could not be inspected safely.");
+            }
+
+            using var document = JsonDocument.Parse(
+                new ReadOnlyMemory<byte>(segment.Array, segment.Offset, checked((int)memory.Length)),
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 32
+                });
+            return document.RootElement.Clone();
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("HTTP JSON response was malformed.", exception);
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(bytes);
+            CryptographicOperations.ZeroMemory(rented);
+            ArrayPool<byte>.Shared.Return(rented);
+            if (memory.TryGetBuffer(out var buffer) && buffer.Array is not null)
+            {
+                CryptographicOperations.ZeroMemory(buffer.Array.AsSpan(buffer.Offset, checked((int)memory.Length)));
+            }
         }
     }
 
-    private static async Task<JsonDocument?> TryReadBoundedJsonAsync(
+    private static async Task<JsonElement?> TryReadBoundedJsonAsync(
         HttpResponseMessage response,
         int maximumBytes,
         CancellationToken cancellationToken)
@@ -572,10 +630,6 @@ public sealed class NativeAuthTokenExchangeService
         try
         {
             return await ReadBoundedJsonAsync(response, maximumBytes, cancellationToken).ConfigureAwait(false);
-        }
-        catch (JsonException)
-        {
-            return null;
         }
         catch (InvalidDataException)
         {
@@ -702,8 +756,7 @@ public sealed class NativeAuthTokenExchangeService
     }
 
     private static bool IsBackendFailure(Exception exception)
-        => exception is HttpRequestException or IOException or TimeoutException ||
-           exception is OperationCanceledException;
+        => exception is HttpRequestException or IOException or TimeoutException or OperationCanceledException;
 
     private static NativeAuthTokenExchangeResult Reject(
         NativeAuthTokenExchangeDisposition disposition,
