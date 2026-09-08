@@ -72,6 +72,7 @@ public sealed class DpapiAccountSecretStore : IAccountSecretStore
     {
         if (string.IsNullOrWhiteSpace(secretPath)) throw new ArgumentException("Secret path is required.", nameof(secretPath));
         _secretPath = Path.GetFullPath(secretPath);
+        SecretStorageAcl.EnsurePrivatePath(_secretPath);
     }
 
     public async Task<AccountSecretReadResult> ReadAsync(CancellationToken cancellationToken = default)
@@ -79,6 +80,7 @@ public sealed class DpapiAccountSecretStore : IAccountSecretStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            SecretStorageAcl.EnsurePrivatePath(_secretPath);
             if (!File.Exists(_secretPath)) return AccountSecretReadResult.Missing();
 
             var container = await File.ReadAllBytesAsync(_secretPath, cancellationToken).ConfigureAwait(false);
@@ -141,10 +143,7 @@ public sealed class DpapiAccountSecretStore : IAccountSecretStore
         var temporaryPath = _secretPath + ".new";
         try
         {
-            var directory = Path.GetDirectoryName(_secretPath);
-            if (string.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("Protected secret path has no parent directory.");
-            Directory.CreateDirectory(directory);
-
+            SecretStorageAcl.EnsurePrivatePath(_secretPath);
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
 
             plaintext = JsonSerializer.SerializeToUtf8Bytes(secret, SerializerOptions);
@@ -170,6 +169,7 @@ public sealed class DpapiAccountSecretStore : IAccountSecretStore
             }
 
             File.Move(temporaryPath, _secretPath, overwrite: true);
+            SecretStorageAcl.EnsurePrivatePath(_secretPath);
         }
         finally
         {
@@ -199,6 +199,7 @@ public sealed class DpapiAccountSecretStore : IAccountSecretStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            SecretStorageAcl.EnsurePrivatePath(_secretPath);
             var temporaryPath = _secretPath + ".new";
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
             if (File.Exists(_secretPath)) File.Delete(_secretPath);
