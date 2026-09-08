@@ -148,6 +148,15 @@ public sealed class NativeAuthInteractiveFlow(
                     transactionId,
                     null);
             }
+            catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException)
+            {
+                transactionManager.Cancel(transactionId.Value);
+                return new NativeAuthInteractiveResult(
+                    NativeAuthInteractiveDisposition.LoopbackRejected,
+                    "AUTH_RESULT_REJECTED",
+                    transactionId,
+                    null);
+            }
 
             await using (request)
             {
