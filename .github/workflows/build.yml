@@ -75,11 +75,17 @@ jobs:
       - name: Test user association persistence
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~UserAssociationStoreTests
 
+      - name: Test user canonical recovery
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~UserCanonicalRecoveryTests
+
       - name: Test persistence user/projection
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~UserAndProjectionStoreTests
 
       - name: Test protected account secrets
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ProtectedAccountSecretStoreTests
+
+      - name: Test protected secret ACLs
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ProtectedSecretAclTests
 
       - name: Publish SplitOS artifacts
         shell: pwsh
