@@ -73,7 +73,10 @@ public sealed class NativeSessionRefreshService
     {
         if (Interlocked.CompareExchange(ref _refreshInProgress, 1, 0) != 0)
         {
-            return Result(NativeSessionRefreshDisposition.AlreadyInProgress, "SESSION_REFRESH_ALREADY_IN_PROGRESS", retryable: true);
+            return Result(
+                NativeSessionRefreshDisposition.AlreadyInProgress,
+                "SESSION_REFRESH_ALREADY_IN_PROGRESS",
+                retryable: true);
         }
 
         try
@@ -99,23 +102,35 @@ public sealed class NativeSessionRefreshService
         }
         catch (Exception ex) when (IsLocalPersistenceFailure(ex))
         {
-            return Result(NativeSessionRefreshDisposition.PersistenceFailed, "LOCAL_ASSOCIATION_STORE_FAILED", retryable: false);
+            return Result(
+                NativeSessionRefreshDisposition.PersistenceFailed,
+                "LOCAL_ASSOCIATION_STORE_FAILED",
+                retryable: false);
         }
 
         if (association is null)
         {
-            return Result(NativeSessionRefreshDisposition.ReauthRequired, "ACCOUNT_NOT_ASSOCIATED", retryable: false);
+            return Result(
+                NativeSessionRefreshDisposition.ReauthRequired,
+                "ACCOUNT_NOT_ASSOCIATED",
+                retryable: false);
         }
 
         var currentSid = _windowsUserContext.GetCurrentUserSid();
         if (!string.Equals(currentSid, association.WindowsUserSid, StringComparison.OrdinalIgnoreCase))
         {
-            return Result(NativeSessionRefreshDisposition.ReauthRequired, "LOCAL_ASSOCIATION_CONTEXT_MISMATCH", retryable: false);
+            return Result(
+                NativeSessionRefreshDisposition.ReauthRequired,
+                "LOCAL_ASSOCIATION_CONTEXT_MISMATCH",
+                retryable: false);
         }
 
         if (!string.Equals(association.AssociationState, "ACTIVE", StringComparison.Ordinal))
         {
-            return Result(NativeSessionRefreshDisposition.ReauthRequired, "REAUTH_REQUIRED", retryable: false);
+            return Result(
+                NativeSessionRefreshDisposition.ReauthRequired,
+                "REAUTH_REQUIRED",
+                retryable: false);
         }
 
         AccountSecretReadResult secretRead;
@@ -139,7 +154,9 @@ public sealed class NativeSessionRefreshService
         {
             return await EnterReauthAsync(
                 association,
-                secretRead.Status == AccountSecretReadStatus.Missing ? "LOCAL_SECRET_MISSING" : "LOCAL_SECRET_UNREADABLE",
+                secretRead.Status == AccountSecretReadStatus.Missing
+                    ? "LOCAL_SECRET_MISSING"
+                    : "LOCAL_SECRET_UNREADABLE",
                 clearSecret: false).ConfigureAwait(false);
         }
 
@@ -168,8 +185,6 @@ public sealed class NativeSessionRefreshService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Once a rotating refresh request may have reached the server, cancellation is ambiguous:
-            // R1 may already be retired. Converge durable local state before propagating cancellation.
             await EnterReauthAsync(
                 association,
                 "REFRESH_RESULT_UNKNOWN",
@@ -199,8 +214,6 @@ public sealed class NativeSessionRefreshService
         }
         catch (InvalidDataException)
         {
-            // HTTP success with an unusable response is also ambiguous because the provider may
-            // already have rotated the submitted token.
             return await EnterReauthAsync(
                 association,
                 "REFRESH_RESULT_INVALID",
@@ -209,8 +222,10 @@ public sealed class NativeSessionRefreshService
 
         if (endpointResult.Disposition == RefreshEndpointDisposition.BackendUnavailable)
         {
-            // A concrete 429/5xx response is non-success evidence, so R1 is retained for a later bounded retry.
-            return Result(NativeSessionRefreshDisposition.BackendUnavailable, endpointResult.ProductCode, retryable: true);
+            return Result(
+                NativeSessionRefreshDisposition.BackendUnavailable,
+                endpointResult.ProductCode,
+                retryable: true);
         }
 
         if (endpointResult.Disposition == RefreshEndpointDisposition.InvalidGrant)
@@ -223,7 +238,10 @@ public sealed class NativeSessionRefreshService
 
         if (endpointResult.Disposition != RefreshEndpointDisposition.Accepted || endpointResult.TokenSet is null)
         {
-            return Result(NativeSessionRefreshDisposition.Rejected, endpointResult.ProductCode, retryable: false);
+            return Result(
+                NativeSessionRefreshDisposition.Rejected,
+                endpointResult.ProductCode,
+                retryable: false);
         }
 
         var tokenSet = endpointResult.TokenSet;
@@ -254,17 +272,16 @@ public sealed class NativeSessionRefreshService
             RefreshToken = tokenSet.RefreshToken,
             RefreshTokenFamilyId = secret.RefreshTokenFamilyId,
             RefreshIssuedUtc = now,
-            // Absolute session lifetime is server-policy evidence and MUST NOT be extended by local rotation.
             RefreshAbsoluteExpiryUtc = secret.RefreshAbsoluteExpiryUtc,
             LastTrustedServerUtc = secret.LastTrustedServerUtc,
+            LastTrustedServerObservationLocalUtc = secret.LastTrustedServerObservationLocalUtc,
+            LastValidAssertionJti = secret.LastValidAssertionJti,
             OfflineEntitlementAssertion = secret.OfflineEntitlementAssertion,
             OfflineAssertionStoredUtc = secret.OfflineAssertionStoredUtc
         };
 
         try
         {
-            // After the server returns R2, persist it with a non-cancelable local commit. A caller cancellation
-            // must not intentionally strand durable R1 after successful server-side rotation.
             await _secretStore.WriteAsync(rotatedSecret, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (IsSecretPersistenceFailure(ex))
