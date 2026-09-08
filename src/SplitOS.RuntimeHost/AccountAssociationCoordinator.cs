@@ -30,7 +30,14 @@ public sealed class AccountAssociationCoordinator(
     IAccountSecretStore secretStore,
     IWindowsUserContext windowsUserContext)
 {
-    public async Task<AccountAssociationEvaluation> EvaluateAsync(CancellationToken cancellationToken = default)
+    private const int MaximumRevisionConflictRetries = 1;
+
+    public Task<AccountAssociationEvaluation> EvaluateAsync(CancellationToken cancellationToken = default)
+        => EvaluateAsyncCore(0, cancellationToken);
+
+    private async Task<AccountAssociationEvaluation> EvaluateAsyncCore(
+        int revisionConflictRetries,
+        CancellationToken cancellationToken)
     {
         var association = await associationStore.GetAccountAssociationAsync(cancellationToken).ConfigureAwait(false);
         if (association is null)
@@ -51,17 +58,29 @@ public sealed class AccountAssociationCoordinator(
         var secret = await secretStore.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (secret.Status == AccountSecretReadStatus.Missing)
         {
-            return await ConvergeToReauthAsync(association, "LOCAL_SECRET_MISSING", cancellationToken).ConfigureAwait(false);
+            return await ConvergeToReauthAsync(
+                association,
+                "LOCAL_SECRET_MISSING",
+                revisionConflictRetries,
+                cancellationToken).ConfigureAwait(false);
         }
 
         if (secret.Status == AccountSecretReadStatus.Unreadable || secret.Secret is null)
         {
-            return await ConvergeToReauthAsync(association, "LOCAL_SECRET_UNREADABLE", cancellationToken).ConfigureAwait(false);
+            return await ConvergeToReauthAsync(
+                association,
+                "LOCAL_SECRET_UNREADABLE",
+                revisionConflictRetries,
+                cancellationToken).ConfigureAwait(false);
         }
 
         if (!string.Equals(secret.Secret.AccountId, association.AccountId, StringComparison.Ordinal))
         {
-            return await ConvergeToReauthAsync(association, "LOCAL_SECRET_ACCOUNT_MISMATCH", cancellationToken).ConfigureAwait(false);
+            return await ConvergeToReauthAsync(
+                association,
+                "LOCAL_SECRET_ACCOUNT_MISMATCH",
+                revisionConflictRetries,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return new AccountAssociationEvaluation(
@@ -74,6 +93,7 @@ public sealed class AccountAssociationCoordinator(
     private async Task<AccountAssociationEvaluation> ConvergeToReauthAsync(
         UserAccountAssociationRecord association,
         string reason,
+        int revisionConflictRetries,
         CancellationToken cancellationToken)
     {
         if (!string.Equals(association.AssociationState, "REAUTH_REQUIRED", StringComparison.Ordinal))
@@ -97,13 +117,17 @@ public sealed class AccountAssociationCoordinator(
                 return new AccountAssociationEvaluation("UNASSOCIATED", null, null, null);
             }
 
-            if (outcome.Disposition == UserAssociationWriteDisposition.RevisionConflict && outcome.Record is not null)
+            if (outcome.Disposition == UserAssociationWriteDisposition.RevisionConflict)
             {
-                return new AccountAssociationEvaluation(
-                    "REAUTH_REQUIRED",
-                    outcome.Record.AccountId,
-                    reason,
-                    outcome.Record.Revision);
+                if (revisionConflictRetries < MaximumRevisionConflictRetries)
+                {
+                    return await EvaluateAsyncCore(
+                        revisionConflictRetries + 1,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                throw new InvalidDataException(
+                    "Account association changed repeatedly while RuntimeHost was reconciling protected credentials.");
             }
         }
 
