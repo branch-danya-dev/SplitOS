@@ -64,15 +64,32 @@ public sealed class UserStateStore : IUserAccountAssociationStore
 
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;
+    private readonly string _markerPath;
     private readonly string _backupDirectory;
+    private readonly string _quarantineDirectory;
+    private readonly string _quarantineMarkerPath;
 
-    public UserStateStore(string? databasePath = null, string? backupDirectory = null)
+    public UserStateStore(
+        string? databasePath = null,
+        string? backupDirectory = null,
+        string? markerPath = null,
+        string? quarantineDirectory = null,
+        string? quarantineMarkerPath = null)
     {
         _databasePath = databasePath ?? StoragePaths.UserDatabase;
         var customRoot = databasePath is null ? null : Path.GetDirectoryName(Path.GetFullPath(_databasePath));
+        _markerPath = markerPath ?? (customRoot is null
+            ? StoragePaths.UserBootstrapMarker
+            : Path.Combine(customRoot, "user-store.initialized"));
         _backupDirectory = backupDirectory ?? (customRoot is null
             ? StoragePaths.UserBackupRoot
             : Path.Combine(customRoot, "backups"));
+        _quarantineDirectory = quarantineDirectory ?? (customRoot is null
+            ? StoragePaths.UserQuarantineRoot
+            : Path.Combine(customRoot, "quarantine"));
+        _quarantineMarkerPath = quarantineMarkerPath ?? (customRoot is null
+            ? StoragePaths.UserQuarantineMarker
+            : Path.Combine(customRoot, "user-store.quarantined.json"));
         _database = new SqliteDatabase(new SqliteDatabaseOptions(
             _databasePath,
             SplitOSDatabaseRole.User,
@@ -80,41 +97,138 @@ public sealed class UserStateStore : IUserAccountAssociationStore
             ReleaseId));
     }
 
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
+        => InitializeCoreAsync(allowRecovery: true, cancellationToken);
+
+    private async Task InitializeCoreAsync(bool allowRecovery, CancellationToken cancellationToken)
     {
-        await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var currentVersion = await _database.ReadSchemaVersionAsync(connection, cancellationToken).ConfigureAwait(false);
+        EnsureNotQuarantined();
+        var markerExists = File.Exists(_markerPath);
+        var databaseExists = File.Exists(_databasePath);
 
-        if (currentVersion == 0)
+        if (!databaseExists && markerExists)
         {
-            await _database.InitializeMetadataAsync(connection, "user", cancellationToken).ConfigureAwait(false);
-            await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
-        }
-        else if (currentVersion == LegacySchemaVersion)
-        {
-            await _database.VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
-            await VerifyLegacyV1CanonicalAsync(connection, cancellationToken).ConfigureAwait(false);
-            var backup = await CanonicalStoreRecovery.CreateVerifiedBackupAsync(
-                connection,
-                _databasePath,
-                _backupDirectory,
-                LegacySchemaVersion,
-                cancellationToken).ConfigureAwait(false);
-            await MigrateV1ToV2Async(connection, backup.BackupPath, cancellationToken).ConfigureAwait(false);
-        }
-        else if (currentVersion == SchemaVersion)
-        {
-            await _database.InitializeMetadataAsync(connection, "user", cancellationToken).ConfigureAwait(false);
-            await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
+            if (allowRecovery && await TryRestoreLatestVerifiedBackupAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await InitializeCoreAsync(allowRecovery: false, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             throw new InvalidDataException(
-                $"User canonical schema version {currentVersion} is not supported by runtime schema {SchemaVersion}.");
+                "user.db is missing after prior user-store initialization. A verified backup or controlled user-data recovery is required; UNASSOCIATED must not be fabricated.");
         }
 
-        await _database.VerifyIntegrityAsync(connection, cancellationToken).ConfigureAwait(false);
-        await VerifyCanonicalInvariantsAsync(connection, cancellationToken).ConfigureAwait(false);
+        Exception? corruptionReason = null;
+        SqliteConnection? connection = null;
+        try
+        {
+            connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
+            var currentVersion = await _database.ReadSchemaVersionAsync(connection, cancellationToken).ConfigureAwait(false);
+
+            if (currentVersion == 0)
+            {
+                if (markerExists || databaseExists)
+                {
+                    corruptionReason = new InvalidDataException(
+                        "Existing user canonical storage reported schema version 0. Automatic re-bootstrap is forbidden because prior user state may be missing.");
+                }
+                else
+                {
+                    await _database.InitializeMetadataAsync(connection, "user", cancellationToken).ConfigureAwait(false);
+                    await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else if (currentVersion == LegacySchemaVersion)
+            {
+                try
+                {
+                    await _database.VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
+                    await VerifyLegacyV1CanonicalAsync(connection, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException ex)
+                {
+                    corruptionReason = ex;
+                }
+
+                if (corruptionReason is null)
+                {
+                    var backup = await CanonicalStoreRecovery.CreateVerifiedBackupAsync(
+                        connection,
+                        _databasePath,
+                        _backupDirectory,
+                        LegacySchemaVersion,
+                        cancellationToken).ConfigureAwait(false);
+                    await MigrateV1ToV2Async(connection, backup.BackupPath, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else if (currentVersion == SchemaVersion)
+            {
+                try
+                {
+                    await _database.VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
+                    await VerifyCanonicalInvariantsAsync(connection, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException ex)
+                {
+                    corruptionReason = ex;
+                }
+            }
+            else
+            {
+                throw new InvalidDataException(
+                    $"User canonical schema version {currentVersion} is not supported by runtime schema {SchemaVersion}.");
+            }
+
+            if (corruptionReason is null)
+            {
+                try
+                {
+                    await _database.VerifyIntegrityAsync(connection, cancellationToken).ConfigureAwait(false);
+                    await VerifyCanonicalInvariantsAsync(connection, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException ex)
+                {
+                    corruptionReason = ex;
+                }
+            }
+        }
+        catch (SqliteException ex) when (IsSqliteCorruption(ex))
+        {
+            corruptionReason = ex;
+        }
+        finally
+        {
+            if (connection is not null)
+            {
+                await connection.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        if (corruptionReason is not null)
+        {
+            var quarantine = await CanonicalStoreRecovery.PreserveForensicCopyAsync(
+                _databasePath,
+                _quarantineDirectory,
+                _quarantineMarkerPath,
+                corruptionReason.Message,
+                cancellationToken).ConfigureAwait(false);
+
+            if (allowRecovery && await TryRestoreLatestVerifiedBackupAsync(cancellationToken).ConfigureAwait(false))
+            {
+                File.Delete(_quarantineMarkerPath);
+                await InitializeCoreAsync(allowRecovery: false, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            throw new InvalidDataException(
+                $"User canonical storage failed integrity validation and was quarantined at {quarantine.QuarantineDirectory}. A verified backup or controlled user-data recovery is required.",
+                corruptionReason);
+        }
+
+        if (!markerExists)
+        {
+            await EnsureBootstrapMarkerAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async Task<string> GetAssociationStateAsync(CancellationToken cancellationToken = default)
@@ -288,6 +402,7 @@ public sealed class UserStateStore : IUserAccountAssociationStore
 
     private async Task<SqliteConnection> OpenCurrentSchemaAsync(CancellationToken cancellationToken)
     {
+        EnsureReadyForAccess();
         var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -302,6 +417,173 @@ public sealed class UserStateStore : IUserAccountAssociationStore
         {
             await connection.DisposeAsync().ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private void EnsureReadyForAccess()
+    {
+        EnsureNotQuarantined();
+        if (!File.Exists(_markerPath) || !File.Exists(_databasePath))
+        {
+            throw new InvalidDataException("User canonical store is not initialized or is missing. Controlled user-data recovery is required.");
+        }
+    }
+
+    private void EnsureNotQuarantined()
+    {
+        if (File.Exists(_quarantineMarkerPath))
+        {
+            throw new InvalidDataException(
+                $"User canonical store is quarantined. Marker: {_quarantineMarkerPath}");
+        }
+    }
+
+    private async Task EnsureBootstrapMarkerAsync(CancellationToken cancellationToken)
+    {
+        if (File.Exists(_markerPath)) return;
+        var markerDirectory = Path.GetDirectoryName(_markerPath);
+        if (!string.IsNullOrWhiteSpace(markerDirectory)) Directory.CreateDirectory(markerDirectory);
+        await File.WriteAllTextAsync(_markerPath, DateTimeOffset.UtcNow.ToString("O"), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryRestoreLatestVerifiedBackupAsync(CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(_backupDirectory)) return false;
+
+        var candidates = Directory
+            .EnumerateFiles(_backupDirectory, "*.db", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .ToArray();
+
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await IsVerifiedUserBackupAsync(candidate, cancellationToken).ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            await RestoreBackupAsync(candidate, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> IsVerifiedUserBackupAsync(
+        string candidatePath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var builder = new SqliteConnectionStringBuilder
+            {
+                DataSource = candidatePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            };
+            await using var connection = new SqliteConnection(builder.ConnectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA quick_check;";
+            var quickCheck = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+            if (!string.Equals(quickCheck, "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            command = connection.CreateCommand();
+            command.CommandText = "PRAGMA foreign_key_check;";
+            await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return false;
+                }
+            }
+
+            command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version;";
+            var version = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+            if (version == LegacySchemaVersion)
+            {
+                await VerifyLegacyV1CanonicalAsync(connection, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            if (version == SchemaVersion)
+            {
+                await VerifyCanonicalInvariantsAsync(connection, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is SqliteException or InvalidDataException or FormatException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private async Task RestoreBackupAsync(string backupPath, CancellationToken cancellationToken)
+    {
+        SqliteConnection.ClearAllPools();
+        var parent = Path.GetDirectoryName(_databasePath);
+        if (string.IsNullOrWhiteSpace(parent))
+        {
+            throw new InvalidOperationException("User database path has no parent directory.");
+        }
+
+        Directory.CreateDirectory(parent);
+        var temporaryPath = _databasePath + ".restore.new";
+        if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+
+        try
+        {
+            await using (var source = new FileStream(
+                backupPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var destination = new FileStream(
+                temporaryPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 81920,
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+                await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+                destination.Flush(flushToDisk: true);
+            }
+
+            foreach (var suffix in new[] { "-wal", "-shm" })
+            {
+                var sidecar = _databasePath + suffix;
+                if (File.Exists(sidecar)) File.Delete(sidecar);
+            }
+
+            File.Move(temporaryPath, _databasePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                try
+                {
+                    File.Delete(temporaryPath);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
         }
     }
 
@@ -559,6 +841,9 @@ public sealed class UserStateStore : IUserAccountAssociationStore
 
     private static DateTimeOffset? ParseNullableUtc(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : DateTimeOffset.Parse(value);
+
+    private static bool IsSqliteCorruption(SqliteException exception)
+        => exception.SqliteErrorCode is 11 or 26;
 
     private sealed record LegacyAssociation(
         string WindowsUserSid,
