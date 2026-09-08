@@ -1,9 +1,11 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 
 namespace SplitOS.RuntimeHost.Authentication;
 
@@ -38,6 +40,7 @@ public sealed class NativeAuthTokenExchangeService
     private const int MaximumTokenResponseBytes = 64 * 1024;
     private const int MaximumJwksBytes = 256 * 1024;
     private const int MaximumIdTokenCharacters = 32 * 1024;
+    private const int MaximumBearerTokenCharacters = 32 * 1024;
 
     private readonly HttpClient _httpClient;
     private readonly NativeAuthTrustConfiguration _trust;
@@ -115,10 +118,10 @@ public sealed class NativeAuthTokenExchangeService
             return Reject(NativeAuthTokenExchangeDisposition.TokenResponseRejected, "AUTH_RESULT_REJECTED");
         }
 
-        IReadOnlyList<OidcJsonWebKey> keys;
+        IReadOnlyList<OidcJsonWebKey> jwks;
         try
         {
-            keys = await FetchJwksAsync(metadata.JwksUri, cancellationToken).ConfigureAwait(false);
+            jwks = await FetchJwksAsync(metadata.JwksUri, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -136,7 +139,10 @@ public sealed class NativeAuthTokenExchangeService
         string subject;
         try
         {
-            subject = ValidateIdToken(tokenResult.TokenSet.IdToken, exchangeContext.Nonce, keys);
+            subject = await ValidateIdTokenAsync(
+                tokenResult.TokenSet.IdToken,
+                exchangeContext.Nonce,
+                jwks).ConfigureAwait(false);
         }
         catch (InvalidDataException)
         {
@@ -273,6 +279,8 @@ public sealed class NativeAuthTokenExchangeService
             throw new InvalidDataException("OAuth token response used an unsupported token type.");
         }
 
+        EnsureBoundedToken(accessToken, "access_token");
+        EnsureBoundedToken(idToken, "id_token");
         if (idToken.Length > MaximumIdTokenCharacters)
         {
             throw new InvalidDataException("OIDC ID token exceeded the allowed size.");
@@ -287,6 +295,11 @@ public sealed class NativeAuthTokenExchangeService
         }
 
         var refreshToken = GetOptionalString(root, "refresh_token");
+        if (refreshToken is not null)
+        {
+            EnsureBoundedToken(refreshToken, "refresh_token");
+        }
+
         var scope = GetOptionalString(root, "scope");
         return new TokenEndpointResult(
             TokenEndpointDisposition.Accepted,
@@ -324,13 +337,13 @@ public sealed class NativeAuthTokenExchangeService
             }
 
             EnsureNoDuplicateProperties(key, "OIDC JWKS key");
-            var keyType = GetRequiredString(key, "kty");
-            var keyId = GetRequiredString(key, "kid");
-            var use = GetOptionalString(key, "use");
-            var algorithm = GetOptionalString(key, "alg");
-            var modulus = GetOptionalString(key, "n");
-            var exponent = GetOptionalString(key, "e");
-            keys.Add(new OidcJsonWebKey(keyType, keyId, use, algorithm, modulus, exponent));
+            keys.Add(new OidcJsonWebKey(
+                GetRequiredString(key, "kty"),
+                GetRequiredString(key, "kid"),
+                GetOptionalString(key, "use"),
+                GetOptionalString(key, "alg"),
+                GetOptionalString(key, "n"),
+                GetOptionalString(key, "e")));
         }
 
         if (keys.Count == 0)
@@ -341,223 +354,161 @@ public sealed class NativeAuthTokenExchangeService
         return keys;
     }
 
-    private string ValidateIdToken(
+    private async Task<string> ValidateIdTokenAsync(
         string idToken,
         string expectedNonce,
-        IReadOnlyList<OidcJsonWebKey> keys)
+        IReadOnlyList<OidcJsonWebKey> jwks)
     {
-        var segments = idToken.Split('.');
-        if (segments.Length != 3 || segments.Any(static segment => segment.Length == 0))
+        IReadOnlyList<SecurityKey> signingKeys = CreateSigningKeys(jwks);
+        var validationParameters = new TokenValidationParameters
         {
-            throw new InvalidDataException("OIDC ID token is not a compact JWS.");
-        }
+            ValidateIssuer = true,
+            ValidIssuer = _trust.Issuer.AbsoluteUri,
+            ValidateAudience = true,
+            ValidAudience = _trust.ClientId,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKeys = signingKeys,
+            RequireSignedTokens = true,
+            RequireExpirationTime = true,
+            ValidateLifetime = true,
+            ClockSkew = _trust.ClockSkew,
+            ValidAlgorithms = _trust.AllowedIdTokenAlgorithms.ToArray(),
+            LifetimeValidator = ValidateLifetime
+        };
 
-        byte[] headerBytes;
-        byte[] payloadBytes;
-        byte[] signatureBytes;
+        var handler = new JsonWebTokenHandler
+        {
+            MaximumTokenSizeInBytes = MaximumIdTokenCharacters
+        };
+
+        TokenValidationResult validation;
         try
         {
-            headerBytes = Base64UrlDecode(segments[0]);
-            payloadBytes = Base64UrlDecode(segments[1]);
-            signatureBytes = Base64UrlDecode(segments[2]);
+            validation = await handler.ValidateTokenAsync(idToken, validationParameters).ConfigureAwait(false);
         }
-        catch (FormatException exception)
+        catch (Exception exception) when (exception is ArgumentException or SecurityTokenException)
         {
-            throw new InvalidDataException("OIDC ID token contains invalid base64url data.", exception);
+            throw new InvalidDataException("OIDC ID token could not be parsed or validated.", exception);
         }
 
-        try
+        if (!validation.IsValid || validation.SecurityToken is not JsonWebToken token)
         {
-            using var headerDocument = JsonDocument.Parse(headerBytes);
-            using var payloadDocument = JsonDocument.Parse(payloadBytes);
-            var header = headerDocument.RootElement;
-            var payload = payloadDocument.RootElement;
-            RequireObject(header, "OIDC ID-token header");
-            RequireObject(payload, "OIDC ID-token payload");
-            EnsureNoDuplicateProperties(header, "OIDC ID-token header");
-            EnsureNoDuplicateProperties(payload, "OIDC ID-token payload");
+            throw new InvalidDataException("OIDC ID token validation failed.", validation.Exception);
+        }
 
-            var algorithm = GetRequiredString(header, "alg");
-            var keyId = GetRequiredString(header, "kid");
-            if (!_trust.AllowedIdTokenAlgorithms.Contains(algorithm, StringComparer.Ordinal))
+        var audiences = token.Audiences.ToArray();
+        if ((audiences.Length > 1 || !string.IsNullOrWhiteSpace(token.Azp)) &&
+            !string.Equals(token.Azp, _trust.ClientId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("OIDC ID token authorized party does not match the native client ID.");
+        }
+
+        if (!token.TryGetClaim("nonce", out Claim? nonceClaim) ||
+            string.IsNullOrWhiteSpace(nonceClaim.Value) ||
+            !FixedTimeEquals(expectedNonce, nonceClaim.Value))
+        {
+            throw new InvalidDataException("OIDC ID token nonce validation failed.");
+        }
+
+        var subject = token.Subject;
+        if (string.IsNullOrWhiteSpace(subject) ||
+            subject.Length > 512 ||
+            subject.Any(static character => char.IsControl(character)))
+        {
+            throw new InvalidDataException("OIDC subject is not a valid stable account reference.");
+        }
+
+        return subject;
+    }
+
+    private IReadOnlyList<SecurityKey> CreateSigningKeys(IReadOnlyList<OidcJsonWebKey> jwks)
+    {
+        var keyIds = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<SecurityKey>();
+
+        foreach (var jwk in jwks)
+        {
+            if (!string.Equals(jwk.KeyType, "RSA", StringComparison.Ordinal) ||
+                (jwk.Use is not null && !string.Equals(jwk.Use, "sig", StringComparison.Ordinal)) ||
+                (jwk.Algorithm is not null && !_trust.AllowedIdTokenAlgorithms.Contains(jwk.Algorithm, StringComparer.Ordinal)))
             {
-                throw new InvalidDataException("OIDC ID token uses a non-allowlisted signature algorithm.");
+                continue;
             }
 
-            if (!string.Equals(algorithm, "RS256", StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(jwk.Modulus) ||
+                string.IsNullOrWhiteSpace(jwk.Exponent) ||
+                !keyIds.Add(jwk.KeyId))
             {
-                throw new InvalidDataException("OIDC ID token signature algorithm is not implemented by this release.");
+                throw new InvalidDataException("OIDC JWKS contains an incomplete or ambiguous signing key.");
             }
 
-            var matchingKeys = keys.Where(candidate =>
-                    string.Equals(candidate.KeyId, keyId, StringComparison.Ordinal) &&
-                    string.Equals(candidate.KeyType, "RSA", StringComparison.Ordinal) &&
-                    (candidate.Use is null || string.Equals(candidate.Use, "sig", StringComparison.Ordinal)) &&
-                    (candidate.Algorithm is null || string.Equals(candidate.Algorithm, algorithm, StringComparison.Ordinal)))
-                .Take(2)
-                .ToArray();
-            if (matchingKeys.Length != 1 ||
-                string.IsNullOrWhiteSpace(matchingKeys[0].Modulus) ||
-                string.IsNullOrWhiteSpace(matchingKeys[0].Exponent))
-            {
-                throw new InvalidDataException("OIDC ID token signing key is unavailable or ambiguous.");
-            }
-
-            var modulusBytes = Base64UrlDecode(matchingKeys[0].Modulus);
-            var exponentBytes = Base64UrlDecode(matchingKeys[0].Exponent);
-            using var rsa = RSA.Create();
+            byte[] modulus;
+            byte[] exponent;
             try
             {
-                rsa.ImportParameters(new RSAParameters
+                modulus = Base64UrlDecode(jwk.Modulus);
+                exponent = Base64UrlDecode(jwk.Exponent);
+            }
+            catch (FormatException exception)
+            {
+                throw new InvalidDataException("OIDC JWKS contains invalid RSA key material.", exception);
+            }
+
+            try
+            {
+                result.Add(new RsaSecurityKey(new RSAParameters
                 {
-                    Modulus = modulusBytes,
-                    Exponent = exponentBytes
+                    Modulus = modulus,
+                    Exponent = exponent
+                })
+                {
+                    KeyId = jwk.KeyId
                 });
             }
             finally
             {
-                CryptographicOperations.ZeroMemory(modulusBytes);
-                CryptographicOperations.ZeroMemory(exponentBytes);
+                CryptographicOperations.ZeroMemory(modulus);
+                CryptographicOperations.ZeroMemory(exponent);
             }
-
-            var signingInput = Encoding.ASCII.GetBytes($"{segments[0]}.{segments[1]}");
-            try
-            {
-                if (!rsa.VerifyData(signingInput, signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1))
-                {
-                    throw new InvalidDataException("OIDC ID token signature validation failed.");
-                }
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(signingInput);
-            }
-
-            var issuer = GetRequiredString(payload, "iss");
-            if (!string.Equals(issuer, _trust.Issuer.AbsoluteUri, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("OIDC ID token issuer does not match release trust.");
-            }
-
-            ValidateAudience(payload);
-            ValidateLifetime(payload);
-
-            var nonce = GetRequiredString(payload, "nonce");
-            if (!FixedTimeEquals(expectedNonce, nonce))
-            {
-                throw new InvalidDataException("OIDC ID token nonce validation failed.");
-            }
-
-            var subject = GetRequiredString(payload, "sub");
-            if (subject.Length > 512 || subject.Any(static character => char.IsControl(character)))
-            {
-                throw new InvalidDataException("OIDC subject is not a valid stable account reference.");
-            }
-
-            return subject;
         }
-        catch (InvalidDataException)
+
+        if (result.Count == 0)
         {
-            throw;
+            throw new InvalidDataException("OIDC JWKS contains no release-supported signing keys.");
         }
-        catch (Exception exception) when (exception is JsonException or FormatException or CryptographicException or ArgumentException)
-        {
-            throw new InvalidDataException("OIDC ID token validation failed closed.", exception);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(headerBytes);
-            CryptographicOperations.ZeroMemory(payloadBytes);
-            CryptographicOperations.ZeroMemory(signatureBytes);
-        }
+
+        return result;
     }
 
-    private void ValidateAudience(JsonElement payload)
+    private bool ValidateLifetime(
+        DateTime? notBefore,
+        DateTime? expires,
+        SecurityToken token,
+        TokenValidationParameters parameters)
     {
-        if (!payload.TryGetProperty("aud", out var audience))
+        if (expires is null)
         {
-            throw new InvalidDataException("OIDC ID token audience is missing.");
+            return false;
         }
 
-        List<string> audiences;
-        if (audience.ValueKind == JsonValueKind.String)
-        {
-            audiences = [audience.GetString() ?? string.Empty];
-        }
-        else if (audience.ValueKind == JsonValueKind.Array)
-        {
-            audiences = audience.EnumerateArray()
-                .Select(static value => value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty)
-                .ToList();
-            if (audiences.Any(string.IsNullOrWhiteSpace))
-            {
-                throw new InvalidDataException("OIDC ID token audience claim is malformed.");
-            }
-        }
-        else
-        {
-            throw new InvalidDataException("OIDC ID token audience claim is malformed.");
-        }
-
-        if (!audiences.Contains(_trust.ClientId, StringComparer.Ordinal))
-        {
-            throw new InvalidDataException("OIDC ID token audience does not contain the native client ID.");
-        }
-
-        var authorizedParty = GetOptionalString(payload, "azp");
-        if ((audiences.Count > 1 || authorizedParty is not null) &&
-            !string.Equals(authorizedParty, _trust.ClientId, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("OIDC ID token authorized party does not match the native client ID.");
-        }
-    }
-
-    private void ValidateLifetime(JsonElement payload)
-    {
         var now = _timeProvider.GetUtcNow();
-        var expiration = GetRequiredUnixTime(payload, "exp");
-        if (now > expiration.Add(_trust.ClockSkew))
+        var skew = _trust.ClockSkew;
+        var expiration = new DateTimeOffset(DateTime.SpecifyKind(expires.Value, DateTimeKind.Utc));
+        if (now > expiration.Add(skew))
         {
-            throw new InvalidDataException("OIDC ID token has expired.");
+            return false;
         }
 
-        if (payload.TryGetProperty("nbf", out var notBeforeElement))
+        if (notBefore is not null)
         {
-            if (notBeforeElement.ValueKind != JsonValueKind.Number || !notBeforeElement.TryGetInt64(out var notBeforeSeconds))
+            var earliest = new DateTimeOffset(DateTime.SpecifyKind(notBefore.Value, DateTimeKind.Utc));
+            if (now.Add(skew) < earliest)
             {
-                throw new InvalidDataException("OIDC ID token nbf claim is malformed.");
-            }
-
-            var notBefore = ParseUnixTime(notBeforeSeconds, "nbf");
-            if (now.Add(_trust.ClockSkew) < notBefore)
-            {
-                throw new InvalidDataException("OIDC ID token is not yet valid.");
+                return false;
             }
         }
-    }
 
-    private static DateTimeOffset GetRequiredUnixTime(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out var value) ||
-            value.ValueKind != JsonValueKind.Number ||
-            !value.TryGetInt64(out var seconds))
-        {
-            throw new InvalidDataException($"Required numeric claim '{propertyName}' is missing or malformed.");
-        }
-
-        return ParseUnixTime(seconds, propertyName);
-    }
-
-    private static DateTimeOffset ParseUnixTime(long seconds, string propertyName)
-    {
-        try
-        {
-            return DateTimeOffset.FromUnixTimeSeconds(seconds);
-        }
-        catch (ArgumentOutOfRangeException exception)
-        {
-            throw new InvalidDataException($"Required numeric claim '{propertyName}' is outside the supported range.", exception);
-        }
+        return true;
     }
 
     private static async Task<JsonElement> ReadBoundedJsonAsync(
@@ -683,7 +634,7 @@ public sealed class NativeAuthTokenExchangeService
         return value.GetString();
     }
 
-    private static IReadOnlyList<string>? GetOptionalStringArray(JsonElement root, string propertyName)
+    private static List<string>? GetOptionalStringArray(JsonElement root, string propertyName)
     {
         if (!root.TryGetProperty(propertyName, out var value))
         {
@@ -729,7 +680,7 @@ public sealed class NativeAuthTokenExchangeService
     private static byte[] Base64UrlDecode(string value)
     {
         var normalized = value.Replace('-', '+').Replace('_', '/');
-        normalized += normalized.Length % 4 switch
+        normalized += (normalized.Length % 4) switch
         {
             0 => string.Empty,
             2 => "==",
@@ -741,8 +692,8 @@ public sealed class NativeAuthTokenExchangeService
 
     private static bool FixedTimeEquals(string expected, string actual)
     {
-        var expectedBytes = Encoding.UTF8.GetBytes(expected);
-        var actualBytes = Encoding.UTF8.GetBytes(actual);
+        var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expected);
+        var actualBytes = System.Text.Encoding.UTF8.GetBytes(actual);
         try
         {
             return expectedBytes.Length == actualBytes.Length &&
@@ -752,6 +703,15 @@ public sealed class NativeAuthTokenExchangeService
         {
             CryptographicOperations.ZeroMemory(expectedBytes);
             CryptographicOperations.ZeroMemory(actualBytes);
+        }
+    }
+
+    private static void EnsureBoundedToken(string token, string fieldName)
+    {
+        if (token.Length > MaximumBearerTokenCharacters ||
+            token.Any(static character => char.IsControl(character)))
+        {
+            throw new InvalidDataException($"OAuth token field '{fieldName}' is outside the accepted bounds.");
         }
     }
 
