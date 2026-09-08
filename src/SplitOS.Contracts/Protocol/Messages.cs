@@ -53,4 +53,18 @@ public sealed record RuntimeStateReadResult(
     int ProjectionSchemaVersion,
     DateTimeOffset ObservedAtUtc);
 
+/// <summary>
+/// Semantic request only. Manager never supplies authorization endpoints, redirect URIs,
+/// PKCE/state/nonce values, tokens, account IDs or entitlement claims.
+/// </summary>
+public sealed record RuntimeAuthStartRequest;
+
+public sealed record RuntimeAuthStartResult(
+    string Disposition,
+    string ProductCode,
+    Guid? AuthTransactionId,
+    string? AccountId,
+    string? AssociationId,
+    bool HasFreshOnlineEntitlement);
+
 public sealed record ErrorResponse(string Code, string Message);

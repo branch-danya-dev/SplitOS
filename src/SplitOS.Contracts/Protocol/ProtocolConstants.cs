@@ -18,6 +18,8 @@ public static class MessageTypes
     public const string MachineOperationalModeWriteResult = "MachineOperationalModeWriteResult";
     public const string RuntimeStateReadRequest = "RuntimeStateReadRequest";
     public const string RuntimeStateReadResult = "RuntimeStateReadResult";
+    public const string RuntimeAuthStartRequest = "RuntimeAuthStartRequest";
+    public const string RuntimeAuthStartResult = "RuntimeAuthStartResult";
     public const string ErrorResponse = "ErrorResponse";
 }
 
@@ -28,6 +30,7 @@ public static class Capabilities
     public const string MachineOperationalModeWrite = "Machine.OperationalMode.Write@1";
     public const string RuntimeHealthRead = "Runtime.Health.Read";
     public const string RuntimeStateRead = "Runtime.State.Read";
+    public const string RuntimeAuthStart = "Runtime.Auth.Start@1";
 }
 
 public static class ErrorCodes

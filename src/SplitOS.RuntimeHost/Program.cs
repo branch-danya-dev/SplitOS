@@ -4,6 +4,7 @@ using SplitOS.Persistence.ProtectedSecrets;
 using SplitOS.Persistence.Projection;
 using SplitOS.Persistence.User;
 using SplitOS.RuntimeHost;
+using SplitOS.RuntimeHost.Authentication;
 using SplitOS.RuntimeHost.ProductIdentity;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -23,6 +24,12 @@ builder.Services.AddSingleton<OnlineEntitlementEvidenceState>();
 builder.Services.AddSingleton<LocalSignOutCoordinator>();
 builder.Services.AddSingleton<MachineStateClient>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeAccessEvaluator>();
+
+// Auth.Start is now a stable semantic IPC capability, but production OAuth authority metadata is not
+// provisioned in this slice yet. Keep the runtime fail-closed rather than accepting endpoints or keys
+// from Manager/user configuration. A release-owned authority provider will replace this registration.
+builder.Services.AddSingleton<IRuntimeAuthStartCommand, UnavailableRuntimeAuthStartCommand>();
+
 builder.Services.AddHostedService<RuntimeStateCoordinator>();
 builder.Services.AddHostedService<RuntimeUiPipeService>();
 builder.Services.AddHostedService<BrokerHealthMonitor>();
