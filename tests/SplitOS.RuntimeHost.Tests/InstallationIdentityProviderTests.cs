@@ -110,7 +110,16 @@ public sealed class InstallationIdentityProviderTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsExactlyAsync<OperationCanceledException>(
-            async () => await new MachineInstallationIdentityProvider(path).ReadAsync(cancellation.Token));
+        var threw = false;
+        try
+        {
+            await new MachineInstallationIdentityProvider(path).ReadAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            threw = true;
+        }
+
+        Assert.IsTrue(threw, "Expected cancellation to propagate to the caller.");
     }
 }
