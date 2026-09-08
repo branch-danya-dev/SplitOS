@@ -149,7 +149,7 @@ public sealed class NativeSessionRefreshServiceTests
         using var handler = new RefreshHandler(RefreshMode.Success);
         using var http = new HttpClient(handler);
         var associationStore = new FakeAssociationStore(CreateAssociation());
-        var expired = CreateSecret() with { RefreshAbsoluteExpiryUtc = Now.AddSeconds(-1) };
+        var expired = CreateSecret(Now.AddSeconds(-1));
         var secretStore = new FakeSecretStore(expired);
         var service = CreateService(http, associationStore, secretStore);
 
@@ -226,14 +226,14 @@ public sealed class NativeSessionRefreshServiceTests
             Now.AddMinutes(-10),
             Guid.NewGuid().ToString("D"));
 
-    private static AccountSecretEnvelope CreateSecret()
+    private static AccountSecretEnvelope CreateSecret(DateTimeOffset? absoluteExpiryUtc = null)
         => new()
         {
             AccountId = "acc_test_01",
             RefreshToken = "REFRESH_R1",
             RefreshTokenFamilyId = "family-01",
             RefreshIssuedUtc = Now.AddDays(-30),
-            RefreshAbsoluteExpiryUtc = Now.AddDays(60),
+            RefreshAbsoluteExpiryUtc = absoluteExpiryUtc ?? Now.AddDays(60),
             LastTrustedServerUtc = Now.AddMinutes(-10),
             OfflineEntitlementAssertion = "header.payload.signature",
             OfflineAssertionStoredUtc = Now.AddDays(-1)
