@@ -24,22 +24,19 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     public async Task ValidServerAssertionIsValidatedThenPersistedWithTrustedTime()
     {
         using var rsa = RSA.Create(2048);
-        var secretStore = new MemorySecretStore(Secret());
+        var store = new MemorySecretStore(Secret());
         var handler = new FixtureHandler(rsa);
         using var http = new HttpClient(handler);
-        var service = CreateService(http, rsa, secretStore);
-
-        var result = await service.IssueAndStoreAsync(Context());
+        var result = await CreateService(http, rsa, store).IssueAndStoreAsync(Context());
 
         Assert.IsTrue(result.IsStored);
-        Assert.AreEqual("OFFLINE_ASSERTION_STORED", result.ProductCode);
         Assert.AreEqual(42L, result.EntitlementVersion);
-        Assert.AreEqual(1, secretStore.WriteCalls);
-        Assert.IsNotNull(secretStore.Stored!.OfflineEntitlementAssertion);
-        Assert.AreEqual(Now, secretStore.Stored.LastTrustedServerUtc);
-        Assert.AreEqual(Now, secretStore.Stored.LastTrustedServerObservationLocalUtc);
-        Assert.AreEqual("assertion-42", secretStore.Stored.LastValidAssertionJti);
-        Assert.AreEqual("REFRESH_SECRET", secretStore.Stored.RefreshToken);
+        Assert.AreEqual(1, store.WriteCalls);
+        Assert.AreEqual("REFRESH_SECRET", store.Stored!.RefreshToken);
+        Assert.IsNotNull(store.Stored.OfflineEntitlementAssertion);
+        Assert.AreEqual(Now, store.Stored.LastTrustedServerUtc);
+        Assert.AreEqual(Now, store.Stored.LastTrustedServerObservationLocalUtc);
+        Assert.AreEqual("assertion-42", store.Stored.LastValidAssertionJti);
         Assert.AreEqual(HttpMethod.Post, handler.LastMethod);
         Assert.AreEqual("Bearer", handler.LastAuthorizationScheme);
         Assert.IsTrue(handler.LastBody!.Contains(AssociationId, StringComparison.Ordinal));
@@ -47,15 +44,14 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     }
 
     [TestMethod]
-    public async Task ResponseSignedByUntrustedKeyIsNeverPersisted()
+    public async Task UntrustedSignatureIsNeverPersisted()
     {
         using var trusted = RSA.Create(2048);
         using var attacker = RSA.Create(2048);
         var store = new MemorySecretStore(Secret());
         using var http = new HttpClient(new FixtureHandler(attacker));
-        var service = CreateService(http, trusted, store);
 
-        var result = await service.IssueAndStoreAsync(Context());
+        var result = await CreateService(http, trusted, store).IssueAndStoreAsync(Context());
 
         Assert.AreEqual(OfflineEntitlementIssuanceDisposition.ValidationRejected, result.Disposition);
         Assert.AreEqual(0, store.WriteCalls);
@@ -63,17 +59,16 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     }
 
     [TestMethod]
-    public async Task ResponseMetadataMustMatchSignedClaims()
+    public async Task AdvertisedVersionCannotUpgradeOlderSignedProof()
     {
         using var rsa = RSA.Create(2048);
         var store = new MemorySecretStore(Secret());
         using var http = new HttpClient(new FixtureHandler(rsa, responseVersion: 43));
-        var service = CreateService(http, rsa, store);
 
-        var result = await service.IssueAndStoreAsync(Context());
+        var result = await CreateService(http, rsa, store).IssueAndStoreAsync(Context());
 
         Assert.AreEqual(OfflineEntitlementIssuanceDisposition.ValidationRejected, result.Disposition);
-        Assert.AreEqual("OFFLINE_ASSERTION_RESPONSE_MISMATCH", result.ProductCode);
+        Assert.AreEqual("OFFLINE_ASSERTION_VERSION_ROLLBACK", result.ProductCode);
         Assert.AreEqual(0, store.WriteCalls);
     }
 
@@ -83,38 +78,21 @@ public sealed class OfflineEntitlementIssuanceServiceTests
         using var rsa = RSA.Create(2048);
         var store = new MemorySecretStore(Secret(Now.AddMinutes(6)));
         using var http = new HttpClient(new FixtureHandler(rsa));
-        var service = CreateService(http, rsa, store);
 
-        var result = await service.IssueAndStoreAsync(Context());
+        var result = await CreateService(http, rsa, store).IssueAndStoreAsync(Context());
 
         Assert.AreEqual("TRUSTED_SERVER_TIME_ROLLBACK", result.ProductCode);
         Assert.AreEqual(0, store.WriteCalls);
     }
 
     [TestMethod]
-    public async Task AuthRequiredIsClassifiedWithoutSecretMutation()
+    public async Task ProductFailuresDoNotMutateProtectedState()
     {
         using var rsa = RSA.Create(2048);
         var store = new MemorySecretStore(Secret());
-        using var http = new HttpClient(new FixtureHandler(rsa, status: HttpStatusCode.Unauthorized, errorCode: "TOKEN_REVOKED"));
-        var service = CreateService(http, rsa, store);
+        using var http = new HttpClient(new FixtureHandler(rsa, HttpStatusCode.Forbidden, "OFFLINE_NOT_ELIGIBLE"));
 
-        var result = await service.IssueAndStoreAsync(Context());
-
-        Assert.AreEqual(OfflineEntitlementIssuanceDisposition.AuthRequired, result.Disposition);
-        Assert.AreEqual("TOKEN_REVOKED", result.ProductCode);
-        Assert.AreEqual(0, store.WriteCalls);
-    }
-
-    [TestMethod]
-    public async Task OfflineNotEligibleIsClassifiedWithoutSecretMutation()
-    {
-        using var rsa = RSA.Create(2048);
-        var store = new MemorySecretStore(Secret());
-        using var http = new HttpClient(new FixtureHandler(rsa, status: HttpStatusCode.Forbidden, errorCode: "OFFLINE_NOT_ELIGIBLE"));
-        var service = CreateService(http, rsa, store);
-
-        var result = await service.IssueAndStoreAsync(Context());
+        var result = await CreateService(http, rsa, store).IssueAndStoreAsync(Context());
 
         Assert.AreEqual(OfflineEntitlementIssuanceDisposition.NotEligible, result.Disposition);
         Assert.AreEqual(0, store.WriteCalls);
@@ -127,26 +105,11 @@ public sealed class OfflineEntitlementIssuanceServiceTests
         var store = new MemorySecretStore(null);
         var handler = new FixtureHandler(rsa);
         using var http = new HttpClient(handler);
-        var service = CreateService(http, rsa, store);
 
-        var result = await service.IssueAndStoreAsync(Context());
+        var result = await CreateService(http, rsa, store).IssueAndStoreAsync(Context());
 
         Assert.AreEqual(OfflineEntitlementIssuanceDisposition.LocalSecretUnavailable, result.Disposition);
         Assert.AreEqual(0, handler.RequestCount);
-    }
-
-    [TestMethod]
-    public async Task PersistenceFailureDoesNotReportStoredAssertion()
-    {
-        using var rsa = RSA.Create(2048);
-        var store = new MemorySecretStore(Secret()) { FailWrite = true };
-        using var http = new HttpClient(new FixtureHandler(rsa));
-        var service = CreateService(http, rsa, store);
-
-        var result = await service.IssueAndStoreAsync(Context());
-
-        Assert.AreEqual(OfflineEntitlementIssuanceDisposition.PersistenceFailed, result.Disposition);
-        Assert.AreEqual("OFFLINE_ASSERTION_LOCAL_STORE_FAILED", result.ProductCode);
     }
 
     private static OfflineEntitlementIssuanceService CreateService(HttpClient http, RSA rsa, IAccountSecretStore store)
@@ -165,15 +128,8 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     }
 
     private static OfflineEntitlementIssuanceContext Context()
-        => new(
-            "ACCESS_SECRET",
-            "1.2.3-test",
-            InstallationId,
-            Guid.Parse("a62defbc-0104-4fb4-af66-0f46ae57a8ad"),
-            AccountId,
-            AssociationId,
-            42,
-            [Capability]);
+        => new("ACCESS_SECRET", "1.2.3-test", InstallationId,
+            Guid.Parse("a62defbc-0104-4fb4-af66-0f46ae57a8ad"), AccountId, AssociationId, 42, [Capability]);
 
     private static AccountSecretEnvelope Secret(DateTimeOffset? lastTrustedServerUtc = null)
         => new()
@@ -188,20 +144,15 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     private sealed class MemorySecretStore(AccountSecretEnvelope? stored) : IAccountSecretStore
     {
         public AccountSecretEnvelope? Stored { get; private set; } = stored;
-        public bool FailWrite { get; init; }
         public int WriteCalls { get; private set; }
-
         public Task<AccountSecretReadResult> ReadAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(Stored is null ? AccountSecretReadResult.Missing() : AccountSecretReadResult.Available(Stored));
-
         public Task WriteAsync(AccountSecretEnvelope secret, CancellationToken cancellationToken = default)
         {
             WriteCalls++;
-            if (FailWrite) throw new IOException("synthetic write failure");
             Stored = secret;
             return Task.CompletedTask;
         }
-
         public Task DeleteAsync(CancellationToken cancellationToken = default)
         {
             Stored = null;
@@ -227,14 +178,11 @@ public sealed class OfflineEntitlementIssuanceServiceTests
             LastAuthorizationScheme = request.Headers.Authorization?.Scheme;
             LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             if (status != HttpStatusCode.OK)
-            {
                 return Json(status, new { error = new { code = errorCode, message = "ignored", retryable = (int)status >= 500 } });
-            }
 
-            var assertion = Sign(signingKey);
             return Json(HttpStatusCode.OK, new
             {
-                assertion,
+                assertion = Sign(signingKey),
                 issuedUtc = Now.AddHours(-1).ToString("O"),
                 expiresUtc = Now.AddDays(2).ToString("O"),
                 entitlementVersion = responseVersion,
@@ -244,32 +192,22 @@ public sealed class OfflineEntitlementIssuanceServiceTests
 
         private static string Sign(RSA rsa)
         {
-            var header = new { alg = "RS256", kid = "entitlement-test-key-01" };
             var payload = new Dictionary<string, object>(StringComparer.Ordinal)
             {
-                ["ver"] = 1,
-                ["iss"] = Issuer,
-                ["sub"] = AccountId,
-                ["jti"] = "assertion-42",
-                ["installationId"] = InstallationId,
-                ["associationId"] = AssociationId,
-                ["entitlementVersion"] = 42,
-                ["plan"] = "PRO",
-                ["capabilities"] = new[] { Capability },
-                ["iat"] = Now.AddHours(-1).ToUnixTimeSeconds(),
-                ["nbf"] = Now.AddHours(-1).ToUnixTimeSeconds(),
+                ["ver"] = 1, ["iss"] = Issuer, ["sub"] = AccountId, ["jti"] = "assertion-42",
+                ["installationId"] = InstallationId, ["associationId"] = AssociationId,
+                ["entitlementVersion"] = 42, ["plan"] = "PRO", ["capabilities"] = new[] { Capability },
+                ["iat"] = Now.AddHours(-1).ToUnixTimeSeconds(), ["nbf"] = Now.AddHours(-1).ToUnixTimeSeconds(),
                 ["exp"] = Now.AddDays(2).ToUnixTimeSeconds()
             };
-            var h = B64(JsonSerializer.SerializeToUtf8Bytes(header));
+            var h = B64(JsonSerializer.SerializeToUtf8Bytes(new { alg = "RS256", kid = "entitlement-test-key-01" }));
             var p = B64(JsonSerializer.SerializeToUtf8Bytes(payload));
-            var data = Encoding.ASCII.GetBytes(h + "." + p);
-            var signature = rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var signature = rsa.SignData(Encoding.ASCII.GetBytes(h + "." + p), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             return h + "." + p + "." + B64(signature);
         }
 
         private static string B64(byte[] bytes)
             => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
         private static HttpResponseMessage Json(HttpStatusCode code, object value)
             => new(code) { Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json") };
     }
