@@ -12,6 +12,7 @@
     <ProjectReference Include="../SplitOS.Contracts/SplitOS.Contracts.csproj" />
     <ProjectReference Include="../SplitOS.Ipc/SplitOS.Ipc.csproj" />
     <ProjectReference Include="../SplitOS.Ipc.Windows/SplitOS.Ipc.Windows.csproj" />
+    <ProjectReference Include="../SplitOS.Persistence/SplitOS.Persistence.csproj" />
     <ProjectReference Include="../SplitOS.Persistence.User/SplitOS.Persistence.User.csproj" />
     <ProjectReference Include="../SplitOS.Persistence.Projection/SplitOS.Persistence.Projection.csproj" />
     <ProjectReference Include="../SplitOS.Persistence.ProtectedSecrets/SplitOS.Persistence.ProtectedSecrets.csproj" />
