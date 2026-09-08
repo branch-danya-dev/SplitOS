@@ -6,9 +6,16 @@
     <Grid Padding="32" Loaded="OnLoaded">
         <StackPanel Spacing="12">
             <TextBlock Text="SplitOS Manager" FontSize="32" FontWeight="SemiBold" />
-            <TextBlock Text="SLICE-01 Local State / FREE Runtime" Opacity="0.7" />
+            <TextBlock Text="SLICE-02 Account / Entitlement Runtime" Opacity="0.7" />
             <TextBlock x:Name="StatusText" Text="Connecting to Runtime Host…" TextWrapping="Wrap" />
             <TextBlock x:Name="StateText" Text="Reading canonical state…" TextWrapping="Wrap" />
+            <Button
+                x:Name="SignInButton"
+                Content="Sign in to SplitOS"
+                HorizontalAlignment="Left"
+                Visibility="Collapsed"
+                Click="OnSignInClick" />
+            <TextBlock x:Name="AuthText" TextWrapping="Wrap" Opacity="0.8" />
         </StackPanel>
     </Grid>
 </Window>
