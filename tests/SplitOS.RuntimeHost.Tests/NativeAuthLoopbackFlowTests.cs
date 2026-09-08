@@ -30,10 +30,12 @@ public sealed class NativeAuthLoopbackFlowTests
         var requestBytes = Encoding.ASCII.GetBytes(requestText);
         await client.GetStream().WriteAsync(requestBytes);
 
-        await using var callback = await receiveTask;
-        Assert.AreEqual(secretCode, GetQueryValue(callback.CallbackUri, "code"));
-        Assert.AreEqual(secretState, GetQueryValue(callback.CallbackUri, "state"));
-        await callback.RespondAsync(protocolAccepted: true);
+        await using (var callback = await receiveTask)
+        {
+            Assert.AreEqual(secretCode, GetQueryValue(callback.CallbackUri, "code"));
+            Assert.AreEqual(secretState, GetQueryValue(callback.CallbackUri, "state"));
+            await callback.RespondAsync(protocolAccepted: true);
+        }
 
         using var reader = new StreamReader(client.GetStream(), Encoding.UTF8, leaveOpen: true);
         var response = await reader.ReadToEndAsync();
