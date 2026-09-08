@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using SplitOS.Contracts.Protocol;
 using SplitOS.Ipc;
 using SplitOS.Ipc.Windows;
+using SplitOS.RuntimeHost.Authentication;
 
 namespace SplitOS.RuntimeHost;
 
@@ -11,7 +12,8 @@ public sealed partial class RuntimeUiPipeService(
     ILogger<RuntimeUiPipeService> logger,
     RuntimeUiCallerValidator callerValidator,
     BrokerHealthState brokerHealthState,
-    RuntimeStateState runtimeState) : BackgroundService
+    RuntimeStateState runtimeState,
+    IRuntimeAuthStartCommand authStartCommand) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -67,25 +69,39 @@ public sealed partial class RuntimeUiPipeService(
         }
     }
 
-    private ValueTask<WireMessage> HandleMessageAsync(WireMessage request, CancellationToken _)
+    private async ValueTask<WireMessage> HandleMessageAsync(WireMessage request, CancellationToken cancellationToken)
     {
         if (string.Equals(request.Capability, Capabilities.RuntimeHealthRead, StringComparison.Ordinal))
         {
-            if (!string.Equals(request.MessageType, MessageTypes.HealthReadRequest, StringComparison.Ordinal)) return ValueTask.FromResult(Unsupported(request));
+            if (!string.Equals(request.MessageType, MessageTypes.HealthReadRequest, StringComparison.Ordinal)) return Unsupported(request);
             using var process = Process.GetCurrentProcess();
             var broker = brokerHealthState.Snapshot;
-            return ValueTask.FromResult(WireMessage.Respond(request, MessageTypes.HealthReadResult,
-                new HealthReadResult(ComponentIdentity.Name, ComponentIdentity.Version, broker.Status, Environment.ProcessId, process.SessionId, broker.ObservedAtUtc)));
+            return WireMessage.Respond(request, MessageTypes.HealthReadResult,
+                new HealthReadResult(ComponentIdentity.Name, ComponentIdentity.Version, broker.Status, Environment.ProcessId, process.SessionId, broker.ObservedAtUtc));
         }
 
         if (string.Equals(request.Capability, Capabilities.RuntimeStateRead, StringComparison.Ordinal))
         {
-            if (!string.Equals(request.MessageType, MessageTypes.RuntimeStateReadRequest, StringComparison.Ordinal)) return ValueTask.FromResult(Unsupported(request));
-            return ValueTask.FromResult(WireMessage.Respond(request, MessageTypes.RuntimeStateReadResult, runtimeState.Snapshot));
+            if (!string.Equals(request.MessageType, MessageTypes.RuntimeStateReadRequest, StringComparison.Ordinal)) return Unsupported(request);
+            return WireMessage.Respond(request, MessageTypes.RuntimeStateReadResult, runtimeState.Snapshot);
         }
 
-        return ValueTask.FromResult(WireMessage.Respond(request, MessageTypes.ErrorResponse,
-            new ErrorResponse(ErrorCodes.UnknownCapability, "Runtime capability is not allowlisted.")));
+        if (string.Equals(request.Capability, Capabilities.RuntimeAuthStart, StringComparison.Ordinal))
+        {
+            if (!string.Equals(request.MessageType, MessageTypes.RuntimeAuthStartRequest, StringComparison.Ordinal)) return Unsupported(request);
+
+            // Deserialize even though v1 has no fields so malformed/non-object payloads do not silently
+            // become a semantic auth command. No endpoint, token, account or entitlement input is accepted.
+            _ = request.ReadPayload<RuntimeAuthStartRequest>();
+            var result = await authStartCommand.StartAsync(
+                request.CorrelationId,
+                request.OperationId,
+                cancellationToken).ConfigureAwait(false);
+            return WireMessage.Respond(request, MessageTypes.RuntimeAuthStartResult, result);
+        }
+
+        return WireMessage.Respond(request, MessageTypes.ErrorResponse,
+            new ErrorResponse(ErrorCodes.UnknownCapability, "Runtime capability is not allowlisted."));
     }
 
     private static WireMessage Unsupported(WireMessage request) => WireMessage.Respond(
