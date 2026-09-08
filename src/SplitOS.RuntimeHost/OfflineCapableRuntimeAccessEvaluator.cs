@@ -16,18 +16,19 @@ public sealed class OfflineCapableRuntimeAccessEvaluator : IRuntimeAccessEvaluat
     private readonly OnlineEntitlementRuntimeAccessEvaluator _onlineEvaluator;
     private readonly IAccountSecretStore _secretStore;
     private readonly OfflineEntitlementAssertionValidator _offlineValidator;
-    private readonly string _installationId;
+    private readonly IInstallationIdentityProvider _installationIdentityProvider;
 
     public OfflineCapableRuntimeAccessEvaluator(
         OnlineEntitlementRuntimeAccessEvaluator onlineEvaluator,
         IAccountSecretStore secretStore,
         OfflineEntitlementAssertionValidator offlineValidator,
-        string installationId)
+        IInstallationIdentityProvider installationIdentityProvider)
     {
         _onlineEvaluator = onlineEvaluator ?? throw new ArgumentNullException(nameof(onlineEvaluator));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _offlineValidator = offlineValidator ?? throw new ArgumentNullException(nameof(offlineValidator));
-        _installationId = ValidateInstallationId(installationId);
+        _installationIdentityProvider = installationIdentityProvider
+            ?? throw new ArgumentNullException(nameof(installationIdentityProvider));
     }
 
     public async ValueTask<RuntimeAccessEvaluation> EvaluateAsync(
@@ -54,6 +55,25 @@ public sealed class OfflineCapableRuntimeAccessEvaluator : IRuntimeAccessEvaluat
             string.IsNullOrWhiteSpace(association.AssociationId))
         {
             return online;
+        }
+
+        InstallationIdentityReadResult installationIdentity;
+        try
+        {
+            installationIdentity = await _installationIdentityProvider.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (IsInstallationIdentityFailure(exception))
+        {
+            return Disabled("INSTALLATION_ID_UNREADABLE", online.EntitlementVersion);
+        }
+
+        if (!installationIdentity.IsAvailable || string.IsNullOrWhiteSpace(installationIdentity.InstallationId))
+        {
+            return Disabled(installationIdentity.ProductCode, online.EntitlementVersion);
         }
 
         AccountSecretReadResult secretRead;
@@ -91,7 +111,7 @@ public sealed class OfflineCapableRuntimeAccessEvaluator : IRuntimeAccessEvaluat
             new OfflineEntitlementValidationContext(
                 association.AccountId,
                 association.AssociationId,
-                _installationId,
+                installationIdentity.InstallationId,
                 ManagedRuntimeCapability,
                 online.EntitlementVersion,
                 secret.LastTrustedServerUtc,
@@ -113,19 +133,8 @@ public sealed class OfflineCapableRuntimeAccessEvaluator : IRuntimeAccessEvaluat
         => string.Equals(reason, "ONLINE_ENTITLEMENT_MISSING", StringComparison.Ordinal) ||
            string.Equals(reason, "ONLINE_ENTITLEMENT_STALE", StringComparison.Ordinal);
 
-    private static string ValidateInstallationId(string installationId)
-    {
-        if (string.IsNullOrWhiteSpace(installationId) ||
-            installationId.Length > 256 ||
-            installationId.Any(char.IsControl))
-        {
-            throw new ArgumentException(
-                "Installation id is missing or outside supported bounds.",
-                nameof(installationId));
-        }
-
-        return installationId;
-    }
+    private static bool IsInstallationIdentityFailure(Exception exception)
+        => exception is IOException or UnauthorizedAccessException or InvalidDataException or System.Security.SecurityException;
 
     private static bool IsSecretReadFailure(Exception exception)
         => exception is IOException or UnauthorizedAccessException or InvalidDataException or CryptographicException;

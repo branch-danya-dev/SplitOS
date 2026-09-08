@@ -23,13 +23,15 @@ public sealed class OfflineRuntimeAccessFallbackTests
     {
         using var rsa = RSA.Create(2048);
         var store = new MemorySecretStore(Secret(Sign(rsa, entitlementVersion: 42)));
-        var evaluator = CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa);
+        var installation = AvailableInstallation();
+        var evaluator = CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, installation);
 
         var result = await evaluator.EvaluateAsync(ActiveAssociation());
 
         Assert.IsTrue(result.IsEnabled);
         Assert.AreEqual("PRO_OFFLINE_ASSERTION_VALID", result.Reason);
         Assert.AreEqual(42L, result.EntitlementVersion);
+        Assert.AreEqual(1, installation.ReadCalls);
         Assert.AreEqual(1, store.ReadCalls);
     }
 
@@ -44,7 +46,7 @@ public sealed class OfflineRuntimeAccessFallbackTests
             Now.AddMinutes(-6));
         var store = new MemorySecretStore(Secret(Sign(rsa, entitlementVersion: 42)));
 
-        var result = await CreateEvaluator(online, store, rsa).EvaluateAsync(ActiveAssociation());
+        var result = await CreateEvaluator(online, store, rsa, AvailableInstallation()).EvaluateAsync(ActiveAssociation());
 
         Assert.IsTrue(result.IsEnabled);
         Assert.AreEqual("PRO_OFFLINE_ASSERTION_VALID", result.Reason);
@@ -60,11 +62,13 @@ public sealed class OfflineRuntimeAccessFallbackTests
             Entitlement("FREE", "ACTIVE", [Capability], 43),
             Now);
         var store = new MemorySecretStore(Secret(Sign(rsa, entitlementVersion: 42)));
+        var installation = AvailableInstallation();
 
-        var result = await CreateEvaluator(online, store, rsa).EvaluateAsync(ActiveAssociation());
+        var result = await CreateEvaluator(online, store, rsa, installation).EvaluateAsync(ActiveAssociation());
 
         Assert.IsFalse(result.IsEnabled);
         Assert.AreEqual("FREE_ENTITLEMENT", result.Reason);
+        Assert.AreEqual(0, installation.ReadCalls);
         Assert.AreEqual(0, store.ReadCalls);
     }
 
@@ -79,7 +83,7 @@ public sealed class OfflineRuntimeAccessFallbackTests
             Now.AddMinutes(-6));
         var store = new MemorySecretStore(Secret(Sign(rsa, entitlementVersion: 42)));
 
-        var result = await CreateEvaluator(online, store, rsa).EvaluateAsync(ActiveAssociation());
+        var result = await CreateEvaluator(online, store, rsa, AvailableInstallation()).EvaluateAsync(ActiveAssociation());
 
         Assert.IsFalse(result.IsEnabled);
         Assert.AreEqual("OFFLINE_ASSERTION_VERSION_ROLLBACK", result.Reason);
@@ -91,14 +95,73 @@ public sealed class OfflineRuntimeAccessFallbackTests
     {
         using var rsa = RSA.Create(2048);
         var store = new MemorySecretStore(Secret(Sign(rsa)));
+        var installation = AvailableInstallation();
         var association = ActiveAssociation() with { AssociationState = "REAUTH_REQUIRED" };
 
-        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa)
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, installation)
             .EvaluateAsync(association);
 
         Assert.IsFalse(result.IsEnabled);
         Assert.AreEqual("ACCOUNT_NOT_ACTIVE", result.Reason);
+        Assert.AreEqual(0, installation.ReadCalls);
         Assert.AreEqual(0, store.ReadCalls);
+    }
+
+    [TestMethod]
+    public async Task MissingInstallationIdentityFailsBeforeProtectedSecretRead()
+    {
+        using var rsa = RSA.Create(2048);
+        var store = new MemorySecretStore(Secret(Sign(rsa)));
+        var installation = new MemoryInstallationIdentityProvider(
+            new InstallationIdentityReadResult(
+                InstallationIdentityReadStatus.Missing,
+                null,
+                "INSTALLATION_ID_MISSING"));
+
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, installation)
+            .EvaluateAsync(ActiveAssociation());
+
+        Assert.IsFalse(result.IsEnabled);
+        Assert.AreEqual("INSTALLATION_ID_MISSING", result.Reason);
+        Assert.AreEqual(1, installation.ReadCalls);
+        Assert.AreEqual(0, store.ReadCalls);
+    }
+
+    [TestMethod]
+    public async Task InvalidInstallationIdentityFailsClosed()
+    {
+        using var rsa = RSA.Create(2048);
+        var store = new MemorySecretStore(Secret(Sign(rsa)));
+        var installation = new MemoryInstallationIdentityProvider(
+            new InstallationIdentityReadResult(
+                InstallationIdentityReadStatus.Invalid,
+                null,
+                "INSTALLATION_ID_INVALID"));
+
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, installation)
+            .EvaluateAsync(ActiveAssociation());
+
+        Assert.IsFalse(result.IsEnabled);
+        Assert.AreEqual("INSTALLATION_ID_INVALID", result.Reason);
+        Assert.AreEqual(0, store.ReadCalls);
+    }
+
+    [TestMethod]
+    public async Task AssertionForDifferentProvisionedInstallationCannotAuthorize()
+    {
+        using var rsa = RSA.Create(2048);
+        var store = new MemorySecretStore(Secret(Sign(rsa)));
+        var installation = new MemoryInstallationIdentityProvider(
+            new InstallationIdentityReadResult(
+                InstallationIdentityReadStatus.Available,
+                "different-installation",
+                "INSTALLATION_ID_AVAILABLE"));
+
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, installation)
+            .EvaluateAsync(ActiveAssociation());
+
+        Assert.IsFalse(result.IsEnabled);
+        Assert.AreEqual("OFFLINE_ASSERTION_CONTEXT_MISMATCH", result.Reason);
     }
 
     [TestMethod]
@@ -120,7 +183,7 @@ public sealed class OfflineRuntimeAccessFallbackTests
         };
         var store = new MemorySecretStore(secret);
 
-        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa)
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, AvailableInstallation())
             .EvaluateAsync(ActiveAssociation());
 
         Assert.IsFalse(result.IsEnabled);
@@ -135,7 +198,7 @@ public sealed class OfflineRuntimeAccessFallbackTests
             rsa,
             associationId: "7be1b230-c4a3-4f24-a878-6810a2612cf5")));
 
-        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa)
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, AvailableInstallation())
             .EvaluateAsync(ActiveAssociation());
 
         Assert.IsFalse(result.IsEnabled);
@@ -148,7 +211,7 @@ public sealed class OfflineRuntimeAccessFallbackTests
         using var rsa = RSA.Create(2048);
         var store = new MemorySecretStore(null, AccountSecretReadStatus.Unreadable);
 
-        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa)
+        var result = await CreateEvaluator(new OnlineEntitlementEvidenceState(), store, rsa, AvailableInstallation())
             .EvaluateAsync(ActiveAssociation());
 
         Assert.IsFalse(result.IsEnabled);
@@ -156,7 +219,7 @@ public sealed class OfflineRuntimeAccessFallbackTests
     }
 
     [TestMethod]
-    public async Task FreshOnlineProWinsWithoutReadingOfflineSecret()
+    public async Task FreshOnlineProWinsWithoutReadingOfflineInputs()
     {
         using var rsa = RSA.Create(2048);
         var online = new OnlineEntitlementEvidenceState();
@@ -165,19 +228,22 @@ public sealed class OfflineRuntimeAccessFallbackTests
             Entitlement("PRO", "ACTIVE", [Capability], 44),
             Now);
         var store = new MemorySecretStore(Secret(Sign(rsa, entitlementVersion: 42)));
+        var installation = AvailableInstallation();
 
-        var result = await CreateEvaluator(online, store, rsa).EvaluateAsync(ActiveAssociation());
+        var result = await CreateEvaluator(online, store, rsa, installation).EvaluateAsync(ActiveAssociation());
 
         Assert.IsTrue(result.IsEnabled);
         Assert.AreEqual("PRO_ONLINE_CONFIRMED", result.Reason);
         Assert.AreEqual(44L, result.EntitlementVersion);
+        Assert.AreEqual(0, installation.ReadCalls);
         Assert.AreEqual(0, store.ReadCalls);
     }
 
     private static OfflineCapableRuntimeAccessEvaluator CreateEvaluator(
         OnlineEntitlementEvidenceState online,
         IAccountSecretStore store,
-        RSA rsa)
+        RSA rsa,
+        IInstallationIdentityProvider installationIdentityProvider)
     {
         var onlineEvaluator = new OnlineEntitlementRuntimeAccessEvaluator(
             online,
@@ -196,8 +262,14 @@ public sealed class OfflineRuntimeAccessFallbackTests
             onlineEvaluator,
             store,
             offlineValidator,
-            InstallationId);
+            installationIdentityProvider);
     }
+
+    private static MemoryInstallationIdentityProvider AvailableInstallation()
+        => new(new InstallationIdentityReadResult(
+            InstallationIdentityReadStatus.Available,
+            InstallationId,
+            "INSTALLATION_ID_AVAILABLE"));
 
     private static AccountAssociationEvaluation ActiveAssociation()
         => new("ACTIVE", AccountId, AssociationId, null, 5);
@@ -263,6 +335,19 @@ public sealed class OfflineRuntimeAccessFallbackTests
 
     private static string B64(byte[] bytes)
         => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private sealed class MemoryInstallationIdentityProvider(InstallationIdentityReadResult result)
+        : IInstallationIdentityProvider
+    {
+        public int ReadCalls { get; private set; }
+
+        public ValueTask<InstallationIdentityReadResult> ReadAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ReadCalls++;
+            return ValueTask.FromResult(result);
+        }
+    }
 
     private sealed class MemorySecretStore(
         AccountSecretEnvelope? secret,
