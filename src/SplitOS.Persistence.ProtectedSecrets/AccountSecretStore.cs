@@ -16,6 +16,8 @@ public sealed class AccountSecretEnvelope
     public DateTimeOffset RefreshIssuedUtc { get; init; }
     public DateTimeOffset RefreshAbsoluteExpiryUtc { get; init; }
     public DateTimeOffset? LastTrustedServerUtc { get; init; }
+    public DateTimeOffset? LastTrustedServerObservationLocalUtc { get; init; }
+    public string? LastValidAssertionJti { get; init; }
     public string? OfflineEntitlementAssertion { get; init; }
     public DateTimeOffset? OfflineAssertionStoredUtc { get; init; }
 
@@ -225,5 +227,10 @@ public sealed class DpapiAccountSecretStore : IAccountSecretStore
            && !string.IsNullOrWhiteSpace(secret.RefreshToken)
            && secret.RefreshIssuedUtc != default
            && secret.RefreshAbsoluteExpiryUtc > secret.RefreshIssuedUtc
+           && (secret.LastTrustedServerObservationLocalUtc is null || secret.LastTrustedServerUtc is not null)
+           && (secret.LastValidAssertionJti is null ||
+               (!string.IsNullOrWhiteSpace(secret.LastValidAssertionJti) &&
+                secret.LastValidAssertionJti.Length <= 256 &&
+                !secret.LastValidAssertionJti.Any(char.IsControl)))
            && (secret.OfflineEntitlementAssertion is null || secret.OfflineAssertionStoredUtc is not null);
 }
