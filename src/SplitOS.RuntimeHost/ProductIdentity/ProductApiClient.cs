@@ -610,7 +610,7 @@ public sealed class ProductApiClient
 
     private static ProductApiResult<T> Accept<T>(T value)
         where T : class
-        => new(ProductApiDisposition.Accepted, "OK", retryable: false, value);
+        => new(ProductApiDisposition.Accepted, "OK", false, value);
 
     private static ProductApiResult<T> Reject<T>(
         ProductApiDisposition disposition,
