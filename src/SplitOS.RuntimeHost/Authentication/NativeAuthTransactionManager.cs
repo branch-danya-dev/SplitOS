@@ -9,20 +9,20 @@ public sealed class NativeAuthTransactionManager
 {
     private const string CallbackPath = "/oauth/callback";
     private readonly object _gate = new();
-    private readonly NativeAuthClientOptions _options;
+    private readonly NativeAuthAuthorityConfiguration _authority;
     private readonly IWindowsUserContext _windowsUserContext;
     private readonly TimeProvider _timeProvider;
     private NativeAuthTransaction? _active;
 
     public NativeAuthTransactionManager(
-        NativeAuthClientOptions options,
+        NativeAuthAuthorityConfiguration authority,
         IWindowsUserContext windowsUserContext,
         TimeProvider? timeProvider = null)
     {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _windowsUserContext = windowsUserContext ?? throw new ArgumentNullException(nameof(windowsUserContext));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _options.Validate();
+        _authority.Validate();
     }
 
     public NativeAuthStartResult Start(Uri redirectUri)
@@ -43,13 +43,13 @@ public sealed class NativeAuthTransactionManager
             var nonce = GenerateRandomBase64Url(32);
             var codeVerifier = GenerateRandomBase64Url(32);
             var codeChallenge = Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
-            var scopes = _options.RequestedScopes.ToArray();
+            var scopes = _authority.RequestedScopes.ToArray();
             var transaction = new NativeAuthTransaction(
                 Guid.NewGuid(),
                 Process.GetCurrentProcess().SessionId,
                 HashSidReference(_windowsUserContext.GetCurrentUserSid()),
                 now,
-                now.Add(_options.TransactionLifetime),
+                now.Add(_authority.TransactionLifetime),
                 redirectUri,
                 state,
                 nonce,
@@ -145,7 +145,7 @@ public sealed class NativeAuthTransactionManager
                 transaction.CodeVerifier,
                 transaction.Nonce,
                 transaction.RedirectUri,
-                _options.ClientId);
+                _authority.ClientId);
 
             _active = null;
             return new NativeAuthCallbackResult(
@@ -166,7 +166,7 @@ public sealed class NativeAuthTransactionManager
         var query = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["response_type"] = "code",
-            ["client_id"] = _options.ClientId,
+            ["client_id"] = _authority.ClientId,
             ["redirect_uri"] = redirectUri.AbsoluteUri,
             ["scope"] = string.Join(' ', scopes),
             ["state"] = state,
@@ -175,7 +175,7 @@ public sealed class NativeAuthTransactionManager
             ["code_challenge_method"] = "S256"
         };
 
-        var builder = new UriBuilder(_options.AuthorizationEndpoint)
+        var builder = new UriBuilder(_authority.AuthorizationEndpoint)
         {
             Query = string.Join("&", query.Select(static pair =>
                 $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"))

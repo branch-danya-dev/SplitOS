@@ -35,7 +35,7 @@ public sealed class NativeAuthTokenExchangeTests
             Now.AddMinutes(5));
         using var handler = new FixtureHandler(rsa, jwt);
         using var client = new HttpClient(handler);
-        var service = new NativeAuthTokenExchangeService(client, CreateTrust(), new FixedTimeProvider(Now));
+        var service = new NativeAuthTokenExchangeService(client, CreateAuthority(), new FixedTimeProvider(Now));
 
         var result = await service.ExchangeAsync(exchange);
 
@@ -55,6 +55,24 @@ public sealed class NativeAuthTokenExchangeTests
         Assert.IsTrue(handler.TokenRequestBody.Contains("code_verifier=", StringComparison.Ordinal));
         Assert.IsFalse(handler.TokenRequestBody.Contains("client_secret", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(handler.TokenRequestHadAuthorizationHeader);
+    }
+
+    [TestMethod]
+    public async Task DiscoveryCannotRedirectTokenEndpointAwayFromReleaseOwnedAuthority()
+    {
+        using var rsa = RSA.Create(2048);
+        var exchange = CreateExchange(out _);
+        using var handler = new FixtureHandler(
+            rsa,
+            null,
+            discoveredTokenEndpoint: new Uri("https://attacker.invalid/token"));
+        using var client = new HttpClient(handler);
+        var service = new NativeAuthTokenExchangeService(client, CreateAuthority(), new FixedTimeProvider(Now));
+
+        var result = await service.ExchangeAsync(exchange);
+
+        AssertIdentityRejected(result);
+        Assert.IsNull(handler.TokenRequestBody);
     }
 
     [TestMethod]
@@ -168,7 +186,7 @@ public sealed class NativeAuthTokenExchangeTests
         var exchange = CreateExchange(out _);
         using var handler = new FixtureHandler(rsa, null, invalidGrant: true);
         using var client = new HttpClient(handler);
-        var service = new NativeAuthTokenExchangeService(client, CreateTrust(), new FixedTimeProvider(Now));
+        var service = new NativeAuthTokenExchangeService(client, CreateAuthority(), new FixedTimeProvider(Now));
 
         var result = await service.ExchangeAsync(exchange);
 
@@ -178,17 +196,17 @@ public sealed class NativeAuthTokenExchangeTests
     }
 
     [TestMethod]
-    public void HttpIssuerIsRejectedByReleaseTrustConfiguration()
+    public void HttpIssuerIsRejectedByReleaseAuthorityConfiguration()
     {
-        var trust = CreateTrust() with { Issuer = new Uri("http://auth.example.test/") };
-        Assert.ThrowsExactly<ArgumentException>(() => trust.Validate());
+        var authority = CreateAuthority() with { Issuer = new Uri("http://auth.example.test/") };
+        Assert.ThrowsExactly<ArgumentException>(() => authority.Validate());
     }
 
     [TestMethod]
     public void UnsupportedIdTokenAlgorithmIsRejectedBeforeNetworkUse()
     {
-        var trust = CreateTrust() with { AllowedIdTokenAlgorithms = ["HS256"] };
-        Assert.ThrowsExactly<ArgumentException>(() => trust.Validate());
+        var authority = CreateAuthority() with { AllowedIdTokenAlgorithms = ["HS256"] };
+        Assert.ThrowsExactly<ArgumentException>(() => authority.Validate());
     }
 
     private static async Task<NativeAuthTokenExchangeResult> ExchangeWithFixtureAsync(
@@ -198,7 +216,7 @@ public sealed class NativeAuthTokenExchangeTests
     {
         using var handler = new FixtureHandler(publishedKey, jwt);
         using var client = new HttpClient(handler);
-        var service = new NativeAuthTokenExchangeService(client, CreateTrust(), new FixedTimeProvider(Now));
+        var service = new NativeAuthTokenExchangeService(client, CreateAuthority(), new FixedTimeProvider(Now));
         return await service.ExchangeAsync(exchange);
     }
 
@@ -212,11 +230,7 @@ public sealed class NativeAuthTokenExchangeTests
     private static NativeAuthCodeExchangeContext CreateExchange(out NativeAuthTransaction transaction)
     {
         var manager = new NativeAuthTransactionManager(
-            new NativeAuthClientOptions(
-                Authorization,
-                "splitos-windows-native-v1",
-                ["openid"],
-                TimeSpan.FromMinutes(10)),
+            CreateAuthority() with { RequestedScopes = ["openid"] },
             new FakeWindowsUserContext(),
             new FixedTimeProvider(Now));
         transaction = manager.Start(new Uri("http://127.0.0.1:49170/oauth/callback")).Transaction;
@@ -226,14 +240,18 @@ public sealed class NativeAuthTokenExchangeTests
         return callback.ExchangeContext;
     }
 
-    private static NativeAuthTrustConfiguration CreateTrust()
+    private static NativeAuthAuthorityConfiguration CreateAuthority()
         => new(
             Issuer,
             Discovery,
             Authorization,
+            Token,
+            Jwks,
             "splitos-windows-native-v1",
+            ["openid", "profile", "email"],
             AllowedAlgorithms,
-            TimeSpan.FromMinutes(1));
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(10));
 
     private static string CreateJwt(
         RSA rsa,
@@ -284,7 +302,9 @@ public sealed class NativeAuthTokenExchangeTests
     private sealed class FixtureHandler(
         RSA publishedKey,
         string? idToken,
-        bool invalidGrant = false) : HttpMessageHandler
+        bool invalidGrant = false,
+        Uri? discoveredTokenEndpoint = null,
+        Uri? discoveredJwksEndpoint = null) : HttpMessageHandler
     {
         public string? TokenRequestBody { get; private set; }
         public bool TokenRequestHadAuthorizationHeader { get; private set; }
@@ -299,8 +319,8 @@ public sealed class NativeAuthTokenExchangeTests
                 {
                     issuer = Issuer.AbsoluteUri,
                     authorization_endpoint = Authorization.AbsoluteUri,
-                    token_endpoint = Token.AbsoluteUri,
-                    jwks_uri = Jwks.AbsoluteUri,
+                    token_endpoint = (discoveredTokenEndpoint ?? Token).AbsoluteUri,
+                    jwks_uri = (discoveredJwksEndpoint ?? Jwks).AbsoluteUri,
                     response_types_supported = ResponseTypes,
                     code_challenge_methods_supported = PkceMethods,
                     token_endpoint_auth_methods_supported = TokenAuthMethods

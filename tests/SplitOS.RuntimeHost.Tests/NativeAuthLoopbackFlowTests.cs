@@ -120,12 +120,35 @@ public sealed class NativeAuthLoopbackFlowTests
         Assert.IsTrue(listener.ReceiveWasCancelled);
     }
 
+    [TestMethod]
+    public async Task LoopbackTransportFailureClearsActiveTransaction()
+    {
+        var listener = new FailingLoopbackListener(new Uri("http://127.0.0.1:49163/oauth/callback"));
+        var manager = CreateManager(TimeSpan.FromMinutes(10));
+        var flow = new NativeAuthInteractiveFlow(
+            manager,
+            new SingleListenerFactory(listener),
+            new RecordingBrowserLauncher());
+
+        var result = await flow.RunAsync();
+
+        Assert.AreEqual(NativeAuthInteractiveDisposition.LoopbackRejected, result.Disposition);
+        Assert.AreEqual("AUTH_RESULT_REJECTED", result.ProductCode);
+        Assert.IsNull(manager.GetActiveSnapshot());
+    }
+
     private static NativeAuthTransactionManager CreateManager(TimeSpan lifetime)
         => new(
-            new NativeAuthClientOptions(
+            new NativeAuthAuthorityConfiguration(
+                new Uri("https://auth.example.test/"),
+                new Uri("https://auth.example.test/.well-known/openid-configuration"),
                 new Uri("https://auth.example.test/authorize"),
+                new Uri("https://auth.example.test/token"),
+                new Uri("https://auth.example.test/jwks"),
                 "splitos-windows-native-v1",
                 ["openid", "profile", "email"],
+                ["RS256"],
+                TimeSpan.FromMinutes(1),
                 lifetime),
             new FakeWindowsUserContext());
 
@@ -179,6 +202,11 @@ public sealed class NativeAuthLoopbackFlowTests
         }
     }
 
+    private sealed class SingleListenerFactory(INativeAuthLoopbackListener listener) : INativeAuthLoopbackListenerFactory
+    {
+        public INativeAuthLoopbackListener Bind() => listener;
+    }
+
     private sealed class FakeLoopbackListener(Uri redirectUri) : INativeAuthLoopbackListener
     {
         private readonly TaskCompletionSource<INativeAuthLoopbackRequest> _callback =
@@ -207,6 +235,14 @@ public sealed class NativeAuthLoopbackFlowTests
         public void Deliver(Uri callbackUri)
             => _callback.TrySetResult(new FakeLoopbackRequest(callbackUri, accepted => ResponseAccepted = accepted));
 
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FailingLoopbackListener(Uri redirectUri) : INativeAuthLoopbackListener
+    {
+        public Uri RedirectUri { get; } = redirectUri;
+        public Task<INativeAuthLoopbackRequest> ReceiveAsync(CancellationToken cancellationToken = default)
+            => Task.FromException<INativeAuthLoopbackRequest>(new IOException("Synthetic loopback transport failure."));
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

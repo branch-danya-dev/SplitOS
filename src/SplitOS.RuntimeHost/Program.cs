@@ -9,6 +9,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSingleton<RuntimeUiCallerValidator>();
 builder.Services.AddSingleton<BrokerHealthState>();
 builder.Services.AddSingleton<RuntimeStateState>();
+builder.Services.AddSingleton<RuntimeStateRefreshSignal>();
 builder.Services.AddSingleton<UserStateStore>();
 builder.Services.AddSingleton<IUserAccountAssociationStore>(services => services.GetRequiredService<UserStateStore>());
 builder.Services.AddSingleton<ProjectionStore>();

@@ -1,50 +1,5 @@
 namespace SplitOS.RuntimeHost.Authentication;
 
-public sealed record NativeAuthClientOptions(
-    Uri AuthorizationEndpoint,
-    string ClientId,
-    IReadOnlyList<string> RequestedScopes,
-    TimeSpan TransactionLifetime)
-{
-    public static readonly TimeSpan MaximumTransactionLifetime = TimeSpan.FromMinutes(10);
-
-    public void Validate()
-    {
-        if (AuthorizationEndpoint is null || !AuthorizationEndpoint.IsAbsoluteUri)
-        {
-            throw new ArgumentException("Authorization endpoint must be an absolute URI.", nameof(AuthorizationEndpoint));
-        }
-
-        if (!string.Equals(AuthorizationEndpoint.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("Authorization endpoint must use HTTPS.", nameof(AuthorizationEndpoint));
-        }
-
-        if (!string.IsNullOrEmpty(AuthorizationEndpoint.Query) || !string.IsNullOrEmpty(AuthorizationEndpoint.Fragment))
-        {
-            throw new ArgumentException("Authorization endpoint must not contain query or fragment components.", nameof(AuthorizationEndpoint));
-        }
-
-        if (string.IsNullOrWhiteSpace(ClientId))
-        {
-            throw new ArgumentException("Native OAuth client ID is required.", nameof(ClientId));
-        }
-
-        if (RequestedScopes is null || RequestedScopes.Count == 0 ||
-            !RequestedScopes.Contains("openid", StringComparer.Ordinal))
-        {
-            throw new ArgumentException("OIDC scope 'openid' is required.", nameof(RequestedScopes));
-        }
-
-        if (TransactionLifetime <= TimeSpan.Zero || TransactionLifetime > MaximumTransactionLifetime)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(TransactionLifetime),
-                $"Native auth transaction lifetime must be > 0 and <= {MaximumTransactionLifetime}.");
-        }
-    }
-}
-
 public enum NativeAuthStartDisposition
 {
     Started,

@@ -148,22 +148,14 @@ public sealed class NativeAuthTransactionManagerTests
     }
 
     [TestMethod]
-    public void InvalidClientConfigurationFailsBeforeAnyTransactionCanStart()
+    public void InvalidAuthorityConfigurationFailsBeforeAnyTransactionCanStart()
     {
         AssertThrows<ArgumentException>(() => new NativeAuthTransactionManager(
-            new NativeAuthClientOptions(
-                new Uri("http://auth.example.test/authorize"),
-                "splitos-windows-native-v1",
-                ["openid"],
-                TimeSpan.FromMinutes(10)),
+            Authority() with { AuthorizationEndpoint = new Uri("http://auth.example.test/authorize") },
             new FakeWindowsUserContext()));
 
         AssertThrows<ArgumentOutOfRangeException>(() => new NativeAuthTransactionManager(
-            new NativeAuthClientOptions(
-                new Uri("https://auth.example.test/authorize"),
-                "splitos-windows-native-v1",
-                ["openid"],
-                TimeSpan.FromMinutes(11)),
+            Authority() with { TransactionLifetime = TimeSpan.FromMinutes(11) },
             new FakeWindowsUserContext()));
     }
 
@@ -171,14 +163,23 @@ public sealed class NativeAuthTransactionManagerTests
     {
         clock = new ManualTimeProvider(new DateTimeOffset(2026, 9, 8, 7, 0, 0, TimeSpan.Zero));
         return new NativeAuthTransactionManager(
-            new NativeAuthClientOptions(
-                new Uri("https://auth.example.test/authorize"),
-                "splitos-windows-native-v1",
-                ["openid", "profile", "email"],
-                TimeSpan.FromMinutes(10)),
+            Authority(),
             new FakeWindowsUserContext(),
             clock);
     }
+
+    private static NativeAuthAuthorityConfiguration Authority()
+        => new(
+            new Uri("https://auth.example.test/"),
+            new Uri("https://auth.example.test/.well-known/openid-configuration"),
+            new Uri("https://auth.example.test/authorize"),
+            new Uri("https://auth.example.test/token"),
+            new Uri("https://auth.example.test/jwks"),
+            "splitos-windows-native-v1",
+            ["openid", "profile", "email"],
+            ["RS256"],
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(10));
 
     private static TException AssertThrows<TException>(Action action)
         where TException : Exception
