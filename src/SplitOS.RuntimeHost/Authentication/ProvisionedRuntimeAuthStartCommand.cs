@@ -55,21 +55,22 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (_verifiedCommand is not null &&
+                (package.Metadata.SecurityEpoch < _verifiedSecurityEpoch ||
+                 package.Metadata.Version < _verifiedMetadataVersion))
+            {
+                return Unavailable("AUTH_AUTHORITY_ROLLBACK_REJECTED");
+            }
+
             if (_verifiedCommand is null ||
                 package.Metadata.SecurityEpoch > _verifiedSecurityEpoch ||
-                (package.Metadata.SecurityEpoch == _verifiedSecurityEpoch &&
-                 package.Metadata.Version > _verifiedMetadataVersion))
+                package.Metadata.Version > _verifiedMetadataVersion)
             {
                 command = commandFactory.Create(package.Metadata.Authority)
                     ?? throw new InvalidOperationException("Runtime auth command factory returned no command.");
                 _verifiedCommand = command;
                 _verifiedMetadataVersion = package.Metadata.Version;
                 _verifiedSecurityEpoch = package.Metadata.SecurityEpoch;
-            }
-            else if (package.Metadata.SecurityEpoch < _verifiedSecurityEpoch ||
-                     package.Metadata.Version < _verifiedMetadataVersion)
-            {
-                return Unavailable("AUTH_AUTHORITY_ROLLBACK_REJECTED");
             }
             else
             {
