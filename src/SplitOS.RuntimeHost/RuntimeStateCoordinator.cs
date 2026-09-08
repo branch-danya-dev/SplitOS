@@ -13,8 +13,12 @@ public sealed partial class RuntimeStateCoordinator(
     MachineStateClient machineStateClient,
     IRuntimeAccessEvaluator accessEvaluator,
     AccountAssociationCoordinator associationCoordinator,
+    RuntimeStateRefreshSignal refreshSignal,
     RuntimeStateState state) : BackgroundService
 {
+    private static readonly TimeSpan ReadyRefreshInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RetryRefreshInterval = TimeSpan.FromSeconds(1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await userStateStore.InitializeAsync(stoppingToken).ConfigureAwait(false);
@@ -22,6 +26,7 @@ public sealed partial class RuntimeStateCoordinator(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var nextRefresh = ReadyRefreshInterval;
             try
             {
                 var mode = await machineStateClient.ReadOperationalModeAsync(stoppingToken).ConfigureAwait(false);
@@ -38,14 +43,15 @@ public sealed partial class RuntimeStateCoordinator(
                     ProjectionStore.SchemaVersion,
                     DateTimeOffset.UtcNow));
                 LogReady(logger, access, mode.CommittedMode, association.AssociationState);
-                return;
             }
             catch (Exception ex) when (ex is IOException or TimeoutException or UnauthorizedAccessException or InvalidDataException)
             {
                 state.ReportUnavailable();
                 LogWaiting(logger, ex.Message);
-                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+                nextRefresh = RetryRefreshInterval;
             }
+
+            await refreshSignal.WaitAsync(nextRefresh, stoppingToken).ConfigureAwait(false);
         }
     }
 
