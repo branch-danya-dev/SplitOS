@@ -81,8 +81,7 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     public async Task TrustedServerTimeRegressionIsRejected()
     {
         using var rsa = RSA.Create(2048);
-        var secret = Secret() with { LastTrustedServerUtc = Now.AddMinutes(6) };
-        var store = new MemorySecretStore(secret);
+        var store = new MemorySecretStore(Secret(Now.AddMinutes(6)));
         using var http = new HttpClient(new FixtureHandler(rsa));
         var service = CreateService(http, rsa, store);
 
@@ -176,14 +175,14 @@ public sealed class OfflineEntitlementIssuanceServiceTests
             42,
             [Capability]);
 
-    private static AccountSecretEnvelope Secret()
+    private static AccountSecretEnvelope Secret(DateTimeOffset? lastTrustedServerUtc = null)
         => new()
         {
             AccountId = AccountId,
             RefreshToken = "REFRESH_SECRET",
             RefreshIssuedUtc = Now.AddDays(-1),
             RefreshAbsoluteExpiryUtc = Now.AddDays(30),
-            LastTrustedServerUtc = Now.AddMinutes(-10)
+            LastTrustedServerUtc = lastTrustedServerUtc ?? Now.AddMinutes(-10)
         };
 
     private sealed class MemorySecretStore(AccountSecretEnvelope? stored) : IAccountSecretStore
@@ -279,22 +278,4 @@ public sealed class OfflineEntitlementIssuanceServiceTests
     {
         public override DateTimeOffset GetUtcNow() => now;
     }
-}
-
-internal static class AccountSecretEnvelopeTestExtensions
-{
-    public static AccountSecretEnvelope with(this AccountSecretEnvelope source, DateTimeOffset? LastTrustedServerUtc = null)
-        => new()
-        {
-            AccountId = source.AccountId,
-            RefreshToken = source.RefreshToken,
-            RefreshTokenFamilyId = source.RefreshTokenFamilyId,
-            RefreshIssuedUtc = source.RefreshIssuedUtc,
-            RefreshAbsoluteExpiryUtc = source.RefreshAbsoluteExpiryUtc,
-            LastTrustedServerUtc = LastTrustedServerUtc ?? source.LastTrustedServerUtc,
-            LastTrustedServerObservationLocalUtc = source.LastTrustedServerObservationLocalUtc,
-            LastValidAssertionJti = source.LastValidAssertionJti,
-            OfflineEntitlementAssertion = source.OfflineEntitlementAssertion,
-            OfflineAssertionStoredUtc = source.OfflineAssertionStoredUtc
-        };
 }
