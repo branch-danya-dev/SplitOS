@@ -74,7 +74,7 @@ public sealed class SameAccountReauthenticationCoordinatorTests
         var association = ExistingAssociation("acc_old", "REAUTH_REQUIRED");
         var associationStore = new RecordingAssociationStore(trace, association);
         var reactivationStore = new RecordingReactivationStore(trace, association);
-        var secretStore = new RecordingSecretStore(trace, OldSecret() with { AccountId = "acc_old" });
+        var secretStore = new RecordingSecretStore(trace, OldSecret("acc_old"));
         using var handler = new FixtureHandler(trace, accountId: "acc_new");
         using var http = new HttpClient(handler);
         var coordinator = CreateCoordinator(http, associationStore, reactivationStore, secretStore);
@@ -292,10 +292,10 @@ public sealed class SameAccountReauthenticationCoordinatorTests
             Now.AddDays(-1),
             Guid.Parse("6fd30d0b-edaa-448d-99ac-f0436190b236").ToString("D"));
 
-    private static AccountSecretEnvelope OldSecret()
+    private static AccountSecretEnvelope OldSecret(string accountId = "acc_test_01")
         => new()
         {
-            AccountId = "acc_test_01",
+            AccountId = accountId,
             RefreshToken = "OLD_UNUSABLE_REFRESH",
             RefreshTokenFamilyId = "old-family",
             RefreshIssuedUtc = Now.AddDays(-30),
