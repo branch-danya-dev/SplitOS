@@ -22,14 +22,19 @@ public interface IUserAccountAssociationReactivationStore
 public sealed class UserAssociationReactivationStore : IUserAccountAssociationReactivationStore
 {
     private readonly string _databasePath;
+    private readonly string _bootstrapMarkerPath;
     private readonly string _quarantineMarkerPath;
 
     public UserAssociationReactivationStore(
         string? databasePath = null,
+        string? bootstrapMarkerPath = null,
         string? quarantineMarkerPath = null)
     {
         _databasePath = databasePath ?? StoragePaths.UserDatabase;
         var customRoot = databasePath is null ? null : Path.GetDirectoryName(Path.GetFullPath(_databasePath));
+        _bootstrapMarkerPath = bootstrapMarkerPath ?? (customRoot is null
+            ? StoragePaths.UserBootstrapMarker
+            : Path.Combine(customRoot, "user-store.initialized"));
         _quarantineMarkerPath = quarantineMarkerPath ?? (customRoot is null
             ? StoragePaths.UserQuarantineMarker
             : Path.Combine(customRoot, "user-store.quarantined.json"));
@@ -89,10 +94,10 @@ public sealed class UserAssociationReactivationStore : IUserAccountAssociationRe
                 $"User canonical store is quarantined. Marker: {_quarantineMarkerPath}");
         }
 
-        if (!File.Exists(_databasePath))
+        if (!File.Exists(_bootstrapMarkerPath) || !File.Exists(_databasePath))
         {
             throw new InvalidDataException(
-                "User canonical store is missing. Same-account reauthentication cannot fabricate a replacement association.");
+                "User canonical store is not initialized or is missing. Same-account reauthentication cannot fabricate a replacement association.");
         }
 
         var builder = new SqliteConnectionStringBuilder
@@ -106,7 +111,7 @@ public sealed class UserAssociationReactivationStore : IUserAccountAssociationRe
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         var pragma = connection.CreateCommand();
-        pragma.CommandText = "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
+        pragma.CommandText = "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;";
         await pragma.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
         var versionCommand = connection.CreateCommand();
