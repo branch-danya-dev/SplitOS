@@ -67,4 +67,16 @@ public sealed record RuntimeAuthStartResult(
     string? AssociationId,
     bool HasFreshOnlineEntitlement);
 
+/// <summary>
+/// Semantic local sign-out request. RuntimeHost determines the current Windows user, canonical
+/// association, protected credential blob and evidence to remove; Manager supplies no identity data.
+/// </summary>
+public sealed record RuntimeSignOutRequest;
+
+public sealed record RuntimeSignOutResult(
+    string Disposition,
+    string ProductCode,
+    bool LocalSecretRemoved,
+    bool AssociationRemoved);
+
 public sealed record ErrorResponse(string Code, string Message);
