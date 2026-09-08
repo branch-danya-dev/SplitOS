@@ -121,10 +121,10 @@ public sealed class NativeAuthTransactionManagerTests
     {
         var manager = CreateManager(out _);
 
-        Assert.ThrowsException<ArgumentException>(() => manager.Start(new Uri("http://localhost:49152/oauth/callback")));
-        Assert.ThrowsException<ArgumentException>(() => manager.Start(new Uri("https://127.0.0.1:49152/oauth/callback")));
-        Assert.ThrowsException<ArgumentException>(() => manager.Start(new Uri("http://127.0.0.1:49152/other")));
-        Assert.ThrowsException<ArgumentException>(() => manager.Start(new Uri("http://127.0.0.1/oauth/callback")));
+        AssertThrows<ArgumentException>(() => manager.Start(new Uri("http://localhost:49152/oauth/callback")));
+        AssertThrows<ArgumentException>(() => manager.Start(new Uri("https://127.0.0.1:49152/oauth/callback")));
+        AssertThrows<ArgumentException>(() => manager.Start(new Uri("http://127.0.0.1:49152/other")));
+        AssertThrows<ArgumentException>(() => manager.Start(new Uri("http://127.0.0.1/oauth/callback")));
     }
 
     [TestMethod]
@@ -150,7 +150,7 @@ public sealed class NativeAuthTransactionManagerTests
     [TestMethod]
     public void InvalidClientConfigurationFailsBeforeAnyTransactionCanStart()
     {
-        Assert.ThrowsException<ArgumentException>(() => new NativeAuthTransactionManager(
+        AssertThrows<ArgumentException>(() => new NativeAuthTransactionManager(
             new NativeAuthClientOptions(
                 new Uri("http://auth.example.test/authorize"),
                 "splitos-windows-native-v1",
@@ -158,7 +158,7 @@ public sealed class NativeAuthTransactionManagerTests
                 TimeSpan.FromMinutes(10)),
             new FakeWindowsUserContext()));
 
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => new NativeAuthTransactionManager(
+        AssertThrows<ArgumentOutOfRangeException>(() => new NativeAuthTransactionManager(
             new NativeAuthClientOptions(
                 new Uri("https://auth.example.test/authorize"),
                 "splitos-windows-native-v1",
@@ -178,6 +178,27 @@ public sealed class NativeAuthTransactionManagerTests
                 TimeSpan.FromMinutes(10)),
             new FakeWindowsUserContext(),
             clock);
+    }
+
+    private static TException AssertThrows<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException exception)
+        {
+            return exception;
+        }
+        catch (Exception exception)
+        {
+            Assert.Fail($"Expected {typeof(TException).Name}, got {exception.GetType().Name}.");
+            throw;
+        }
+
+        Assert.Fail($"Expected {typeof(TException).Name}, but no exception was thrown.");
+        throw new InvalidOperationException("Unreachable after failed assertion.");
     }
 
     private static Uri Callback(NativeAuthTransaction transaction, string outcomeQuery)
