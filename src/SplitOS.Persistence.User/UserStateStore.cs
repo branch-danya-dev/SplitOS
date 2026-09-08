@@ -127,8 +127,16 @@ public sealed class UserStateStore : IUserAccountAssociationStore
 
             if (currentVersion == 0)
             {
-                await _database.InitializeMetadataAsync(connection, "user", cancellationToken).ConfigureAwait(false);
-                await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
+                if (markerExists || databaseExists)
+                {
+                    corruptionReason = new InvalidDataException(
+                        "Existing user canonical storage reported schema version 0. Automatic re-bootstrap is forbidden because prior user state may be missing.");
+                }
+                else
+                {
+                    await _database.InitializeMetadataAsync(connection, "user", cancellationToken).ConfigureAwait(false);
+                    await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
+                }
             }
             else if (currentVersion == LegacySchemaVersion)
             {
@@ -157,16 +165,12 @@ public sealed class UserStateStore : IUserAccountAssociationStore
             {
                 try
                 {
-                    await _database.InitializeMetadataAsync(connection, "user", cancellationToken).ConfigureAwait(false);
+                    await _database.VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
+                    await VerifyCanonicalInvariantsAsync(connection, cancellationToken).ConfigureAwait(false);
                 }
                 catch (InvalidDataException ex)
                 {
                     corruptionReason = ex;
-                }
-
-                if (corruptionReason is null)
-                {
-                    await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
                 }
             }
             else
