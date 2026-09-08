@@ -4,6 +4,7 @@ public static class StoragePaths
 {
     public static string MachineDataRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "SplitOS", "Data");
     public static string MachineDatabase => Path.Combine(MachineDataRoot, "machine.db");
+    public static string MachineInstallationIdentity => Path.Combine(MachineDataRoot, "installation.id");
     public static string MachineBootstrapMarker => Path.Combine(MachineDataRoot, "machine-store.initialized");
     public static string MachineQuarantineMarker => Path.Combine(MachineDataRoot, "machine-store.quarantined.json");
 

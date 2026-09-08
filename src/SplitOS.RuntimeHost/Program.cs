@@ -16,6 +16,7 @@ builder.Services.AddSingleton<IUserAccountAssociationStore>(services => services
 builder.Services.AddSingleton<ProjectionStore>();
 builder.Services.AddSingleton<IAccountSecretStore, DpapiAccountSecretStore>();
 builder.Services.AddSingleton<IWindowsUserContext, WindowsUserContext>();
+builder.Services.AddSingleton<IInstallationIdentityProvider, MachineInstallationIdentityProvider>();
 builder.Services.AddSingleton<AccountAssociationCoordinator>();
 builder.Services.AddSingleton<OnlineEntitlementEvidenceState>();
 builder.Services.AddSingleton<MachineStateClient>();
