@@ -30,19 +30,24 @@ public sealed partial class RuntimeStateCoordinator(
             try
             {
                 var mode = await machineStateClient.ReadOperationalModeAsync(stoppingToken).ConfigureAwait(false);
-                var access = await accessEvaluator.EvaluateAsync(stoppingToken).ConfigureAwait(false);
                 var association = await associationCoordinator.EvaluateAsync(stoppingToken).ConfigureAwait(false);
+                var access = await accessEvaluator.EvaluateAsync(association, stoppingToken).ConfigureAwait(false);
 
                 state.Report(new RuntimeStateReadResult(
                     "READY",
-                    access,
+                    access.ManagedRuntimeAccess,
                     mode.CommittedMode,
                     association.AssociationState,
                     mode.SchemaVersion,
                     UserStateStore.SchemaVersion,
                     ProjectionStore.SchemaVersion,
                     DateTimeOffset.UtcNow));
-                LogReady(logger, access, mode.CommittedMode, association.AssociationState);
+                LogReady(
+                    logger,
+                    access.ManagedRuntimeAccess,
+                    access.Reason,
+                    mode.CommittedMode,
+                    association.AssociationState);
             }
             catch (Exception ex) when (ex is IOException or TimeoutException or UnauthorizedAccessException or InvalidDataException)
             {
@@ -55,8 +60,13 @@ public sealed partial class RuntimeStateCoordinator(
         }
     }
 
-    [LoggerMessage(2200, LogLevel.Information, "Runtime state READY. ManagedRuntime={Access} OperationalMode={Mode} Association={Association}.")]
-    private static partial void LogReady(ILogger logger, string access, string mode, string association);
+    [LoggerMessage(2200, LogLevel.Information, "Runtime state READY. ManagedRuntime={Access} AccessReason={Reason} OperationalMode={Mode} Association={Association}.")]
+    private static partial void LogReady(
+        ILogger logger,
+        string access,
+        string reason,
+        string mode,
+        string association);
 
     [LoggerMessage(2201, LogLevel.Warning, "Runtime state waiting for canonical persistence: {Message}")]
     private static partial void LogWaiting(ILogger logger, string message);

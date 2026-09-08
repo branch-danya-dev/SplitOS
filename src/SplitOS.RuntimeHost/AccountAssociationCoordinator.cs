@@ -7,6 +7,7 @@ namespace SplitOS.RuntimeHost;
 public sealed record AccountAssociationEvaluation(
     string AssociationState,
     string? AccountId,
+    string? AssociationId,
     string? Reason,
     int? Revision);
 
@@ -42,7 +43,7 @@ public sealed class AccountAssociationCoordinator(
         var association = await associationStore.GetAccountAssociationAsync(cancellationToken).ConfigureAwait(false);
         if (association is null)
         {
-            return new AccountAssociationEvaluation("UNASSOCIATED", null, null, null);
+            return new AccountAssociationEvaluation("UNASSOCIATED", null, null, null, null);
         }
 
         var currentSid = windowsUserContext.GetCurrentUserSid();
@@ -51,6 +52,7 @@ public sealed class AccountAssociationCoordinator(
             return new AccountAssociationEvaluation(
                 "REAUTH_REQUIRED",
                 association.AccountId,
+                association.AssociationId,
                 "LOCAL_ASSOCIATION_CONTEXT_MISMATCH",
                 association.Revision);
         }
@@ -86,6 +88,7 @@ public sealed class AccountAssociationCoordinator(
         return new AccountAssociationEvaluation(
             association.AssociationState,
             association.AccountId,
+            association.AssociationId,
             association.AssociationState == "REAUTH_REQUIRED" ? "REAUTH_REQUIRED" : null,
             association.Revision);
     }
@@ -108,13 +111,14 @@ public sealed class AccountAssociationCoordinator(
                 return new AccountAssociationEvaluation(
                     "REAUTH_REQUIRED",
                     association.AccountId,
+                    association.AssociationId,
                     reason,
                     outcome.ActualRevision);
             }
 
             if (outcome.Disposition == UserAssociationWriteDisposition.Missing)
             {
-                return new AccountAssociationEvaluation("UNASSOCIATED", null, null, null);
+                return new AccountAssociationEvaluation("UNASSOCIATED", null, null, null, null);
             }
 
             if (outcome.Disposition == UserAssociationWriteDisposition.RevisionConflict)
@@ -134,6 +138,7 @@ public sealed class AccountAssociationCoordinator(
         return new AccountAssociationEvaluation(
             "REAUTH_REQUIRED",
             association.AccountId,
+            association.AssociationId,
             reason,
             association.Revision);
     }
