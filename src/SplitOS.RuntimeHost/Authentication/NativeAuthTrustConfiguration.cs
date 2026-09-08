@@ -25,6 +25,7 @@ public sealed record NativeAuthTrustConfiguration(
             throw new ArgumentException("Native auth client ID must be a non-empty release-owned value.", nameof(ClientId));
         }
 
+        ArgumentNullException.ThrowIfNull(AllowedIdTokenAlgorithms);
         if (AllowedIdTokenAlgorithms.Count == 0)
         {
             throw new ArgumentException("At least one ID-token signature algorithm must be allowlisted.", nameof(AllowedIdTokenAlgorithms));
