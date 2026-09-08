@@ -22,6 +22,8 @@ builder.Services.AddSingleton<IInstallationIdentityProvider, MachineInstallation
 builder.Services.AddSingleton<AccountAssociationCoordinator>();
 builder.Services.AddSingleton<OnlineEntitlementEvidenceState>();
 builder.Services.AddSingleton<LocalSignOutCoordinator>();
+builder.Services.AddSingleton<ILocalSignOutFlow, LocalSignOutFlow>();
+builder.Services.AddSingleton<IRuntimeSignOutCommand, RuntimeSignOutCommand>();
 builder.Services.AddSingleton<MachineStateClient>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeAccessEvaluator>();
 

@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnSignInClick(object sender, RoutedEventArgs e)
     {
-        SignInButton.IsEnabled = false;
+        SetAccountActionsEnabled(false);
         AuthText.Text = "Opening secure sign-in…";
         try
         {
@@ -39,7 +39,27 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            SignInButton.IsEnabled = true;
+            SetAccountActionsEnabled(true);
+        }
+    }
+
+    private async void OnSignOutClick(object sender, RoutedEventArgs e)
+    {
+        SetAccountActionsEnabled(false);
+        AuthText.Text = "Signing out locally…";
+        try
+        {
+            var result = await new RuntimeSignOutClient("SplitOS.Manager", _version).SignOutAsync();
+            AuthText.Text = $"Sign-out: {result.Disposition} · {result.ProductCode}";
+            await RefreshRuntimeStateAsync();
+        }
+        catch (Exception ex)
+        {
+            AuthText.Text = $"Sign-out unavailable: {ex.Message}";
+        }
+        finally
+        {
+            SetAccountActionsEnabled(true);
         }
     }
 
@@ -53,18 +73,26 @@ public sealed partial class MainWindow : Window
             var state = await new RuntimeStateClient("SplitOS.Manager", _version).ReadAsync();
             StateText.Text = $"State: {state.Status} · Managed runtime {state.ManagedRuntimeAccess} · Mode {state.OperationalMode} · Account {state.UserAssociationState}\nSchemas: machine v{state.MachineSchemaVersion} · user v{state.UserSchemaVersion} · projection v{state.ProjectionSchemaVersion}";
 
-            var signInRelevant = string.Equals(state.UserAssociationState, "UNASSOCIATED", StringComparison.Ordinal) ||
-                                 string.Equals(state.UserAssociationState, "REAUTH_REQUIRED", StringComparison.Ordinal);
-            SignInButton.Visibility = signInRelevant ? Visibility.Visible : Visibility.Collapsed;
-            SignInButton.Content = string.Equals(state.UserAssociationState, "REAUTH_REQUIRED", StringComparison.Ordinal)
-                ? "Sign in again"
-                : "Sign in to SplitOS";
+            var isUnassociated = string.Equals(state.UserAssociationState, "UNASSOCIATED", StringComparison.Ordinal);
+            var requiresReauth = string.Equals(state.UserAssociationState, "REAUTH_REQUIRED", StringComparison.Ordinal);
+            var isActive = string.Equals(state.UserAssociationState, "ACTIVE", StringComparison.Ordinal);
+
+            SignInButton.Visibility = isUnassociated || requiresReauth ? Visibility.Visible : Visibility.Collapsed;
+            SignInButton.Content = requiresReauth ? "Sign in again" : "Sign in to SplitOS";
+            SignOutButton.Visibility = isActive || requiresReauth ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex)
         {
             StatusText.Text = $"Runtime unavailable: {ex.Message}";
             StateText.Text = string.Empty;
             SignInButton.Visibility = Visibility.Collapsed;
+            SignOutButton.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private void SetAccountActionsEnabled(bool enabled)
+    {
+        SignInButton.IsEnabled = enabled;
+        SignOutButton.IsEnabled = enabled;
     }
 }

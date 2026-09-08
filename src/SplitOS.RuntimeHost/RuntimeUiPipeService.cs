@@ -5,6 +5,7 @@ using SplitOS.Contracts.Protocol;
 using SplitOS.Ipc;
 using SplitOS.Ipc.Windows;
 using SplitOS.RuntimeHost.Authentication;
+using SplitOS.RuntimeHost.ProductIdentity;
 
 namespace SplitOS.RuntimeHost;
 
@@ -13,7 +14,8 @@ public sealed partial class RuntimeUiPipeService(
     RuntimeUiCallerValidator callerValidator,
     BrokerHealthState brokerHealthState,
     RuntimeStateState runtimeState,
-    IRuntimeAuthStartCommand authStartCommand) : BackgroundService
+    IRuntimeAuthStartCommand authStartCommand,
+    IRuntimeSignOutCommand signOutCommand) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -98,6 +100,17 @@ public sealed partial class RuntimeUiPipeService(
                 request.OperationId,
                 cancellationToken).ConfigureAwait(false);
             return WireMessage.Respond(request, MessageTypes.RuntimeAuthStartResult, result);
+        }
+
+        if (string.Equals(request.Capability, Capabilities.RuntimeSignOut, StringComparison.Ordinal))
+        {
+            if (!string.Equals(request.MessageType, MessageTypes.RuntimeSignOutRequest, StringComparison.Ordinal)) return Unsupported(request);
+
+            // Identity, association and protected credential targets are resolved exclusively inside
+            // RuntimeHost. The request intentionally carries no account/SID/token fields.
+            _ = request.ReadPayload<RuntimeSignOutRequest>();
+            var result = await signOutCommand.SignOutAsync(cancellationToken).ConfigureAwait(false);
+            return WireMessage.Respond(request, MessageTypes.RuntimeSignOutResult, result);
         }
 
         return WireMessage.Respond(request, MessageTypes.ErrorResponse,

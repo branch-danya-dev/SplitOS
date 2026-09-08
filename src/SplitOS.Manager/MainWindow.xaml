@@ -9,12 +9,18 @@
             <TextBlock Text="SLICE-02 Account / Entitlement Runtime" Opacity="0.7" />
             <TextBlock x:Name="StatusText" Text="Connecting to Runtime Host…" TextWrapping="Wrap" />
             <TextBlock x:Name="StateText" Text="Reading canonical state…" TextWrapping="Wrap" />
-            <Button
-                x:Name="SignInButton"
-                Content="Sign in to SplitOS"
-                HorizontalAlignment="Left"
-                Visibility="Collapsed"
-                Click="OnSignInClick" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button
+                    x:Name="SignInButton"
+                    Content="Sign in to SplitOS"
+                    Visibility="Collapsed"
+                    Click="OnSignInClick" />
+                <Button
+                    x:Name="SignOutButton"
+                    Content="Sign out"
+                    Visibility="Collapsed"
+                    Click="OnSignOutClick" />
+            </StackPanel>
             <TextBlock x:Name="AuthText" TextWrapping="Wrap" Opacity="0.8" />
         </StackPanel>
     </Grid>
