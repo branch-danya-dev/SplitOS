@@ -30,6 +30,8 @@ builder.Services.AddSingleton<MachineStateClient>();
 builder.Services.AddSingleton<ModeTransitionActionJournalStore>();
 builder.Services.AddSingleton<IManagedServiceActionBrokerClient, NamedPipeManagedServiceActionBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionApplyCoordinator>();
+builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, NamedPipeManagedServiceActionVerificationBrokerClient>();
+builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeAccessEvaluator>();
 
 // Auth.Start is now a stable semantic IPC capability, but production OAuth authority metadata is not
