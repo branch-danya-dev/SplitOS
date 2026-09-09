@@ -25,6 +25,25 @@ public sealed class ManagedServicePolicyContractTests
     }
 
     [TestMethod]
+    public void CanonicalDesiredStateRoundTripsAndNonCanonicalJsonIsRejected()
+    {
+        var entries = new[]
+        {
+            new ManagedServicePolicyEntry("SEARCH_INDEXER", "STOPPED"),
+            new ManagedServicePolicyEntry("SECONDARY_FIXTURE", "RUNNING")
+        };
+        var json = ManagedServicePolicyActionContract.SerializeDesiredState(entries);
+
+        var rehydrated = ManagedServicePolicyActionContract.DeserializeDesiredState(json);
+
+        CollectionAssert.AreEqual(
+            ManagedServicePolicyActionContract.NormalizeEntries(entries).ToArray(),
+            rehydrated.ToArray());
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            ManagedServicePolicyActionContract.DeserializeDesiredState("\n" + json));
+    }
+
+    [TestMethod]
     public void PreStateDigestIsStableAcrossInputOrdering()
     {
         var first = new[]

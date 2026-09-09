@@ -1,10 +1,12 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using SplitOS.Persistence.Machine;
 using SplitOS.Persistence.ProtectedSecrets;
 using SplitOS.Persistence.Projection;
 using SplitOS.Persistence.User;
 using SplitOS.RuntimeHost;
 using SplitOS.RuntimeHost.Authentication;
+using SplitOS.RuntimeHost.ModeRuntime;
 using SplitOS.RuntimeHost.ProductIdentity;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -25,6 +27,9 @@ builder.Services.AddSingleton<LocalSignOutCoordinator>();
 builder.Services.AddSingleton<ILocalSignOutFlow, LocalSignOutFlow>();
 builder.Services.AddSingleton<IRuntimeSignOutCommand, RuntimeSignOutCommand>();
 builder.Services.AddSingleton<MachineStateClient>();
+builder.Services.AddSingleton<ModeTransitionActionJournalStore>();
+builder.Services.AddSingleton<IManagedServiceActionBrokerClient, NamedPipeManagedServiceActionBrokerClient>();
+builder.Services.AddSingleton<ManagedServiceActionApplyCoordinator>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeAccessEvaluator>();
 
 // Auth.Start is now a stable semantic IPC capability, but production OAuth authority metadata is not

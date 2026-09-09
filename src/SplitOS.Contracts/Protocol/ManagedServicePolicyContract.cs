@@ -113,9 +113,44 @@ public static class ManagedServicePolicyActionContract
     }
 
     public static string ComputeDesiredStateDigest(IReadOnlyCollection<ManagedServicePolicyEntry> entries)
+        => Sha256(SerializeDesiredState(entries));
+
+    /// <summary>
+    /// Rehydrates only the canonical desired-state document persisted in the immutable action plan.
+    /// Runtime uses this method to derive Broker requests from durable intent instead of accepting
+    /// a second desired-state copy from an orchestration caller.
+    /// </summary>
+    public static IReadOnlyList<ManagedServicePolicyEntry> DeserializeDesiredState(string json)
     {
-        var json = SerializeDesiredState(entries);
-        return Sha256(json);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new ArgumentException("Managed-service desired-state JSON is missing.", nameof(json));
+        }
+
+        var document = JsonSerializer.Deserialize<DesiredStateDocument>(json, ProtocolJson.Options)
+            ?? throw new JsonException("Managed-service desired-state document is null.");
+        if (document.SchemaVersion != DesiredSchemaVersion)
+        {
+            throw new ArgumentException(
+                $"Managed-service desired-state schema {document.SchemaVersion} is not supported.",
+                nameof(json));
+        }
+
+        if (document.Entries is null)
+        {
+            throw new ArgumentException("Managed-service desired-state entries are missing.", nameof(json));
+        }
+
+        var normalized = NormalizeEntries(document.Entries);
+        var canonical = SerializeDesiredState(normalized);
+        if (!string.Equals(json, canonical, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Managed-service desired-state JSON is not in canonical serialization form.",
+                nameof(json));
+        }
+
+        return normalized;
     }
 
     public static IReadOnlyList<ManagedServicePreStateEntry> NormalizePreState(
