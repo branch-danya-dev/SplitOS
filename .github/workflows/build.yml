@@ -81,6 +81,13 @@ jobs:
       - name: Test Broker
         run: dotnet test tests/SplitOS.Broker.Tests/SplitOS.Broker.Tests.csproj -c Release --no-build -p:Platform=x64
 
+      - name: Test fenced managed service policy
+        run: dotnet test tests/SplitOS.Broker.Tests/SplitOS.Broker.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~BrokerManagedServicePolicyExecutorTests
+
+      - name: Test real managed service SCM mutation
+        shell: pwsh
+        run: ./eng/lab/test-managed-service-adapter-ci.ps1
+
       - name: Test IPC integration
         run: dotnet test tests/SplitOS.IntegrationTests/SplitOS.IntegrationTests.csproj -c Release --no-build -p:Platform=x64
 
