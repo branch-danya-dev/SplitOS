@@ -20,6 +20,7 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
     private IRuntimeAuthStartCommand? _verifiedCommand;
     private long _verifiedMetadataVersion;
     private long _verifiedSecurityEpoch;
+    private string? _verifiedPackageSha256;
 
     public async Task<RuntimeAuthStartResult> StartAsync(
         Guid correlationId,
@@ -46,9 +47,12 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
             return Unavailable("AUTH_AUTHORITY_PACKAGE_UNREADABLE");
         }
 
-        if (!package.IsAvailable || package.Metadata is null)
+        if (!package.IsAvailable || package.Metadata is null || !IsValidPackageSha256(package.PackageSha256))
         {
-            return Unavailable(package.ProductCode);
+            return Unavailable(
+                package.Status == NativeAuthAuthorityPackageStatus.Available
+                    ? "AUTH_AUTHORITY_PACKAGE_REJECTED"
+                    : package.ProductCode);
         }
 
         IRuntimeAuthStartCommand command;
@@ -62,6 +66,15 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
                 return Unavailable("AUTH_AUTHORITY_ROLLBACK_REJECTED");
             }
 
+            var sameVersion = _verifiedCommand is not null &&
+                              package.Metadata.SecurityEpoch == _verifiedSecurityEpoch &&
+                              package.Metadata.Version == _verifiedMetadataVersion;
+            if (sameVersion &&
+                !string.Equals(package.PackageSha256, _verifiedPackageSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return Unavailable("AUTH_AUTHORITY_EQUIVOCATION_REJECTED");
+            }
+
             if (_verifiedCommand is null ||
                 package.Metadata.SecurityEpoch > _verifiedSecurityEpoch ||
                 package.Metadata.Version > _verifiedMetadataVersion)
@@ -71,6 +84,7 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
                 _verifiedCommand = command;
                 _verifiedMetadataVersion = package.Metadata.Version;
                 _verifiedSecurityEpoch = package.Metadata.SecurityEpoch;
+                _verifiedPackageSha256 = package.PackageSha256;
             }
             else
             {
@@ -88,6 +102,9 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
 
         return await command.StartAsync(correlationId, operationId, cancellationToken).ConfigureAwait(false);
     }
+
+    private static bool IsValidPackageSha256(string? value)
+        => value is { Length: 64 } && value.All(Uri.IsHexDigit);
 
     private static RuntimeAuthStartResult Unavailable(string productCode)
         => new(
