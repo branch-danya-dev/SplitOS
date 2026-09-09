@@ -475,6 +475,21 @@ public sealed class ModeTransitionStore
                 "Durable resolved policy binding is required before ACTION_PLAN_READY.");
         }
 
+        if (nextStage == PersistedModeTransitionStage.ActionPlanReady &&
+            !await HasCompleteDurableActionPlanAsync(
+                connection,
+                transaction,
+                transitionId,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return new ModeTransitionAdvanceOutcome(
+                ModeTransitionAdvanceDisposition.InvalidLifecycle,
+                current,
+                "MODE_TRANSITION_INVALID_LIFECYCLE",
+                current.Revision,
+                "Complete durable action plan is required before ACTION_PLAN_READY.");
+        }
+
         var now = _timeProvider.GetUtcNow();
         var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -625,6 +640,29 @@ public sealed class ModeTransitionStore
         }
 
         return LeaseValidation.Current;
+    }
+
+    private static async Task<bool> HasCompleteDurableActionPlanAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM mode_transition_action_plan plan
+            WHERE plan.transition_id = $transition
+              AND plan.action_count BETWEEN 1 AND 512
+              AND plan.action_count = (
+                  SELECT COUNT(*)
+                  FROM mode_transition_action action_row
+                  WHERE action_row.transition_id = plan.transition_id
+              );
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 1;
     }
 
     private static async Task<bool> HasDurablePolicyBindingAsync(

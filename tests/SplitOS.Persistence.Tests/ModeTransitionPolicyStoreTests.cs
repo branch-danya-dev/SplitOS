@@ -176,9 +176,39 @@ public sealed class ModeTransitionPolicyStoreTests
             Digest('b'));
         Assert.AreEqual(ModeTransitionPolicyBindDisposition.Bound, bound.Disposition);
 
-        var ready = await context.Transitions.AdvanceAsync(
+        var missingPlan = await context.Transitions.AdvanceAsync(
             context.TransitionId,
             bound.Binding!.TransitionRevision,
+            context.Lease.LeaseId.Value,
+            context.Lease.FenceToken,
+            context.OperationId,
+            PersistedModeTransitionState.Resolving,
+            PersistedModeTransitionStage.ActionPlanReady,
+            mandatoryVerified: false);
+        Assert.AreEqual(ModeTransitionAdvanceDisposition.InvalidLifecycle, missingPlan.Disposition);
+        StringAssert.Contains(missingPlan.Detail, "action plan");
+
+        var plans = new ModeTransitionActionPlanStore(
+            context.DatabasePath,
+            context.MarkerPath,
+            context.QuarantineMarkerPath,
+            context.Time);
+        await plans.InitializeAsync();
+        var persisted = await plans.PersistActionPlanAsync(
+            context.TransitionId,
+            bound.Binding.TransitionRevision,
+            context.Lease.LeaseId.Value,
+            context.Lease.FenceToken,
+            context.OperationId,
+            [new PersistedModeActionDefinition(
+                Guid.NewGuid(), 100, "test", "noop.prepare", null, 1, "{}",
+                "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                true, "no_mutation", "test.ready")]);
+        Assert.AreEqual(ModeTransitionActionPlanPersistDisposition.Persisted, persisted.Disposition, persisted.Detail);
+
+        var ready = await context.Transitions.AdvanceAsync(
+            context.TransitionId,
+            persisted.Plan!.TransitionRevision,
             context.Lease.LeaseId.Value,
             context.Lease.FenceToken,
             context.OperationId,

@@ -308,6 +308,25 @@ public sealed class ModeTransitionCommitStoreTests
         Assert.AreEqual(ModeTransitionPolicyBindDisposition.Bound, bound.Disposition, bound.Detail);
         revision = bound.Binding!.TransitionRevision;
 
+        var plans = new ModeTransitionActionPlanStore(
+            context.DatabasePath,
+            context.MarkerPath,
+            context.QuarantineMarkerPath,
+            context.Time);
+        await plans.InitializeAsync();
+        var persisted = await plans.PersistActionPlanAsync(
+            transitionId,
+            revision,
+            context.Lease.LeaseId.Value,
+            context.Lease.FenceToken,
+            context.OperationId,
+            [new PersistedModeActionDefinition(
+                Guid.NewGuid(), 100, "test", "noop.prepare", null, 1, "{}",
+                "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                true, "no_mutation", "test.ready")]);
+        Assert.AreEqual(ModeTransitionActionPlanPersistDisposition.Persisted, persisted.Disposition, persisted.Detail);
+        revision = persisted.Plan!.TransitionRevision;
+
         revision = await AdvanceAsync(context, transitionId, revision,
             PersistedModeTransitionState.Resolving,
             PersistedModeTransitionStage.ActionPlanReady,
