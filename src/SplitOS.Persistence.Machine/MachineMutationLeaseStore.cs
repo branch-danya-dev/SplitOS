@@ -66,11 +66,8 @@ public sealed record MachineMutationLeaseReleaseOutcome(
 /// <summary>
 /// Typed SPEC-05 machine-wide exclusion primitive shared by MODE/UPDATE/RECOVERY.
 /// Expiry is deliberately not an ownership bypass: an expired lease is preserved until an explicit
-/// reconciliation path is implemented and proves takeover safety.
-///
-/// This repository is not production-wired yet. Its additive table is initialized only when this
-/// Slice-03 repository is explicitly activated; a later Slice-03 schema migration will make the table
-/// part of the canonical MachineStateStore schema before mode mutation is enabled.
+/// reconciliation path proves takeover safety. The repository never creates or migrates its schema;
+/// MachineStateStore v3 is the only canonical schema owner.
 /// </summary>
 public sealed class MachineMutationLeaseStore
 {
@@ -107,47 +104,7 @@ public sealed class MachineMutationLeaseStore
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         EnsureCanonicalStoreAvailable();
-        await using var connection = await _database.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var version = await _database.ReadSchemaVersionAsync(connection, cancellationToken).ConfigureAwait(false);
-        if (version != MachineStateStore.SchemaVersion)
-        {
-            throw new InvalidDataException(
-                $"Major mutation lease requires machine schema {MachineStateStore.SchemaVersion}, got {version}.");
-        }
-
-        var command = connection.CreateCommand();
-        command.CommandText = """
-            CREATE TABLE IF NOT EXISTS machine_mutation_lease (
-                singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
-                lease_id TEXT NULL,
-                mutation_type TEXT NULL CHECK(mutation_type IS NULL OR mutation_type IN ('MODE','UPDATE','RECOVERY')),
-                owner_operation_id TEXT NULL,
-                owner_correlation_id TEXT NULL,
-                owner_control_session_key TEXT NULL,
-                fence_token INTEGER NOT NULL DEFAULT 0 CHECK(fence_token >= 0),
-                acquired_utc TEXT NULL,
-                heartbeat_utc TEXT NULL,
-                expires_utc TEXT NULL,
-                revision INTEGER NOT NULL CHECK(revision >= 1),
-                CHECK(
-                    (lease_id IS NULL AND mutation_type IS NULL AND owner_operation_id IS NULL AND
-                     owner_correlation_id IS NULL AND owner_control_session_key IS NULL AND acquired_utc IS NULL AND
-                     heartbeat_utc IS NULL AND expires_utc IS NULL)
-                    OR
-                    (lease_id IS NOT NULL AND mutation_type IS NOT NULL AND owner_operation_id IS NOT NULL AND
-                     owner_correlation_id IS NOT NULL AND owner_control_session_key IS NOT NULL AND acquired_utc IS NOT NULL AND
-                     heartbeat_utc IS NOT NULL AND expires_utc IS NOT NULL)
-                )
-            );
-
-            INSERT INTO machine_mutation_lease(
-                singleton_id, lease_id, mutation_type, owner_operation_id, owner_correlation_id,
-                owner_control_session_key, fence_token, acquired_utc, heartbeat_utc, expires_utc, revision)
-            VALUES (1, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 1)
-            ON CONFLICT(singleton_id) DO NOTHING;
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
+        await using var connection = await OpenReadyAsync(cancellationToken).ConfigureAwait(false);
         var lease = await ReadAsync(connection, cancellationToken).ConfigureAwait(false);
         ValidateRecord(lease);
     }
@@ -229,8 +186,6 @@ public sealed class MachineMutationLeaseStore
         var current = await ReadAsync(connection, cancellationToken).ConfigureAwait(false);
         if (!current.IsHeld)
         {
-            // Another owner may have released between the failed conditional UPDATE and this observation.
-            // Returning BUSY is conservative; callers may retry without inventing ownership.
             return new MachineMutationLeaseAcquireOutcome(
                 MachineMutationLeaseAcquireDisposition.Busy,
                 current,
@@ -438,7 +393,7 @@ public sealed class MachineMutationLeaseStore
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='machine_mutation_lease';";
             if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 1)
             {
-                throw new InvalidDataException("Major mutation lease schema is not initialized.");
+                throw new InvalidDataException("Major mutation lease schema is not initialized by MachineStateStore.");
             }
 
             return connection;
@@ -470,6 +425,12 @@ public sealed class MachineMutationLeaseStore
         MachineMutationLeaseRecord record;
         if (reader.IsDBNull(0))
         {
+            if (!reader.IsDBNull(1) || !reader.IsDBNull(2) || !reader.IsDBNull(3) || !reader.IsDBNull(4) ||
+                !reader.IsDBNull(6) || !reader.IsDBNull(7) || !reader.IsDBNull(8))
+            {
+                throw new InvalidDataException("Released major mutation lease retains canonical owner fields.");
+            }
+
             record = new MachineMutationLeaseRecord(
                 null,
                 null,
@@ -484,7 +445,9 @@ public sealed class MachineMutationLeaseStore
         }
         else
         {
-            if (!Guid.TryParse(reader.GetString(0), out var leaseId) ||
+            if (reader.IsDBNull(1) || reader.IsDBNull(2) || reader.IsDBNull(3) || reader.IsDBNull(4) ||
+                reader.IsDBNull(6) || reader.IsDBNull(7) || reader.IsDBNull(8) ||
+                !Guid.TryParse(reader.GetString(0), out var leaseId) ||
                 !TryParseMutationType(reader.GetString(1), out var mutationType) ||
                 !Guid.TryParse(reader.GetString(2), out var operationId) ||
                 !Guid.TryParse(reader.GetString(3), out var correlationId) ||
