@@ -105,6 +105,9 @@ jobs:
       - name: Test machine bootstrap invariants
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter "Name=FirstBootstrapCreatesDurableNone|Name=MissingCanonicalDatabaseAfterBootstrapDoesNotFabricateNone"
 
+      - name: Test major mutation lease fencing
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~MachineMutationLeaseStoreTests
+
       - name: Test user association persistence
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~UserAssociationStoreTests
 
