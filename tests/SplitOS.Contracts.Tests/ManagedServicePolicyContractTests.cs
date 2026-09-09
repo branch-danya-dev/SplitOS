@@ -25,6 +25,39 @@ public sealed class ManagedServicePolicyContractTests
     }
 
     [TestMethod]
+    public void PreStateDigestIsStableAcrossInputOrdering()
+    {
+        var first = new[]
+        {
+            new ManagedServicePreStateEntry("SEARCH_INDEXER", "RUNNING"),
+            new ManagedServicePreStateEntry("SECONDARY_FIXTURE", "STOPPED")
+        };
+        var reversed = first.Reverse().ToArray();
+
+        Assert.AreEqual(
+            ManagedServicePolicyActionContract.SerializePreState(first),
+            ManagedServicePolicyActionContract.SerializePreState(reversed));
+        Assert.AreEqual(
+            ManagedServicePolicyActionContract.ComputePreStateDigest(first),
+            ManagedServicePolicyActionContract.ComputePreStateDigest(reversed));
+    }
+
+    [TestMethod]
+    public void PreStateRequiresStableRollbackState()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            ManagedServicePolicyActionContract.NormalizePreState(
+            [
+                new ManagedServicePreStateEntry("SEARCH_INDEXER", "UNKNOWN")
+            ]));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            ManagedServicePolicyActionContract.NormalizePreState(
+            [
+                new ManagedServicePreStateEntry("SEARCH_INDEXER", "PAUSED")
+            ]));
+    }
+
+    [TestMethod]
     public void DuplicateManagedTargetIsRejectedBeforeCanonicalization()
     {
         var duplicate = new[]

@@ -8,7 +8,8 @@ namespace SplitOS.Broker.Service;
 
 public sealed class BrokerMessageHandler(
     MachineStateStore machineStateStore,
-    BrokerManagedServicePolicyExecutor? managedServicePolicyExecutor = null)
+    BrokerManagedServicePolicyExecutor? managedServicePolicyExecutor = null,
+    BrokerManagedServiceSnapshotExecutor? managedServiceSnapshotExecutor = null)
 {
     private readonly string _componentName = ComponentIdentity.Name;
     private readonly string _componentVersion = ComponentIdentity.Version;
@@ -49,6 +50,42 @@ public sealed class BrokerMessageHandler(
                         record.Revision,
                         JsonSerializer.Serialize(record),
                         DateTimeOffset.UtcNow));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (string.Equals(request.Capability, Capabilities.MachineServicePolicySnapshot, StringComparison.Ordinal))
+        {
+            if (!string.Equals(request.MessageType, MessageTypes.MachineServicePolicySnapshotRequest, StringComparison.Ordinal))
+                return Unsupported(request);
+
+            if (managedServiceSnapshotExecutor is null)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InternalError, "Managed-service snapshot executor is not configured."));
+            }
+
+            try
+            {
+                var snapshot = request.ReadPayload<MachineServicePolicySnapshotRequest>();
+                var result = await managedServiceSnapshotExecutor.ExecuteAsync(
+                    request.OperationId,
+                    request.CorrelationId,
+                    snapshot,
+                    cancellationToken).ConfigureAwait(false);
+                return WireMessage.Respond(request, MessageTypes.MachineServicePolicySnapshotResult, result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
             {
