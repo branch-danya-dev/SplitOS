@@ -489,7 +489,7 @@ public sealed class BrokerManagedServicePolicyExecutorTests
             Func<ManagedServiceCatalogEntry, ManagedServiceObservation>? queryFactory = null)
         {
             _resultFactory = resultFactory;
-            _queryFactory = queryFactory ?? static _ => new ManagedServiceObservation(ManagedServiceObservedState.Running);
+            _queryFactory = queryFactory ?? (static _ => new ManagedServiceObservation(ManagedServiceObservedState.Running));
         }
 
         public int Queries { get; private set; }
