@@ -6,6 +6,8 @@ using SplitOS.Persistence.Machine;
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "SplitOS Privileged Broker");
 builder.Services.AddSingleton<MachineStateStore>();
+builder.Services.AddSingleton<ModeMutationFenceStore>();
+builder.Services.AddSingleton<BrokerModeMutationFenceBoundary>();
 builder.Services.AddSingleton<BrokerCallerValidator>();
 builder.Services.AddSingleton<BrokerMessageHandler>();
 builder.Services.AddHostedService<BrokerPipeService>();
