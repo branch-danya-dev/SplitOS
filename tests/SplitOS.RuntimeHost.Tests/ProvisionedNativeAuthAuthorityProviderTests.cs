@@ -42,6 +42,10 @@ public sealed class ProvisionedNativeAuthAuthorityProviderTests
             Assert.AreEqual(7L, result.Metadata!.Version);
             Assert.AreEqual("splitos-native", result.Metadata.Authority.ClientId);
             Assert.AreEqual("https://identity.splitos.test/token", result.Metadata.Authority.TokenEndpoint.AbsoluteUri);
+            Assert.AreEqual("https://api.splitos.test/v1/account", result.Metadata.ProductApi.AccountEndpoint.AbsoluteUri);
+            Assert.AreEqual(
+                "https://api.splitos.test/v1/entitlements/current",
+                result.Metadata.ProductApi.CurrentEntitlementEndpoint.AbsoluteUri);
         }
         finally
         {
@@ -155,6 +159,7 @@ public sealed class ProvisionedNativeAuthAuthorityProviderTests
             ["tokenEndpoint"] = tokenEndpoint,
             ["jwksEndpoint"] = "https://identity.splitos.test/.well-known/jwks.json",
             ["clientId"] = "splitos-native",
+            ["productApiAuthority"] = "https://api.splitos.test/",
             ["scopes"] = new[] { "openid", "offline_access" },
             ["idTokenAlgorithms"] = new[] { "RS256" },
             ["clockSkewSeconds"] = 120,

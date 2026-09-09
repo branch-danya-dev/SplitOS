@@ -4,13 +4,13 @@ namespace SplitOS.RuntimeHost.Authentication;
 
 public interface IRuntimeAuthStartCommandFactory
 {
-    IRuntimeAuthStartCommand Create(NativeAuthAuthorityConfiguration authority);
+    IRuntimeAuthStartCommand Create(VerifiedNativeAuthAuthorityMetadata metadata);
 }
 
 /// <summary>
 /// Production-facing semantic Auth.Start gate. Release provisioning remains the only source of OAuth/OIDC
-/// authority. A verified package is required before any concrete interactive authentication pipeline is
-/// constructed; Manager can never substitute endpoints, client metadata or trust material.
+/// and product API authority. A verified package is required before any concrete interactive authentication
+/// pipeline is constructed; Manager can never substitute endpoints, client metadata or trust material.
 /// </summary>
 public sealed class ProvisionedRuntimeAuthStartCommand(
     INativeAuthAuthorityPackageProvider authorityProvider,
@@ -66,7 +66,7 @@ public sealed class ProvisionedRuntimeAuthStartCommand(
                 package.Metadata.SecurityEpoch > _verifiedSecurityEpoch ||
                 package.Metadata.Version > _verifiedMetadataVersion)
             {
-                command = commandFactory.Create(package.Metadata.Authority)
+                command = commandFactory.Create(package.Metadata)
                     ?? throw new InvalidOperationException("Runtime auth command factory returned no command.");
                 _verifiedCommand = command;
                 _verifiedMetadataVersion = package.Metadata.Version;

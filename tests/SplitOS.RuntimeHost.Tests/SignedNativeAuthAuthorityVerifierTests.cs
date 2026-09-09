@@ -25,6 +25,8 @@ public sealed class SignedNativeAuthAuthorityVerifierTests
         Assert.AreEqual("splitos-native", metadata.Authority.ClientId);
         CollectionAssert.AreEquivalent(new[] { "openid", "offline_access" }, metadata.Authority.RequestedScopes.ToArray());
         CollectionAssert.AreEquivalent(new[] { "RS256" }, metadata.Authority.AllowedIdTokenAlgorithms.ToArray());
+        Assert.AreEqual("https://api.splitos.test/v1/account", metadata.ProductApi.AccountEndpoint.AbsoluteUri);
+        Assert.AreEqual("https://api.splitos.test/v1/entitlements/current", metadata.ProductApi.CurrentEntitlementEndpoint.AbsoluteUri);
     }
 
     [TestMethod]
@@ -85,6 +87,20 @@ public sealed class SignedNativeAuthAuthorityVerifierTests
     }
 
     [TestMethod]
+    public async Task ProductApiAuthorityMustBeReleaseOwnedHttpsOrigin()
+    {
+        using var root = RSA.Create(2048);
+        var verifier = CreateVerifier(root);
+
+        await AssertThrowsAsync<InvalidDataException>(() =>
+            verifier.VerifyAsync(CreateEnvelope(root, productApiAuthority: "http://api.splitos.test/")).AsTask());
+        await AssertThrowsAsync<InvalidDataException>(() =>
+            verifier.VerifyAsync(CreateEnvelope(root, productApiAuthority: "https://user@api.splitos.test/")).AsTask());
+        await AssertThrowsAsync<InvalidDataException>(() =>
+            verifier.VerifyAsync(CreateEnvelope(root, productApiAuthority: "https://api.splitos.test/custom/")).AsTask());
+    }
+
+    [TestMethod]
     public async Task UnsupportedIdTokenAlgorithmCannotBecomeAuthority()
     {
         using var root = RSA.Create(2048);
@@ -123,6 +139,7 @@ public sealed class SignedNativeAuthAuthorityVerifierTests
         string trustDomain = NativeAuthReleaseTrustConfiguration.ProductionTrustDomain,
         string authorizationEndpoint = "https://identity.splitos.test/authorize",
         string tokenEndpoint = "https://identity.splitos.test/token",
+        string productApiAuthority = "https://api.splitos.test/",
         IReadOnlyList<string>? scopes = null,
         IReadOnlyList<string>? idTokenAlgorithms = null)
     {
@@ -137,6 +154,7 @@ public sealed class SignedNativeAuthAuthorityVerifierTests
             trustDomain,
             authorizationEndpoint,
             tokenEndpoint,
+            productApiAuthority,
             scopes,
             idTokenAlgorithms);
 
@@ -153,6 +171,7 @@ public sealed class SignedNativeAuthAuthorityVerifierTests
         string trustDomain = NativeAuthReleaseTrustConfiguration.ProductionTrustDomain,
         string authorizationEndpoint = "https://identity.splitos.test/authorize",
         string tokenEndpoint = "https://identity.splitos.test/token",
+        string productApiAuthority = "https://api.splitos.test/",
         IReadOnlyList<string>? scopes = null,
         IReadOnlyList<string>? idTokenAlgorithms = null)
         => JsonSerializer.Serialize(new Dictionary<string, object?>
@@ -167,6 +186,7 @@ public sealed class SignedNativeAuthAuthorityVerifierTests
             ["tokenEndpoint"] = tokenEndpoint,
             ["jwksEndpoint"] = "https://identity.splitos.test/.well-known/jwks.json",
             ["clientId"] = "splitos-native",
+            ["productApiAuthority"] = productApiAuthority,
             ["scopes"] = scopes ?? new[] { "openid", "offline_access" },
             ["idTokenAlgorithms"] = idTokenAlgorithms ?? new[] { "RS256" },
             ["clockSkewSeconds"] = 120,
