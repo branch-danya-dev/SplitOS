@@ -26,10 +26,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/SplitOS.Persistence.Machine/MachineStateStore.cs \
-                  tests/SplitOS.Persistence.Tests/MachineStateStoreTests.cs \
-                  tests/SplitOS.Persistence.Tests/ModeTransitionStoreTests.cs \
-                  tests/SplitOS.Persistence.Tests/ModeTransitionCommitStoreTests.cs
+          git add src/SplitOS.Persistence.Machine/ModeTransitionStore.cs \
+                  src/SplitOS.Persistence.Machine/ModeTransitionPolicyStore.cs \
+                  tests/SplitOS.Persistence.Tests/ModeTransitionPolicyStoreTests.cs
           git diff --cached --check
-          git commit -m "delivery: bind resolved mode policy durably"
+          git commit -m "delivery: harden durable policy stage guard"
           git push origin HEAD:delivery/slice-03-durable-mode-policy
