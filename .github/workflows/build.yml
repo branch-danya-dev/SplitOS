@@ -93,8 +93,8 @@ jobs:
       - name: Test persistence SQLite policy
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~SqlitePolicyTests
 
-      - name: Test machine migration backup
-        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter Name=LegacyV1MigratesOnlyAfterVerifiedBackupAndPreservesState
+      - name: Test machine schema migration
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter "Name=LegacyV1MigratesOnlyAfterVerifiedBackupAndPreservesState|Name=SchemaV2MigratesToV3PreservesStateAndExistingLease"
 
       - name: Test machine corruption quarantine
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter Name=CorruptCanonicalStoreIsPreservedAndQuarantined
