@@ -31,6 +31,26 @@ public sealed record MachineServicePolicyApplyResult(
     string ProductCode,
     IReadOnlyList<ManagedServicePolicyEntryResult> Entries);
 
+public sealed record MachineServicePolicySnapshotRequest(
+    Guid TransitionId,
+    Guid ActionId,
+    Guid LeaseId,
+    long FenceToken,
+    string ControlSessionKey,
+    int ExpectedActionRevision,
+    IReadOnlyList<ManagedServicePolicyEntry> Entries);
+
+public sealed record ManagedServicePreStateEntry(
+    string ManagedServiceId,
+    string ActualState);
+
+public sealed record MachineServicePolicySnapshotResult(
+    string Disposition,
+    string ProductCode,
+    IReadOnlyList<ManagedServicePreStateEntry> Entries,
+    string? PreStateJson,
+    string? PreStateDigest);
+
 /// <summary>
 /// Canonical semantic action identity for the privileged managed-service capability.
 /// Runtime persists this exact desired-state document/digest in the immutable action plan;
@@ -39,6 +59,7 @@ public sealed record MachineServicePolicyApplyResult(
 public static class ManagedServicePolicyActionContract
 {
     public const int DesiredSchemaVersion = 1;
+    public const int PreStateSchemaVersion = 1;
     public const int MaxEntries = 32;
     public const string OwningModule = "windows-service";
     public const string ActionType = "service-policy.apply";
@@ -94,8 +115,61 @@ public static class ManagedServicePolicyActionContract
     public static string ComputeDesiredStateDigest(IReadOnlyCollection<ManagedServicePolicyEntry> entries)
     {
         var json = SerializeDesiredState(entries);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+        return Sha256(json);
     }
+
+    public static IReadOnlyList<ManagedServicePreStateEntry> NormalizePreState(
+        IReadOnlyCollection<ManagedServicePreStateEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        if (entries.Count is < 1 or > MaxEntries)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(entries),
+                $"Managed-service pre-state must contain between 1 and {MaxEntries} entries.");
+        }
+
+        var normalized = new List<ManagedServicePreStateEntry>(entries.Count);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            ArgumentNullException.ThrowIfNull(entry);
+            ValidateManagedServiceId(entry.ManagedServiceId);
+            if (entry.ActualState is not ("RUNNING" or "STOPPED"))
+            {
+                throw new ArgumentException(
+                    "Managed-service rollback pre-state must be stable RUNNING or STOPPED evidence.",
+                    nameof(entries));
+            }
+
+            if (!ids.Add(entry.ManagedServiceId))
+            {
+                throw new ArgumentException(
+                    $"Managed-service id {entry.ManagedServiceId} appears more than once in pre-state.",
+                    nameof(entries));
+            }
+
+            normalized.Add(new ManagedServicePreStateEntry(entry.ManagedServiceId, entry.ActualState));
+        }
+
+        normalized.Sort(static (left, right) =>
+            StringComparer.Ordinal.Compare(left.ManagedServiceId, right.ManagedServiceId));
+        return normalized;
+    }
+
+    public static string SerializePreState(IReadOnlyCollection<ManagedServicePreStateEntry> entries)
+    {
+        var normalized = NormalizePreState(entries);
+        return JsonSerializer.Serialize(
+            new PreStateDocument(PreStateSchemaVersion, normalized),
+            ProtocolJson.Options);
+    }
+
+    public static string ComputePreStateDigest(IReadOnlyCollection<ManagedServicePreStateEntry> entries)
+        => Sha256(SerializePreState(entries));
+
+    private static string Sha256(string value)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     private static void ValidateManagedServiceId(string value)
     {
@@ -121,4 +195,8 @@ public static class ManagedServicePolicyActionContract
     private sealed record DesiredStateDocument(
         int SchemaVersion,
         IReadOnlyList<ManagedServicePolicyEntry> Entries);
+
+    private sealed record PreStateDocument(
+        int SchemaVersion,
+        IReadOnlyList<ManagedServicePreStateEntry> Entries);
 }
