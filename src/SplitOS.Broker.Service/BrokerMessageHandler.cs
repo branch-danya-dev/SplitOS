@@ -9,7 +9,8 @@ namespace SplitOS.Broker.Service;
 public sealed class BrokerMessageHandler(
     MachineStateStore machineStateStore,
     BrokerManagedServicePolicyExecutor? managedServicePolicyExecutor = null,
-    BrokerManagedServiceSnapshotExecutor? managedServiceSnapshotExecutor = null)
+    BrokerManagedServiceSnapshotExecutor? managedServiceSnapshotExecutor = null,
+    BrokerManagedServiceVerificationExecutor? managedServiceVerificationExecutor = null)
 {
     private readonly string _componentName = ComponentIdentity.Name;
     private readonly string _componentVersion = ComponentIdentity.Version;
@@ -117,6 +118,45 @@ public sealed class BrokerMessageHandler(
                 return WireMessage.Respond(
                     request,
                     MessageTypes.MachineServicePolicyApplyResult,
+                    result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (string.Equals(request.Capability, Capabilities.MachineServicePolicyVerify, StringComparison.Ordinal))
+        {
+            if (!string.Equals(request.MessageType, MessageTypes.MachineServicePolicyVerifyRequest, StringComparison.Ordinal))
+                return Unsupported(request);
+
+            if (managedServiceVerificationExecutor is null)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InternalError, "Managed-service verification executor is not configured."));
+            }
+
+            try
+            {
+                var verify = request.ReadPayload<MachineServicePolicyVerifyRequest>();
+                var result = await managedServiceVerificationExecutor.ExecuteAsync(
+                    request.OperationId,
+                    request.CorrelationId,
+                    verify,
+                    cancellationToken).ConfigureAwait(false);
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.MachineServicePolicyVerifyResult,
                     result);
             }
             catch (Exception ex) when (ex is ArgumentException or JsonException)
