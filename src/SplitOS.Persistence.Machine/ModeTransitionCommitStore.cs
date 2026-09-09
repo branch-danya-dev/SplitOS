@@ -179,6 +179,18 @@ public sealed class ModeTransitionCommitStore
                 transitionError);
         }
 
+        if (!await HasDurableVerificationEvidenceAsync(connection, transaction, transition.TransitionId, cancellationToken).ConfigureAwait(false))
+        {
+            return new ModeTransitionCommitOutcome(
+                ModeTransitionCommitDisposition.InvalidTransition,
+                "MODE_TRANSITION_VERIFICATION_EVIDENCE_INCOMPLETE",
+                canonicalMode,
+                transition,
+                canonicalMode.Revision,
+                transition.Revision,
+                "Atomic target commit requires every mandatory action to remain durably VERIFIED.");
+        }
+
         if (transition.TargetMode is "WORK" or "GAME" &&
             (!runtimeAccessPermitsTarget || !policyIdentityCompatible))
         {
@@ -354,6 +366,25 @@ public sealed class ModeTransitionCommitStore
             committedTransition.Revision);
     }
 
+    private static async Task<bool> HasDurableVerificationEvidenceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM mode_transition_action
+            WHERE transition_id = $transition
+              AND mandatory = 1
+              AND NOT (action_state = 'VERIFIED' AND apply_result_code = 'APPLIED' AND verify_result_code = 'VERIFIED');
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0;
+    }
+
     private static void ValidateRequest(
         Guid transitionId,
         int expectedTransitionRevision,
@@ -416,7 +447,13 @@ public sealed class ModeTransitionCommitStore
                     $"Atomic mode commit requires machine schema {MachineStateStore.SchemaVersion}, got {version}.");
             }
 
-            foreach (var table in new[] { "operational_mode_state", "machine_mutation_lease", "mode_transition" })
+            foreach (var table in new[]
+                     {
+                         "operational_mode_state",
+                         "machine_mutation_lease",
+                         "mode_transition",
+                         "mode_transition_action"
+                     })
             {
                 var command = connection.CreateCommand();
                 command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$name;";

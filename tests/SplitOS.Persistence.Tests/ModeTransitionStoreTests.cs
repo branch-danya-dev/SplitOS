@@ -417,6 +417,63 @@ public sealed class ModeTransitionStoreTests
             revision = persisted.Plan!.TransitionRevision;
         }
 
+        if (state == PersistedModeTransitionState.Applying &&
+            stage == PersistedModeTransitionStage.ApplyComplete)
+        {
+            var currentTransition = await context.Transitions.GetAsync(transitionId);
+            if (currentTransition!.Stage != PersistedModeTransitionStage.ApplyStarted)
+            {
+                var applying = await context.Transitions.AdvanceAsync(
+                    transitionId, revision, context.Lease.LeaseId!.Value, context.Lease.FenceToken, context.OperationId,
+                    PersistedModeTransitionState.Applying, PersistedModeTransitionStage.ApplyStarted, false);
+                Assert.AreEqual(ModeTransitionAdvanceDisposition.Advanced, applying.Disposition, applying.Detail);
+                revision = applying.Transition!.Revision;
+            }
+
+            var plans = new ModeTransitionActionPlanStore(context.DatabasePath, context.MarkerPath, context.QuarantineMarkerPath, context.Time);
+            await plans.InitializeAsync();
+            var plan = await plans.GetAsync(transitionId);
+            var journal = new ModeTransitionActionJournalStore(context.DatabasePath, context.MarkerPath, context.QuarantineMarkerPath, context.Time);
+            await journal.InitializeAsync();
+            foreach (var action in plan!.Actions.OrderBy(item => item.SequenceNo))
+            {
+                if (action.State != PersistedModeActionState.Planned) continue;
+                var started = await journal.BeginApplyAsync(transitionId, action.ActionId, action.Revision, context.Lease.LeaseId.Value, context.Lease.FenceToken, context.OperationId);
+                Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, started.Disposition, started.Detail);
+                var applied = await journal.RecordApplyResultAsync(transitionId, action.ActionId, started.Action!.Revision, context.Lease.LeaseId.Value, context.Lease.FenceToken, context.OperationId, PersistedModeApplyResult.Applied);
+                Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, applied.Disposition, applied.Detail);
+            }
+        }
+
+        if (state == PersistedModeTransitionState.Verifying &&
+            stage == PersistedModeTransitionStage.VerifyComplete)
+        {
+            var currentTransition = await context.Transitions.GetAsync(transitionId);
+            if (currentTransition!.Stage != PersistedModeTransitionStage.VerifyStarted)
+            {
+                var verifying = await context.Transitions.AdvanceAsync(
+                    transitionId, revision, context.Lease.LeaseId!.Value, context.Lease.FenceToken, context.OperationId,
+                    PersistedModeTransitionState.Verifying, PersistedModeTransitionStage.VerifyStarted, false);
+                Assert.AreEqual(ModeTransitionAdvanceDisposition.Advanced, verifying.Disposition, verifying.Detail);
+                revision = verifying.Transition!.Revision;
+            }
+
+            var plans = new ModeTransitionActionPlanStore(context.DatabasePath, context.MarkerPath, context.QuarantineMarkerPath, context.Time);
+            await plans.InitializeAsync();
+            var plan = await plans.GetAsync(transitionId);
+            var journal = new ModeTransitionActionJournalStore(context.DatabasePath, context.MarkerPath, context.QuarantineMarkerPath, context.Time);
+            await journal.InitializeAsync();
+            foreach (var action in plan!.Actions.OrderBy(item => item.SequenceNo))
+            {
+                if (action.State != PersistedModeActionState.Applied) continue;
+                var started = await journal.BeginVerifyAsync(transitionId, action.ActionId, action.Revision, context.Lease.LeaseId.Value, context.Lease.FenceToken, context.OperationId);
+                Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, started.Disposition, started.Detail);
+                var verified = await journal.RecordVerifyResultAsync(transitionId, action.ActionId, started.Action!.Revision, context.Lease.LeaseId.Value, context.Lease.FenceToken, context.OperationId, PersistedModeVerifyResult.Verified);
+                Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, verified.Disposition, verified.Detail);
+            }
+            mandatoryVerified = true;
+        }
+
         var outcome = await context.Transitions.AdvanceAsync(
             transitionId,
             revision,

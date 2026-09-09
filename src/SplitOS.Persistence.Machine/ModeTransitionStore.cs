@@ -149,7 +149,11 @@ public sealed class ModeTransitionStore
                 PersistedModeTransitionState.Committing,
                 PersistedModeTransitionState.RollingBack
             },
-            [PersistedModeTransitionState.Committing] = new() { PersistedModeTransitionState.Completed },
+            [PersistedModeTransitionState.Committing] = new()
+            {
+                PersistedModeTransitionState.Completed,
+                PersistedModeTransitionState.RollingBack
+            },
             [PersistedModeTransitionState.RollingBack] = new()
             {
                 PersistedModeTransitionState.Cancelled,
@@ -437,6 +441,13 @@ public sealed class ModeTransitionStore
                 leaseCheck.Detail);
         }
 
+        // VERIFY_COMPLETE is a derived fact: if durable action evidence proves every mandatory
+        // invariant, the transition repository records mandatory_verified regardless of caller input.
+        if (nextStage == PersistedModeTransitionStage.VerifyComplete)
+        {
+            mandatoryVerified = true;
+        }
+
         if (current.TransitionState == nextState &&
             current.Stage == nextStage &&
             current.MandatoryVerified == mandatoryVerified &&
@@ -488,6 +499,54 @@ public sealed class ModeTransitionStore
                 "MODE_TRANSITION_INVALID_LIFECYCLE",
                 current.Revision,
                 "Complete durable action plan is required before ACTION_PLAN_READY.");
+        }
+
+        if (nextStage == PersistedModeTransitionStage.ApplyComplete &&
+            !await HasCompleteApplyEvidenceAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false))
+        {
+            return EvidenceDenied(current, "APPLY_COMPLETE requires every mandatory action to be durably APPLIED and every optional action to be settled.");
+        }
+
+        if (nextState == PersistedModeTransitionState.Verifying && nextStage == PersistedModeTransitionStage.VerifyStarted)
+        {
+            if (current.Stage != PersistedModeTransitionStage.ApplyComplete)
+                return EvidenceDenied(current, "VERIFY_STARTED requires the durable APPLY_COMPLETE stage.");
+            if (!await HasCompleteApplyEvidenceAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false))
+                return EvidenceDenied(current, "VERIFY_STARTED requires complete durable apply evidence.");
+        }
+
+        if (nextStage == PersistedModeTransitionStage.VerifyComplete &&
+            !await HasCompleteVerificationEvidenceAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false))
+        {
+            return EvidenceDenied(current, "VERIFY_COMPLETE requires all mandatory actions VERIFIED and all optional actions settled.");
+        }
+
+        if (nextState == PersistedModeTransitionState.Committing && nextStage == PersistedModeTransitionStage.CommitStarted)
+        {
+            if (current.Stage != PersistedModeTransitionStage.VerifyComplete)
+                return EvidenceDenied(current, "COMMIT_STARTED requires the durable VERIFY_COMPLETE stage.");
+            if (!await HasCompleteVerificationEvidenceAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false))
+                return EvidenceDenied(current, "COMMIT_STARTED requires durable mandatory verification evidence.");
+        }
+
+        if (nextState == PersistedModeTransitionState.RollingBack && current.CommitDurable)
+        {
+            return EvidenceDenied(current, "A durably committed target cannot enter source rollback; reconciliation must converge around target truth.");
+        }
+
+        if (nextStage == PersistedModeTransitionStage.RollbackVerify &&
+            !await HasCompleteRollbackEvidenceAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false))
+        {
+            return EvidenceDenied(current, "ROLLBACK_VERIFY requires every applied/unknown mutation to be durably ROLLED_BACK with no rollback failure in flight.");
+        }
+
+        if (current.TransitionState == PersistedModeTransitionState.RollingBack &&
+            nextState is PersistedModeTransitionState.Cancelled or PersistedModeTransitionState.FailedWithSafeFallback)
+        {
+            if (current.Stage != PersistedModeTransitionStage.RollbackVerify)
+                return EvidenceDenied(current, "Rollback terminalization requires the durable ROLLBACK_VERIFY stage.");
+            if (!await HasCompleteRollbackEvidenceAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false))
+                return EvidenceDenied(current, "Rollback terminalization requires complete durable rollback evidence.");
         }
 
         var now = _timeProvider.GetUtcNow();
@@ -556,7 +615,14 @@ public sealed class ModeTransitionStore
                     $"Mode transition repository requires machine schema {MachineStateStore.SchemaVersion}, got {version}.");
             }
 
-            foreach (var table in new[] { "operational_mode_state", "machine_mutation_lease", "mode_transition" })
+            foreach (var table in new[]
+                     {
+                         "operational_mode_state",
+                         "machine_mutation_lease",
+                         "mode_transition",
+                         "mode_transition_action_plan",
+                         "mode_transition_action"
+                     })
             {
                 var command = connection.CreateCommand();
                 command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$name;";
@@ -664,6 +730,86 @@ public sealed class ModeTransitionStore
         command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 1;
     }
+
+    private static async Task<bool> HasCompleteApplyEvidenceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM mode_transition_action
+            WHERE transition_id = $transition
+              AND NOT (
+                  (mandatory = 1 AND action_state = 'APPLIED' AND apply_result_code = 'APPLIED') OR
+                  (mandatory = 0 AND (
+                      (action_state = 'APPLIED' AND apply_result_code = 'APPLIED') OR
+                      (action_state = 'FAILED' AND apply_result_code IN ('FAILED','UNKNOWN')) OR
+                      (action_state = 'SKIPPED' AND apply_result_code = 'SKIPPED')
+                  ))
+              );
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0;
+    }
+
+    private static async Task<bool> HasCompleteVerificationEvidenceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM mode_transition_action
+            WHERE transition_id = $transition
+              AND NOT (
+                  (mandatory = 1 AND action_state = 'VERIFIED' AND apply_result_code = 'APPLIED' AND verify_result_code = 'VERIFIED') OR
+                  (mandatory = 0 AND (
+                      (action_state = 'VERIFIED' AND apply_result_code = 'APPLIED' AND verify_result_code = 'VERIFIED') OR
+                      (action_state = 'FAILED' AND apply_result_code IN ('FAILED','UNKNOWN')) OR
+                      (action_state = 'FAILED' AND apply_result_code = 'APPLIED' AND verify_result_code IN ('MISMATCH','UNKNOWN')) OR
+                      (action_state = 'SKIPPED' AND apply_result_code = 'SKIPPED')
+                  ))
+              );
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0;
+    }
+
+    private static async Task<bool> HasCompleteRollbackEvidenceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM mode_transition_action
+            WHERE transition_id = $transition
+              AND (
+                  action_state IN ('APPLYING','ROLLING_BACK','ROLLBACK_FAILED') OR
+                  (apply_result_code IN ('APPLIED','UNKNOWN') AND action_state != 'ROLLED_BACK')
+              );
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 0;
+    }
+
+    private static ModeTransitionAdvanceOutcome EvidenceDenied(ModeTransitionRecord current, string detail)
+        => new(
+            ModeTransitionAdvanceDisposition.InvalidLifecycle,
+            current,
+            "MODE_TRANSITION_EVIDENCE_INCOMPLETE",
+            current.Revision,
+            detail);
 
     private static async Task<bool> HasDurablePolicyBindingAsync(
         SqliteConnection connection,
