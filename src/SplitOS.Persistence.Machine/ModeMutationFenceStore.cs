@@ -3,6 +3,13 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
+public sealed record ModeMutationActionBinding(
+    string OwningModule,
+    string ActionType,
+    string? TargetRef,
+    int DesiredSchemaVersion,
+    string DesiredStateDigest);
+
 public sealed record ModeMutationFenceContext(
     Guid TransitionId,
     Guid ActionId,
@@ -11,7 +18,8 @@ public sealed record ModeMutationFenceContext(
     Guid OperationId,
     Guid CorrelationId,
     string ControlSessionKey,
-    int ExpectedActionRevision);
+    int ExpectedActionRevision,
+    ModeMutationActionBinding? ExpectedAction = null);
 
 public enum ModeMutationFenceValidationDisposition
 {
@@ -190,6 +198,15 @@ public sealed class ModeMutationFenceStore
                 action.Revision);
         }
 
+        if (context.ExpectedAction is not null && !MatchesActionBinding(action, context.ExpectedAction))
+        {
+            return Denied(
+                ModeMutationFenceValidationDisposition.InvalidLifecycle,
+                "MODE_MUTATION_ACTION_SEMANTICS_MISMATCH",
+                "Privileged request does not match immutable durable action semantics.",
+                action.Revision);
+        }
+
         if (!string.Equals(action.State, "APPLYING", StringComparison.Ordinal))
         {
             return Denied(
@@ -339,6 +356,8 @@ public sealed class ModeMutationFenceStore
         command.Transaction = transaction;
         command.CommandText = """
             SELECT action_row.transition_id, action_row.action_state, action_row.revision,
+                   action_row.owning_module, action_row.action_type, action_row.target_ref,
+                   action_row.desired_schema_version, action_row.desired_state_digest,
                    CASE WHEN plan.transition_id IS NOT NULL
                          AND plan.action_count = (
                              SELECT COUNT(*)
@@ -363,8 +382,20 @@ public sealed class ModeMutationFenceStore
             transitionId,
             reader.GetString(1),
             reader.GetInt32(2),
-            reader.GetInt32(3) == 1);
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5),
+            reader.GetInt32(6),
+            reader.GetString(7),
+            reader.GetInt32(8) == 1);
     }
+
+    private static bool MatchesActionBinding(ActionRow action, ModeMutationActionBinding expected)
+        => string.Equals(action.OwningModule, expected.OwningModule, StringComparison.Ordinal) &&
+           string.Equals(action.ActionType, expected.ActionType, StringComparison.Ordinal) &&
+           string.Equals(action.TargetRef, expected.TargetRef, StringComparison.Ordinal) &&
+           action.DesiredSchemaVersion == expected.DesiredSchemaVersion &&
+           string.Equals(action.DesiredStateDigest, expected.DesiredStateDigest, StringComparison.OrdinalIgnoreCase);
 
     private static ModeMutationFenceValidationOutcome Denied(
         ModeMutationFenceValidationDisposition disposition,
@@ -382,10 +413,54 @@ public sealed class ModeMutationFenceStore
         if (context.FenceToken < 1) throw new ArgumentOutOfRangeException(nameof(context), "FenceToken must be greater than zero.");
         if (context.OperationId == Guid.Empty) throw new ArgumentException("OperationId must not be empty.", nameof(context));
         if (context.CorrelationId == Guid.Empty) throw new ArgumentException("CorrelationId must not be empty.", nameof(context));
-        if (string.IsNullOrWhiteSpace(context.ControlSessionKey) || context.ControlSessionKey.Length > 256)
+        if (string.IsNullOrWhiteSpace(context.ControlSessionKey) ||
+            context.ControlSessionKey.Length > 256 ||
+            context.ControlSessionKey.Any(static character => char.IsControl(character)))
+        {
             throw new ArgumentException("ControlSessionKey must be a bounded non-empty semantic identifier.", nameof(context));
+        }
         if (context.ExpectedActionRevision < 1)
             throw new ArgumentOutOfRangeException(nameof(context), "ExpectedActionRevision must be greater than zero.");
+
+        if (context.ExpectedAction is not null)
+        {
+            ValidateActionBinding(context.ExpectedAction);
+        }
+    }
+
+    private static void ValidateActionBinding(ModeMutationActionBinding binding)
+    {
+        if (!IsBoundedSemanticId(binding.OwningModule, 128) ||
+            !IsBoundedSemanticId(binding.ActionType, 128))
+        {
+            throw new ArgumentException("Expected action module/type is outside supported semantic bounds.", nameof(binding));
+        }
+
+        if (binding.TargetRef is { } targetRef &&
+            (string.IsNullOrWhiteSpace(targetRef) || targetRef.Length > 256 || targetRef.Any(static character => char.IsControl(character))))
+        {
+            throw new ArgumentException("Expected action target reference is outside supported bounds.", nameof(binding));
+        }
+
+        if (binding.DesiredSchemaVersion < 1)
+            throw new ArgumentOutOfRangeException(nameof(binding), "Desired schema version must be greater than zero.");
+        if (!IsSha256Hex(binding.DesiredStateDigest))
+            throw new ArgumentException("Expected desired-state digest must be SHA-256 hex.", nameof(binding));
+    }
+
+    private static bool IsBoundedSemanticId(string value, int maxLength)
+        => !string.IsNullOrWhiteSpace(value) &&
+           value.Length <= maxLength &&
+           !value.Any(static character => char.IsControl(character));
+
+    private static bool IsSha256Hex(string value)
+    {
+        if (value is null || value.Length != 64) return false;
+        foreach (var character in value)
+        {
+            if (!Uri.IsHexDigit(character)) return false;
+        }
+        return true;
     }
 
     private sealed record LeaseRow(
@@ -411,5 +486,10 @@ public sealed class ModeMutationFenceStore
         Guid TransitionId,
         string State,
         int Revision,
+        string OwningModule,
+        string ActionType,
+        string? TargetRef,
+        int DesiredSchemaVersion,
+        string DesiredStateDigest,
         bool PlanComplete);
 }

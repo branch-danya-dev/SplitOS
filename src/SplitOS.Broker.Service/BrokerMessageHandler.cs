@@ -6,7 +6,9 @@ using SplitOS.Persistence.Machine;
 
 namespace SplitOS.Broker.Service;
 
-public sealed class BrokerMessageHandler(MachineStateStore machineStateStore)
+public sealed class BrokerMessageHandler(
+    MachineStateStore machineStateStore,
+    BrokerManagedServicePolicyExecutor? managedServicePolicyExecutor = null)
 {
     private readonly string _componentName = ComponentIdentity.Name;
     private readonly string _componentVersion = ComponentIdentity.Version;
@@ -47,6 +49,45 @@ public sealed class BrokerMessageHandler(MachineStateStore machineStateStore)
                         record.Revision,
                         JsonSerializer.Serialize(record),
                         DateTimeOffset.UtcNow));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (string.Equals(request.Capability, Capabilities.MachineServicePolicyApply, StringComparison.Ordinal))
+        {
+            if (!string.Equals(request.MessageType, MessageTypes.MachineServicePolicyApplyRequest, StringComparison.Ordinal))
+                return Unsupported(request);
+
+            if (managedServicePolicyExecutor is null)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InternalError, "Managed-service policy executor is not configured."));
+            }
+
+            try
+            {
+                var apply = request.ReadPayload<MachineServicePolicyApplyRequest>();
+                var result = await managedServicePolicyExecutor.ExecuteAsync(
+                    request.OperationId,
+                    request.CorrelationId,
+                    apply,
+                    cancellationToken).ConfigureAwait(false);
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.MachineServicePolicyApplyResult,
+                    result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException)
             {
