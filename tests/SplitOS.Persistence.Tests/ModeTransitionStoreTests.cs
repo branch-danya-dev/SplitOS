@@ -364,6 +364,40 @@ public sealed class ModeTransitionStoreTests
         PersistedModeTransitionStage stage,
         bool mandatoryVerified)
     {
+        if (state == PersistedModeTransitionState.Resolving &&
+            stage == PersistedModeTransitionStage.ActionPlanReady)
+        {
+            var resolving = await context.Transitions.AdvanceAsync(
+                transitionId,
+                revision,
+                context.Lease.LeaseId!.Value,
+                context.Lease.FenceToken,
+                context.OperationId,
+                PersistedModeTransitionState.Resolving,
+                PersistedModeTransitionStage.ResolutionStarted,
+                mandatoryVerified: false);
+            Assert.AreEqual(ModeTransitionAdvanceDisposition.Advanced, resolving.Disposition, resolving.Detail);
+            revision = resolving.Transition!.Revision;
+
+            var policies = new ModeTransitionPolicyStore(
+                context.DatabasePath,
+                context.MarkerPath,
+                context.QuarantineMarkerPath,
+                context.Time);
+            await policies.InitializeAsync();
+            var bound = await policies.BindResolvedPolicyAsync(
+                transitionId,
+                revision,
+                context.Lease.LeaseId.Value,
+                context.Lease.FenceToken,
+                context.OperationId,
+                new PersistedModePolicyIdentity("mode-policy.test", 1, "development", new string('a', 64)),
+                PersistedModePolicyTarget.Work,
+                new string('b', 64));
+            Assert.AreEqual(ModeTransitionPolicyBindDisposition.Bound, bound.Disposition, bound.Detail);
+            revision = bound.Binding!.TransitionRevision;
+        }
+
         var outcome = await context.Transitions.AdvanceAsync(
             transitionId,
             revision,

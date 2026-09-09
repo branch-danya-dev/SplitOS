@@ -146,7 +146,7 @@ public sealed class MachineStateStoreTests
 
         await using var current = await OpenUnpooledAsync(db);
         Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(current, "PRAGMA user_version;"));
-        Assert.AreEqual(3, await ScalarIntAsync(current, "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';"));
+        Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(current, "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';"));
         Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id = 'machine-v1-v2';"));
         Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id = 'machine-v2-v3-slice03-foundation';"));
         Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_mutation_lease WHERE singleton_id = 1 AND lease_id IS NULL AND fence_token = 0;"));
@@ -196,8 +196,8 @@ public sealed class MachineStateStoreTests
         }
 
         await using var current = await OpenUnpooledAsync(db);
-        Assert.AreEqual(3, await ScalarIntAsync(current, "PRAGMA user_version;"));
-        Assert.AreEqual(3, await ScalarIntAsync(current, "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';"));
+        Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(current, "PRAGMA user_version;"));
+        Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(current, "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';"));
         Assert.AreEqual(9L, await ScalarLongAsync(current, "SELECT fence_token FROM machine_mutation_lease WHERE singleton_id = 1;"));
         Assert.AreEqual(leaseId.ToString("D"), await ScalarStringAsync(current, "SELECT lease_id FROM machine_mutation_lease WHERE singleton_id = 1;"));
         Assert.AreEqual(ownerOperationId.ToString("D"), await ScalarStringAsync(current, "SELECT owner_operation_id FROM machine_mutation_lease WHERE singleton_id = 1;"));

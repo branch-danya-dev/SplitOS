@@ -460,6 +460,21 @@ public sealed class ModeTransitionStore
                 lifecycleError);
         }
 
+        if (nextStage == PersistedModeTransitionStage.ActionPlanReady &&
+            !await HasDurablePolicyBindingAsync(
+                connection,
+                transaction,
+                transitionId,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return new ModeTransitionAdvanceOutcome(
+                ModeTransitionAdvanceDisposition.InvalidLifecycle,
+                current,
+                "MODE_TRANSITION_INVALID_LIFECYCLE",
+                current.Revision,
+                "Durable resolved policy binding is required before ACTION_PLAN_READY.");
+        }
+
         var now = _timeProvider.GetUtcNow();
         var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -610,6 +625,23 @@ public sealed class ModeTransitionStore
         }
 
         return LeaseValidation.Current;
+    }
+
+    private static async Task<bool> HasDurablePolicyBindingAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM mode_transition_policy_binding
+            WHERE transition_id = $transition;
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) == 1;
     }
 
     private static async Task<(string Mode, int Revision)> ReadCanonicalModeAsync(

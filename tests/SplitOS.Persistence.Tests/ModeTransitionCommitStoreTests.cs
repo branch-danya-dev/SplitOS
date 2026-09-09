@@ -280,6 +280,36 @@ public sealed class ModeTransitionCommitStoreTests
             false);
         revision = await AdvanceAsync(context, transitionId, revision,
             PersistedModeTransitionState.Resolving,
+            PersistedModeTransitionStage.ResolutionStarted,
+            false);
+
+        var policies = new ModeTransitionPolicyStore(
+            context.DatabasePath,
+            context.MarkerPath,
+            context.QuarantineMarkerPath,
+            context.Time);
+        await policies.InitializeAsync();
+        var policyTarget = targetMode switch
+        {
+            "NONE" => PersistedModePolicyTarget.Base,
+            "WORK" => PersistedModePolicyTarget.Work,
+            "GAME" => PersistedModePolicyTarget.Game,
+            _ => throw new InvalidOperationException("Unsupported policy target.")
+        };
+        var bound = await policies.BindResolvedPolicyAsync(
+            transitionId,
+            revision,
+            context.Lease.LeaseId!.Value,
+            context.Lease.FenceToken,
+            context.OperationId,
+            new PersistedModePolicyIdentity("mode-policy.test", 1, "development", new string('a', 64)),
+            policyTarget,
+            new string('b', 64));
+        Assert.AreEqual(ModeTransitionPolicyBindDisposition.Bound, bound.Disposition, bound.Detail);
+        revision = bound.Binding!.TransitionRevision;
+
+        revision = await AdvanceAsync(context, transitionId, revision,
+            PersistedModeTransitionState.Resolving,
             PersistedModeTransitionStage.ActionPlanReady,
             false);
         revision = await AdvanceAsync(context, transitionId, revision,
