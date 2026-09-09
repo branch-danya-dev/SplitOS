@@ -51,7 +51,7 @@ public sealed class ModeTransitionPolicyStoreTests
             Digest('b'),
             fallbacks);
         Assert.AreEqual(ModeTransitionPolicyBindDisposition.Replayed, replay.Disposition);
-        Assert.AreEqual(bound.Binding, replay.Binding);
+        AssertBindingEquivalent(bound.Binding!, replay.Binding);
 
         SqliteConnection.ClearAllPools();
         var reopened = new ModeTransitionPolicyStore(
@@ -61,7 +61,7 @@ public sealed class ModeTransitionPolicyStoreTests
             context.Time);
         await reopened.InitializeAsync();
         var restored = await reopened.GetAsync(context.TransitionId);
-        Assert.AreEqual(bound.Binding, restored);
+        AssertBindingEquivalent(bound.Binding!, restored);
     }
 
     [TestMethod]
@@ -215,6 +215,22 @@ public sealed class ModeTransitionPolicyStoreTests
             PersistedModePolicyTarget.Base,
             Digest('c'));
         Assert.AreEqual(ModeTransitionPolicyBindDisposition.Bound, correct.Disposition, correct.Detail);
+    }
+
+    private static void AssertBindingEquivalent(
+        ModeTransitionPolicyBinding expected,
+        ModeTransitionPolicyBinding? actual)
+    {
+        Assert.IsNotNull(actual);
+        Assert.AreEqual(expected.TransitionId, actual.TransitionId);
+        Assert.AreEqual(expected.Identity, actual.Identity);
+        Assert.AreEqual(expected.Target, actual.Target);
+        Assert.AreEqual(expected.ResolvedDigest, actual.ResolvedDigest);
+        Assert.AreEqual(expected.BoundUtc, actual.BoundUtc);
+        Assert.AreEqual(expected.TransitionRevision, actual.TransitionRevision);
+        CollectionAssert.AreEqual(
+            expected.SelectedFallbacks.ToArray(),
+            actual.SelectedFallbacks.ToArray());
     }
 
     private static PersistedModePolicyIdentity Identity(char digestCharacter)
