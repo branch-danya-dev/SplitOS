@@ -99,6 +99,9 @@ jobs:
       - name: Test machine schema v4 migration
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~MachineSchemaV4Tests
 
+      - name: Test machine schema v5 migration
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~MachineSchemaV5Tests
+
       - name: Test machine corruption quarantine
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter Name=CorruptCanonicalStoreIsPreservedAndQuarantined
 
@@ -116,6 +119,9 @@ jobs:
 
       - name: Test durable mode policy binding
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ModeTransitionPolicyStoreTests
+
+      - name: Test durable mode action plan journal
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ModeTransitionActionPlanStoreTests
 
       - name: Test atomic mode commit boundary
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ModeTransitionCommitStoreTests
