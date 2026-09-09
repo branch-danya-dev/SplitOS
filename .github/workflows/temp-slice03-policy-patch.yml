@@ -1,0 +1,36 @@
+name: temp-slice03-policy-patch
+
+on:
+  push:
+    branches:
+      - delivery/slice-03-durable-mode-policy
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply durable policy patch
+        run: python eng/lab/apply-slice03-policy-binding.py
+
+      - name: Commit patched files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/SplitOS.Persistence.Machine/MachineStateStore.cs \
+                  tests/SplitOS.Persistence.Tests/MachineStateStoreTests.cs \
+                  tests/SplitOS.Persistence.Tests/ModeTransitionStoreTests.cs \
+                  tests/SplitOS.Persistence.Tests/ModeTransitionCommitStoreTests.cs \
+                  .github/workflows/build.yml
+          git diff --cached --check
+          git commit -m "delivery: bind resolved mode policy durably"
+          git push origin HEAD:delivery/slice-03-durable-mode-policy
