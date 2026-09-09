@@ -27,10 +27,13 @@ public sealed record OperationalModeWriteOutcome(
 
 public sealed class MachineStateStore
 {
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
     private const int LegacySchemaVersion = 1;
+    private const int PreviousSchemaVersion = 2;
     private const string ReleaseId = "development";
     private const string OperationRequestKind = "OPERATIONAL_MODE_WRITE";
+    private const string V1ToV2MigrationId = "machine-v1-v2";
+    private const string V2ToV3MigrationId = "machine-v2-v3-slice03-foundation";
 
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;
@@ -94,8 +97,9 @@ public sealed class MachineStateStore
                 }
 
                 await _database.InitializeMetadataAsync(connection, "machine", cancellationToken).ConfigureAwait(false);
-                await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
+                await CreateSchemaV3Async(connection, null, cancellationToken).ConfigureAwait(false);
                 await EnsureInitialStateAsync(connection, cancellationToken).ConfigureAwait(false);
+                await EnsureMutationLeaseSingletonAsync(connection, null, cancellationToken).ConfigureAwait(false);
             }
             else
             {
@@ -120,9 +124,36 @@ public sealed class MachineStateStore
                             LegacySchemaVersion,
                             cancellationToken).ConfigureAwait(false);
                         await MigrateV1ToV2Async(connection, backup.BackupPath, cancellationToken).ConfigureAwait(false);
+                        currentVersion = PreviousSchemaVersion;
                     }
                 }
-                else if (currentVersion != SchemaVersion)
+
+                if (corruptionReason is null && currentVersion == PreviousSchemaVersion)
+                {
+                    try
+                    {
+                        await _database.VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
+                        await VerifyV2CanonicalAsync(connection, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (InvalidDataException ex)
+                    {
+                        corruptionReason = ex;
+                    }
+
+                    if (corruptionReason is null)
+                    {
+                        var backup = await CanonicalStoreRecovery.CreateVerifiedBackupAsync(
+                            connection,
+                            _databasePath,
+                            _backupDirectory,
+                            PreviousSchemaVersion,
+                            cancellationToken).ConfigureAwait(false);
+                        await MigrateV2ToV3Async(connection, backup.BackupPath, cancellationToken).ConfigureAwait(false);
+                        currentVersion = SchemaVersion;
+                    }
+                }
+
+                if (corruptionReason is null && currentVersion != SchemaVersion)
                 {
                     throw new InvalidDataException(
                         $"Machine canonical schema version {currentVersion} is not supported by runtime schema {SchemaVersion}.");
@@ -133,15 +164,12 @@ public sealed class MachineStateStore
                     try
                     {
                         await _database.InitializeMetadataAsync(connection, "machine", cancellationToken).ConfigureAwait(false);
+                        await CreateSchemaV3Async(connection, null, cancellationToken).ConfigureAwait(false);
+                        await EnsureMutationLeaseSingletonAsync(connection, null, cancellationToken).ConfigureAwait(false);
                     }
                     catch (InvalidDataException ex)
                     {
                         corruptionReason = ex;
-                    }
-
-                    if (corruptionReason is null)
-                    {
-                        await CreateSchemaV2Async(connection, null, cancellationToken).ConfigureAwait(false);
                     }
                 }
             }
@@ -394,6 +422,80 @@ public sealed class MachineStateStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    private static async Task CreateSchemaV3Async(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        await CreateSchemaV2Async(connection, transaction, cancellationToken).ConfigureAwait(false);
+
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS machine_mutation_lease (
+                singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+                lease_id TEXT NULL,
+                mutation_type TEXT NULL CHECK(mutation_type IS NULL OR mutation_type IN ('MODE','UPDATE','RECOVERY')),
+                owner_operation_id TEXT NULL,
+                owner_correlation_id TEXT NULL,
+                owner_control_session_key TEXT NULL,
+                fence_token INTEGER NOT NULL DEFAULT 0 CHECK(fence_token >= 0),
+                acquired_utc TEXT NULL,
+                heartbeat_utc TEXT NULL,
+                expires_utc TEXT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                CHECK(
+                    (lease_id IS NULL AND mutation_type IS NULL AND owner_operation_id IS NULL AND
+                     owner_correlation_id IS NULL AND owner_control_session_key IS NULL AND acquired_utc IS NULL AND
+                     heartbeat_utc IS NULL AND expires_utc IS NULL)
+                    OR
+                    (lease_id IS NOT NULL AND mutation_type IS NOT NULL AND owner_operation_id IS NOT NULL AND
+                     owner_correlation_id IS NOT NULL AND owner_control_session_key IS NOT NULL AND acquired_utc IS NOT NULL AND
+                     heartbeat_utc IS NOT NULL AND expires_utc IS NOT NULL)
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS mode_transition (
+                transition_id TEXT PRIMARY KEY,
+                operation_id TEXT NOT NULL UNIQUE,
+                correlation_id TEXT NOT NULL,
+                operation_kind TEXT NOT NULL CHECK(operation_kind IN ('ACTIVATE','SWITCH','DEACTIVATE')),
+                source_mode TEXT NOT NULL CHECK(source_mode IN ('NONE','WORK','GAME')),
+                target_mode TEXT NOT NULL CHECK(target_mode IN ('NONE','WORK','GAME')),
+                source_mode_revision INTEGER NOT NULL CHECK(source_mode_revision >= 1),
+                control_session_key TEXT NOT NULL,
+                lease_id TEXT NOT NULL,
+                fence_token INTEGER NOT NULL CHECK(fence_token >= 1),
+                transition_state TEXT NOT NULL CHECK(transition_state IN (
+                    'REQUESTED','INSPECTING','BLOCKED','AWAITING_USER','RESOLVING','APPLYING','VERIFYING',
+                    'COMMITTING','ROLLING_BACK','COMPLETED','CANCELLED','FAILED_WITH_SAFE_FALLBACK')),
+                stage_code TEXT NOT NULL CHECK(stage_code IN (
+                    'ACCEPTED','INSPECTION_STARTED','INSPECTION_COMPLETE','WAITING_FOR_USER','RESOLUTION_STARTED',
+                    'ACTION_PLAN_READY','APPLY_STARTED','APPLY_COMPLETE','VERIFY_STARTED','VERIFY_COMPLETE',
+                    'COMMIT_STARTED','COMMIT_DURABLE','FINALIZATION_STARTED','ROLLBACK_STARTED','ROLLBACK_VERIFY','TERMINAL')),
+                started_utc TEXT NOT NULL,
+                updated_utc TEXT NOT NULL,
+                mandatory_verified INTEGER NOT NULL DEFAULT 0 CHECK(mandatory_verified IN (0,1)),
+                commit_durable INTEGER NOT NULL DEFAULT 0 CHECK(commit_durable IN (0,1)),
+                terminal_outcome TEXT NULL CHECK(terminal_outcome IS NULL OR terminal_outcome IN (
+                    'COMPLETED','CANCELLED','FAILED_WITH_SAFE_FALLBACK')),
+                recovery_context_id TEXT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                CHECK(
+                    (operation_kind = 'ACTIVATE' AND source_mode = 'NONE' AND target_mode IN ('WORK','GAME')) OR
+                    (operation_kind = 'SWITCH' AND ((source_mode = 'WORK' AND target_mode = 'GAME') OR
+                                                     (source_mode = 'GAME' AND target_mode = 'WORK'))) OR
+                    (operation_kind = 'DEACTIVATE' AND source_mode IN ('WORK','GAME') AND target_mode = 'NONE')
+                ),
+                CHECK(commit_durable = 0 OR transition_state IN ('COMMITTING','COMPLETED'))
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_mode_transition_state
+                ON mode_transition(transition_state, updated_utc);
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task EnsureInitialStateAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
@@ -405,6 +507,23 @@ public sealed class MachineStateStore
             ON CONFLICT(singleton_id) DO NOTHING;
             """;
         command.Parameters.AddWithValue("$now", now);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureMutationLeaseSingletonAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO machine_mutation_lease(
+                singleton_id, lease_id, mutation_type, owner_operation_id, owner_correlation_id,
+                owner_control_session_key, fence_token, acquired_utc, heartbeat_utc, expires_utc, revision)
+            VALUES (1, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, 1)
+            ON CONFLICT(singleton_id) DO NOTHING;
+            """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -444,8 +563,57 @@ public sealed class MachineStateStore
         command.CommandText = """
             INSERT INTO machine_schema_migration_history(
                 migration_id, from_schema_version, to_schema_version, backup_path, migrated_utc, release_id)
-            VALUES ('machine-v1-v2', 1, 2, $backup, $now, $release);
+            VALUES ($migration, 1, 2, $backup, $now, $release);
             """;
+        command.Parameters.AddWithValue("$migration", V1ToV2MigrationId);
+        command.Parameters.AddWithValue("$backup", backupPath);
+        command.Parameters.AddWithValue("$now", now.ToString("O"));
+        command.Parameters.AddWithValue("$release", ReleaseId);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        transaction.Commit();
+    }
+
+    private static async Task MigrateV2ToV3Async(
+        SqliteConnection connection,
+        string backupPath,
+        CancellationToken cancellationToken)
+    {
+        using var transaction = connection.BeginTransaction();
+        await CreateSchemaV3Async(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await EnsureMutationLeaseSingletonAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var now = DateTimeOffset.UtcNow;
+
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE schema_metadata
+            SET schema_version = 3,
+                last_migrated_utc = $now,
+                release_id = $release
+            WHERE component_key = 'machine' AND schema_version = 2;
+            """;
+        command.Parameters.AddWithValue("$now", now.ToString("O"));
+        command.Parameters.AddWithValue("$release", ReleaseId);
+        var updated = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (updated != 1)
+        {
+            throw new InvalidDataException("Machine schema metadata could not be advanced from v2 to v3.");
+        }
+
+        command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "PRAGMA user_version = 3;";
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO machine_schema_migration_history(
+                migration_id, from_schema_version, to_schema_version, backup_path, migrated_utc, release_id)
+            VALUES ($migration, 2, 3, $backup, $now, $release);
+            """;
+        command.Parameters.AddWithValue("$migration", V2ToV3MigrationId);
         command.Parameters.AddWithValue("$backup", backupPath);
         command.Parameters.AddWithValue("$now", now.ToString("O"));
         command.Parameters.AddWithValue("$release", ReleaseId);
@@ -481,7 +649,7 @@ public sealed class MachineStateStore
         }
     }
 
-    private static async Task VerifyCanonicalInvariantsAsync(
+    private static async Task VerifyV2CanonicalAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
@@ -495,6 +663,42 @@ public sealed class MachineStateStore
         {
             if (!await TableExistsAsync(connection, table, cancellationToken).ConfigureAwait(false))
             {
+                throw new InvalidDataException($"Machine v2 canonical table {table} is missing.");
+            }
+        }
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';";
+        var metadataVersion = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (metadataVersion is null or DBNull || Convert.ToInt32(metadataVersion) != PreviousSchemaVersion)
+        {
+            throw new InvalidDataException("Machine schema metadata does not match physical schema v2.");
+        }
+
+        command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM operational_mode_state WHERE singleton_id = 1;";
+        if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 1)
+        {
+            throw new InvalidDataException("Machine v2 canonical OperationalModeState singleton is missing.");
+        }
+    }
+
+    private static async Task VerifyCanonicalInvariantsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        foreach (var table in new[]
+                 {
+                     "schema_metadata",
+                     "operational_mode_state",
+                     "machine_operation_idempotency",
+                     "machine_schema_migration_history",
+                     "machine_mutation_lease",
+                     "mode_transition"
+                 })
+        {
+            if (!await TableExistsAsync(connection, table, cancellationToken).ConfigureAwait(false))
+            {
                 throw new InvalidDataException($"Machine canonical table {table} is missing.");
             }
         }
@@ -504,7 +708,7 @@ public sealed class MachineStateStore
         var metadataVersion = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         if (metadataVersion is null or DBNull || Convert.ToInt32(metadataVersion) != SchemaVersion)
         {
-            throw new InvalidDataException("Machine schema metadata does not match physical schema v2.");
+            throw new InvalidDataException("Machine schema metadata does not match physical schema v3.");
         }
 
         command = connection.CreateCommand();
@@ -513,6 +717,38 @@ public sealed class MachineStateStore
         if (singletonCount != 1)
         {
             throw new InvalidDataException("Machine canonical OperationalModeState singleton is missing.");
+        }
+
+        command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM machine_mutation_lease WHERE singleton_id = 1;";
+        if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 1)
+        {
+            throw new InvalidDataException("Machine canonical major mutation lease singleton is missing.");
+        }
+
+        command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM machine_mutation_lease
+            WHERE singleton_id != 1
+               OR fence_token < 0
+               OR revision < 1
+               OR (
+                    lease_id IS NULL AND (
+                        mutation_type IS NOT NULL OR owner_operation_id IS NOT NULL OR owner_correlation_id IS NOT NULL OR
+                        owner_control_session_key IS NOT NULL OR acquired_utc IS NOT NULL OR heartbeat_utc IS NOT NULL OR expires_utc IS NOT NULL
+                    )
+               )
+               OR (
+                    lease_id IS NOT NULL AND (
+                        mutation_type NOT IN ('MODE','UPDATE','RECOVERY') OR owner_operation_id IS NULL OR owner_correlation_id IS NULL OR
+                        trim(owner_control_session_key) = '' OR acquired_utc IS NULL OR heartbeat_utc IS NULL OR expires_utc IS NULL OR fence_token < 1
+                    )
+               );
+            """;
+        if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+        {
+            throw new InvalidDataException("Machine canonical major mutation lease violates v3 invariants.");
         }
     }
 
