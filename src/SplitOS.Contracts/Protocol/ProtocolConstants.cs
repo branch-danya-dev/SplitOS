@@ -20,6 +20,8 @@ public static class MessageTypes
     public const string MachineServicePolicySnapshotResult = "MachineServicePolicySnapshotResult";
     public const string MachineServicePolicyApplyRequest = "MachineServicePolicyApplyRequest";
     public const string MachineServicePolicyApplyResult = "MachineServicePolicyApplyResult";
+    public const string MachineServicePolicyVerifyRequest = "MachineServicePolicyVerifyRequest";
+    public const string MachineServicePolicyVerifyResult = "MachineServicePolicyVerifyResult";
     public const string RuntimeStateReadRequest = "RuntimeStateReadRequest";
     public const string RuntimeStateReadResult = "RuntimeStateReadResult";
     public const string RuntimeAuthStartRequest = "RuntimeAuthStartRequest";
@@ -36,6 +38,7 @@ public static class Capabilities
     public const string MachineOperationalModeWrite = "Machine.OperationalMode.Write@1";
     public const string MachineServicePolicySnapshot = "Machine.ServicePolicy.Snapshot@1";
     public const string MachineServicePolicyApply = "Machine.ServicePolicy.Apply@1";
+    public const string MachineServicePolicyVerify = "Machine.ServicePolicy.Verify@1";
     public const string RuntimeHealthRead = "Runtime.Health.Read";
     public const string RuntimeStateRead = "Runtime.State.Read";
     public const string RuntimeAuthStart = "Runtime.Auth.Start@1";
