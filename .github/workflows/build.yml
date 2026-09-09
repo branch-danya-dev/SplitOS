@@ -129,6 +129,9 @@ jobs:
       - name: Test durable rollback and transition evidence
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ModeTransitionRollbackStoreTests
 
+      - name: Test mode crash reconciliation acceptance
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ModeTransitionReconciliationStoreTests
+
       - name: Test atomic mode commit boundary
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~ModeTransitionCommitStoreTests
 
