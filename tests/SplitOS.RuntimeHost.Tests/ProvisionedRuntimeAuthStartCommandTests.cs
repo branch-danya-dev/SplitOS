@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SplitOS.Contracts.Protocol;
 using SplitOS.RuntimeHost.Authentication;
+using SplitOS.RuntimeHost.ProductIdentity;
 
 namespace SplitOS.RuntimeHost.Tests;
 
@@ -37,7 +38,9 @@ public sealed class ProvisionedRuntimeAuthStartCommandTests
         Assert.AreEqual("Associated", result.Disposition);
         Assert.AreEqual("ACCOUNT_ASSOCIATED", result.ProductCode);
         Assert.AreEqual(1, factory.CreateCount);
-        Assert.AreSame(metadata.Authority, factory.LastAuthority);
+        Assert.AreSame(metadata, factory.LastMetadata);
+        Assert.AreSame(metadata.Authority, factory.LastMetadata!.Authority);
+        Assert.AreSame(metadata.ProductApi, factory.LastMetadata.ProductApi);
         Assert.AreEqual(correlationId, inner.LastCorrelationId);
         Assert.AreEqual(operationId, inner.LastOperationId);
     }
@@ -135,7 +138,8 @@ public sealed class ProvisionedRuntimeAuthStartCommandTests
             NativeAuthReleaseTrustConfiguration.ProductionTrustDomain,
             version,
             epoch,
-            authority);
+            authority,
+            ProductApiConfiguration.FromAuthority(new Uri("https://api.splitos.test/")));
     }
 
     private static NativeAuthAuthorityPackageReadResult Available(VerifiedNativeAuthAuthorityMetadata metadata)
@@ -164,12 +168,12 @@ public sealed class ProvisionedRuntimeAuthStartCommandTests
     {
         private readonly IRuntimeAuthStartCommand _command = command ?? new RecordingCommand();
         public int CreateCount { get; private set; }
-        public NativeAuthAuthorityConfiguration? LastAuthority { get; private set; }
+        public VerifiedNativeAuthAuthorityMetadata? LastMetadata { get; private set; }
 
-        public IRuntimeAuthStartCommand Create(NativeAuthAuthorityConfiguration authority)
+        public IRuntimeAuthStartCommand Create(VerifiedNativeAuthAuthorityMetadata metadata)
         {
             CreateCount++;
-            LastAuthority = authority;
+            LastMetadata = metadata;
             return _command;
         }
     }
