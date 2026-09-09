@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SplitOS.Contracts.Protocol;
 using SplitOS.Persistence.Machine;
 
@@ -7,9 +8,12 @@ namespace SplitOS.Broker.Service;
 /// Privileged semantic executor for Machine.ServicePolicy.Apply@1.
 /// Every target is resolved through the release-owned catalog and every adapter invocation is
 /// immediately preceded by canonical lease/fence/action-semantic validation.
+/// The durable pre-state captured before BeginApply is then re-read and compared with SCM state
+/// immediately before the privileged mutation so stale rollback evidence cannot be applied forward.
 /// </summary>
 public sealed class BrokerManagedServicePolicyExecutor(
     BrokerModeMutationFenceBoundary mutationBoundary,
+    ModeTransitionActionJournalStore actionJournalStore,
     IManagedServiceCatalog catalog,
     IManagedServiceAdapter adapter)
 {
@@ -88,7 +92,7 @@ public sealed class BrokerManagedServicePolicyExecutor(
             var entry = resolved[index];
             var execution = await mutationBoundary.ExecuteAsync(
                 fenceContext,
-                token => adapter.ApplyAsync(entry.Target, entry.DesiredState, token),
+                token => GuardAndApplyAsync(request, entries, entry, token),
                 cancellationToken).ConfigureAwait(false);
 
             if (!execution.Executed)
@@ -97,21 +101,42 @@ public sealed class BrokerManagedServicePolicyExecutor(
                     entry.Requested,
                     "FENCE_REJECTED",
                     execution.ProductCode));
-                for (var remaining = index + 1; remaining < resolved.Count; remaining++)
-                {
-                    results.Add(NotAttempted(
-                        resolved[remaining].Requested,
-                        "FENCE_REJECTED",
-                        execution.ProductCode));
-                }
+                AddRemainingNotAttempted(
+                    results,
+                    resolved,
+                    index + 1,
+                    "FENCE_REJECTED",
+                    execution.ProductCode);
 
                 return new MachineServicePolicyApplyResult(
-                    results.Any(static result => result.OperationAttempted) ? "PARTIAL" : "REJECTED",
+                    HasPartialProgress(results) ? "PARTIAL" : "REJECTED",
                     execution.ProductCode,
                     OrderResults(results));
             }
 
-            var technical = execution.Result
+            var guarded = execution.Result
+                ?? throw new InvalidDataException("Managed-service guarded execution returned no result.");
+            if (guarded.Disposition != GuardedServiceExecutionDisposition.Applied)
+            {
+                results.Add(NotAttempted(
+                    entry.Requested,
+                    guarded.ImmediateResult,
+                    guarded.ErrorCode,
+                    guarded.ActualStateObserved));
+                AddRemainingNotAttempted(
+                    results,
+                    resolved,
+                    index + 1,
+                    "BATCH_PRESTATE_GUARD_ABORTED",
+                    guarded.ErrorCode);
+
+                return new MachineServicePolicyApplyResult(
+                    HasPartialProgress(results) ? "PARTIAL" : "REJECTED",
+                    guarded.ProductCode,
+                    OrderResults(results));
+            }
+
+            var technical = guarded.TechnicalResult
                 ?? throw new InvalidDataException("Managed-service adapter execution returned no technical result.");
             results.Add(ToProtocolResult(entry.Requested, technical));
         }
@@ -132,6 +157,126 @@ public sealed class BrokerManagedServicePolicyExecutor(
             OrderResults(results));
     }
 
+    private async ValueTask<GuardedServiceExecution> GuardAndApplyAsync(
+        MachineServicePolicyApplyRequest request,
+        IReadOnlyList<ManagedServicePolicyEntry> normalizedEntries,
+        ResolvedEntry entry,
+        CancellationToken cancellationToken)
+    {
+        var action = await actionJournalStore.GetAsync(request.ActionId, cancellationToken).ConfigureAwait(false);
+        if (action is null ||
+            action.TransitionId != request.TransitionId ||
+            action.Revision != request.ExpectedActionRevision ||
+            action.State != PersistedModeActionState.Applying ||
+            string.IsNullOrWhiteSpace(action.PreStateJson) ||
+            string.IsNullOrWhiteSpace(action.PreStateDigest))
+        {
+            return EvidenceInvalid(
+                "Durable APPLYING action no longer exposes the expected immutable pre-state evidence.");
+        }
+
+        IReadOnlyList<ManagedServicePreStateEntry> preState;
+        try
+        {
+            preState = ManagedServicePolicyActionContract.DeserializePreState(action.PreStateJson);
+        }
+        catch (Exception ex) when (ex is ArgumentException or JsonException)
+        {
+            return EvidenceInvalid($"Durable managed-service pre-state is invalid: {ex.Message}");
+        }
+
+        var computedDigest = ManagedServicePolicyActionContract.ComputePreStateDigest(preState);
+        if (!string.Equals(computedDigest, action.PreStateDigest, StringComparison.OrdinalIgnoreCase))
+        {
+            return EvidenceInvalid("Durable managed-service pre-state digest does not match its canonical payload.");
+        }
+
+        if (!PreStateTargetSetMatches(normalizedEntries, preState))
+        {
+            return EvidenceInvalid(
+                "Durable managed-service pre-state target set does not match the immutable requested policy.");
+        }
+
+        var expected = preState.Single(item =>
+            string.Equals(item.ManagedServiceId, entry.Requested.ManagedServiceId, StringComparison.Ordinal));
+        var observation = await adapter.QueryAsync(entry.Target, cancellationToken).ConfigureAwait(false);
+        var actualState = ToProtocolState(observation.State);
+        if (!string.Equals(actualState, expected.ActualState, StringComparison.Ordinal))
+        {
+            return new GuardedServiceExecution(
+                GuardedServiceExecutionDisposition.DriftDetected,
+                "SERVICE_PRESTATE_DRIFT_DETECTED",
+                "PRESTATE_DRIFT_DETECTED",
+                actualState,
+                "PRESTATE_DRIFT_DETECTED",
+                null,
+                $"Managed service {entry.Requested.ManagedServiceId} changed from durable pre-state {expected.ActualState} to {actualState} before mutation.");
+        }
+
+        var technical = await adapter.ApplyAsync(
+            entry.Target,
+            entry.DesiredState,
+            cancellationToken).ConfigureAwait(false);
+        return new GuardedServiceExecution(
+            GuardedServiceExecutionDisposition.Applied,
+            "SERVICE_PRESTATE_MATCHED",
+            "PRESTATE_MATCHED",
+            actualState,
+            null,
+            technical,
+            null);
+    }
+
+    private static GuardedServiceExecution EvidenceInvalid(string detail)
+        => new(
+            GuardedServiceExecutionDisposition.EvidenceInvalid,
+            "SERVICE_PRESTATE_EVIDENCE_INVALID",
+            "PRESTATE_EVIDENCE_INVALID",
+            "UNKNOWN",
+            "PRESTATE_EVIDENCE_INVALID",
+            null,
+            detail);
+
+    private static bool PreStateTargetSetMatches(
+        IReadOnlyList<ManagedServicePolicyEntry> requested,
+        IReadOnlyList<ManagedServicePreStateEntry> preState)
+    {
+        if (requested.Count != preState.Count) return false;
+        for (var index = 0; index < requested.Count; index++)
+        {
+            if (!string.Equals(
+                    requested[index].ManagedServiceId,
+                    preState[index].ManagedServiceId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void AddRemainingNotAttempted(
+        ICollection<ManagedServicePolicyEntryResult> results,
+        IReadOnlyList<ResolvedEntry> resolved,
+        int startIndex,
+        string immediateResult,
+        string? errorCode)
+    {
+        for (var remaining = startIndex; remaining < resolved.Count; remaining++)
+        {
+            results.Add(NotAttempted(
+                resolved[remaining].Requested,
+                immediateResult,
+                errorCode));
+        }
+    }
+
+    private static bool HasPartialProgress(IEnumerable<ManagedServicePolicyEntryResult> results)
+        => results.Any(static result =>
+            result.OperationAttempted ||
+            string.Equals(result.VerificationStatus, "VERIFIED", StringComparison.Ordinal));
+
     private static ManagedServicePolicyEntryResult ToProtocolResult(
         ManagedServicePolicyEntry requested,
         ManagedServiceTechnicalResult technical)
@@ -147,13 +292,14 @@ public sealed class BrokerManagedServicePolicyExecutor(
     private static ManagedServicePolicyEntryResult NotAttempted(
         ManagedServicePolicyEntry requested,
         string immediateResult,
-        string? errorCode)
+        string? errorCode,
+        string actualStateObserved = "UNKNOWN")
         => new(
             requested.ManagedServiceId,
             requested.DesiredState,
             false,
             immediateResult,
-            "UNKNOWN",
+            actualStateObserved,
             "NOT_VERIFIED",
             errorCode);
 
@@ -210,4 +356,20 @@ public sealed class BrokerManagedServicePolicyExecutor(
         ManagedServicePolicyEntry Requested,
         ManagedServiceCatalogEntry Target,
         ManagedServiceDesiredState DesiredState);
+
+    private enum GuardedServiceExecutionDisposition
+    {
+        Applied,
+        DriftDetected,
+        EvidenceInvalid
+    }
+
+    private sealed record GuardedServiceExecution(
+        GuardedServiceExecutionDisposition Disposition,
+        string ProductCode,
+        string ImmediateResult,
+        string ActualStateObserved,
+        string? ErrorCode,
+        ManagedServiceTechnicalResult? TechnicalResult,
+        string? Detail);
 }

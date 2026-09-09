@@ -168,6 +168,44 @@ public static class ManagedServicePolicyActionContract
     public static string ComputePreStateDigest(IReadOnlyCollection<ManagedServicePreStateEntry> entries)
         => Sha256(SerializePreState(entries));
 
+    /// <summary>
+    /// Rehydrates only the canonical pre-state document emitted by <see cref="SerializePreState"/>.
+    /// This deliberately rejects semantically-equivalent but differently serialized JSON so the
+    /// durable digest has one byte-exact representation at the privileged mutation boundary.
+    /// </summary>
+    public static IReadOnlyList<ManagedServicePreStateEntry> DeserializePreState(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new ArgumentException("Managed-service pre-state JSON is missing.", nameof(json));
+        }
+
+        var document = JsonSerializer.Deserialize<PreStateDocument>(json, ProtocolJson.Options)
+            ?? throw new JsonException("Managed-service pre-state document is null.");
+        if (document.SchemaVersion != PreStateSchemaVersion)
+        {
+            throw new ArgumentException(
+                $"Managed-service pre-state schema {document.SchemaVersion} is not supported.",
+                nameof(json));
+        }
+
+        if (document.Entries is null)
+        {
+            throw new ArgumentException("Managed-service pre-state entries are missing.", nameof(json));
+        }
+
+        var normalized = NormalizePreState(document.Entries);
+        var canonical = SerializePreState(normalized);
+        if (!string.Equals(json, canonical, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Managed-service pre-state JSON is not in canonical serialization form.",
+                nameof(json));
+        }
+
+        return normalized;
+    }
+
     private static string Sha256(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 

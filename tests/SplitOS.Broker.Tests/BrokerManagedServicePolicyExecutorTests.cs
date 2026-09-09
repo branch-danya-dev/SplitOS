@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SplitOS.Broker.Service;
@@ -35,10 +33,107 @@ public sealed class BrokerManagedServicePolicyExecutorTests
 
         Assert.AreEqual("SUCCEEDED", result.Disposition);
         Assert.AreEqual("SERVICE_POLICY_APPLIED_VERIFIED", result.ProductCode);
+        Assert.AreEqual(1, adapter.Queries);
         Assert.AreEqual(1, adapter.Calls);
         Assert.AreEqual("fixture-SEARCH_INDEXER", adapter.LastTarget?.WindowsServiceName);
         Assert.AreEqual(ManagedServiceDesiredState.Stopped, adapter.LastDesiredState);
         Assert.AreEqual("STOPPED", result.Entries.Single().ActualStateObserved);
+    }
+
+    [TestMethod]
+    public async Task DurablePreStateDriftRejectsBeforeMutationEvenWhenCurrentStateAlreadyEqualsDesired()
+    {
+        var entries = new[] { new ManagedServicePolicyEntry("SEARCH_INDEXER", "STOPPED") };
+        var fixture = await CreateFixtureAsync(entries);
+        var adapter = new FakeAdapter(
+            static (_, _) => Verified(ManagedServiceObservedState.Stopped),
+            static _ => new ManagedServiceObservation(ManagedServiceObservedState.Stopped));
+        var executor = CreateExecutor(fixture, adapter, new TestCatalog("SEARCH_INDEXER"));
+
+        var result = await executor.ExecuteAsync(
+            fixture.OperationId,
+            fixture.CorrelationId,
+            fixture.Request);
+
+        Assert.AreEqual("REJECTED", result.Disposition);
+        Assert.AreEqual("SERVICE_PRESTATE_DRIFT_DETECTED", result.ProductCode);
+        Assert.AreEqual(1, adapter.Queries);
+        Assert.AreEqual(0, adapter.Calls);
+        var entry = result.Entries.Single();
+        Assert.AreEqual("PRESTATE_DRIFT_DETECTED", entry.ImmediateResult);
+        Assert.AreEqual("STOPPED", entry.ActualStateObserved);
+        Assert.AreEqual("PRESTATE_DRIFT_DETECTED", entry.ErrorCode);
+    }
+
+    [TestMethod]
+    public async Task TransitionalObservationRejectsBeforeMutation()
+    {
+        var entries = new[] { new ManagedServicePolicyEntry("SEARCH_INDEXER", "STOPPED") };
+        var fixture = await CreateFixtureAsync(entries);
+        var adapter = new FakeAdapter(
+            static (_, _) => Verified(ManagedServiceObservedState.Stopped),
+            static _ => new ManagedServiceObservation(ManagedServiceObservedState.StartPending));
+        var executor = CreateExecutor(fixture, adapter, new TestCatalog("SEARCH_INDEXER"));
+
+        var result = await executor.ExecuteAsync(
+            fixture.OperationId,
+            fixture.CorrelationId,
+            fixture.Request);
+
+        Assert.AreEqual("REJECTED", result.Disposition);
+        Assert.AreEqual("SERVICE_PRESTATE_DRIFT_DETECTED", result.ProductCode);
+        Assert.AreEqual(1, adapter.Queries);
+        Assert.AreEqual(0, adapter.Calls);
+        Assert.AreEqual("START_PENDING", result.Entries.Single().ActualStateObserved);
+    }
+
+    [TestMethod]
+    public async Task MissingDurablePreStateCannotReachScm()
+    {
+        var entries = new[] { new ManagedServicePolicyEntry("SEARCH_INDEXER", "STOPPED") };
+        var fixture = await CreateFixtureAsync(entries, includePreState: false);
+        var adapter = new FakeAdapter(static (_, _) => Verified(ManagedServiceObservedState.Stopped));
+        var executor = CreateExecutor(fixture, adapter, new TestCatalog("SEARCH_INDEXER"));
+
+        var result = await executor.ExecuteAsync(
+            fixture.OperationId,
+            fixture.CorrelationId,
+            fixture.Request);
+
+        Assert.AreEqual("REJECTED", result.Disposition);
+        Assert.AreEqual("SERVICE_PRESTATE_EVIDENCE_INVALID", result.ProductCode);
+        Assert.AreEqual(0, adapter.Queries);
+        Assert.AreEqual(0, adapter.Calls);
+        Assert.AreEqual("PRESTATE_EVIDENCE_INVALID", result.Entries.Single().ErrorCode);
+    }
+
+    [TestMethod]
+    public async Task BatchStopsAtFirstDriftAfterEarlierMutation()
+    {
+        var entries = new[]
+        {
+            new ManagedServicePolicyEntry("A_FIRST", "STOPPED"),
+            new ManagedServicePolicyEntry("Z_SECOND", "STOPPED")
+        };
+        var fixture = await CreateFixtureAsync(entries);
+        var adapter = new FakeAdapter(
+            static (_, _) => Verified(ManagedServiceObservedState.Stopped),
+            static entry => new ManagedServiceObservation(
+                string.Equals(entry.ManagedServiceId, "A_FIRST", StringComparison.Ordinal)
+                    ? ManagedServiceObservedState.Running
+                    : ManagedServiceObservedState.Stopped));
+        var executor = CreateExecutor(fixture, adapter, new TestCatalog("A_FIRST", "Z_SECOND"));
+
+        var result = await executor.ExecuteAsync(
+            fixture.OperationId,
+            fixture.CorrelationId,
+            fixture.Request);
+
+        Assert.AreEqual("PARTIAL", result.Disposition);
+        Assert.AreEqual("SERVICE_PRESTATE_DRIFT_DETECTED", result.ProductCode);
+        Assert.AreEqual(2, adapter.Queries);
+        Assert.AreEqual(1, adapter.Calls);
+        Assert.AreEqual("PRESTATE_DRIFT_DETECTED", result.Entries.Single(item => item.ManagedServiceId == "Z_SECOND").ErrorCode);
     }
 
     [TestMethod]
@@ -60,6 +155,7 @@ public sealed class BrokerManagedServicePolicyExecutorTests
 
         Assert.AreEqual("REJECTED", result.Disposition);
         Assert.AreEqual("MODE_MUTATION_ACTION_SEMANTICS_MISMATCH", result.ProductCode);
+        Assert.AreEqual(0, adapter.Queries);
         Assert.AreEqual(0, adapter.Calls);
     }
 
@@ -79,6 +175,7 @@ public sealed class BrokerManagedServicePolicyExecutorTests
         Assert.AreEqual("FAILED", result.Disposition);
         Assert.AreEqual("SERVICE_POLICY_TARGET_INVALID", result.ProductCode);
         Assert.AreEqual("TARGET_NOT_FOUND", result.Entries.Single().ErrorCode);
+        Assert.AreEqual(0, adapter.Queries);
         Assert.AreEqual(0, adapter.Calls);
     }
 
@@ -98,6 +195,7 @@ public sealed class BrokerManagedServicePolicyExecutorTests
 
         Assert.AreEqual("REJECTED", result.Disposition);
         Assert.AreEqual("MUTATION_LEASE_STALE_FENCE", result.ProductCode);
+        Assert.AreEqual(0, adapter.Queries);
         Assert.AreEqual(0, adapter.Calls);
     }
 
@@ -121,6 +219,7 @@ public sealed class BrokerManagedServicePolicyExecutorTests
 
         Assert.AreEqual(MessageTypes.MachineServicePolicyApplyResult, response.MessageType);
         Assert.AreEqual("SUCCEEDED", result.Disposition);
+        Assert.AreEqual(1, adapter.Queries);
         Assert.AreEqual(1, adapter.Calls);
     }
 
@@ -135,14 +234,22 @@ public sealed class BrokerManagedServicePolicyExecutorTests
             fixture.QuarantineMarkerPath,
             fixture.Time);
         fenceStore.InitializeAsync().GetAwaiter().GetResult();
+        var journal = new ModeTransitionActionJournalStore(
+            fixture.DatabasePath,
+            fixture.MarkerPath,
+            fixture.QuarantineMarkerPath,
+            fixture.Time);
+        journal.InitializeAsync().GetAwaiter().GetResult();
         return new BrokerManagedServicePolicyExecutor(
             new BrokerModeMutationFenceBoundary(fenceStore),
+            journal,
             catalog,
             adapter);
     }
 
     private async Task<Fixture> CreateFixtureAsync(
-        IReadOnlyCollection<ManagedServicePolicyEntry> entries)
+        IReadOnlyCollection<ManagedServicePolicyEntry> entries,
+        bool includePreState = true)
     {
         _root = Path.Combine(Path.GetTempPath(), "SplitOS.Broker.ServicePolicy.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_root);
@@ -270,7 +377,17 @@ public sealed class BrokerManagedServicePolicyExecutorTests
 
         var journal = new ModeTransitionActionJournalStore(db, marker, quarantineMarker, time);
         await journal.InitializeAsync();
-        const string preState = "{\"SEARCH_INDEXER\":\"RUNNING\"}";
+        string? preStateJson = null;
+        string? preStateDigest = null;
+        if (includePreState)
+        {
+            var preState = normalized
+                .Select(static item => new ManagedServicePreStateEntry(item.ManagedServiceId, "RUNNING"))
+                .ToArray();
+            preStateJson = ManagedServicePolicyActionContract.SerializePreState(preState);
+            preStateDigest = ManagedServicePolicyActionContract.ComputePreStateDigest(preState);
+        }
+
         var applying = await journal.BeginApplyAsync(
             transitionId,
             actionId,
@@ -278,8 +395,8 @@ public sealed class BrokerManagedServicePolicyExecutorTests
             lease.LeaseId.Value,
             lease.FenceToken,
             operationId,
-            preState,
-            Digest(preState));
+            preStateJson,
+            preStateDigest);
         Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, applying.Disposition, applying.Detail);
 
         var request = new MachineServicePolicyApplyRequest(
@@ -332,9 +449,6 @@ public sealed class BrokerManagedServicePolicyExecutorTests
             state,
             "VERIFIED");
 
-    private static string Digest(string value)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-
     private sealed record Fixture(
         MachineStateStore Machine,
         string DatabasePath,
@@ -365,10 +479,20 @@ public sealed class BrokerManagedServicePolicyExecutorTests
             => _entries.TryGetValue(managedServiceId, out entry!);
     }
 
-    private sealed class FakeAdapter(
-        Func<ManagedServiceCatalogEntry, ManagedServiceDesiredState, ManagedServiceTechnicalResult> resultFactory)
-        : IManagedServiceAdapter
+    private sealed class FakeAdapter : IManagedServiceAdapter
     {
+        private readonly Func<ManagedServiceCatalogEntry, ManagedServiceDesiredState, ManagedServiceTechnicalResult> _resultFactory;
+        private readonly Func<ManagedServiceCatalogEntry, ManagedServiceObservation> _queryFactory;
+
+        public FakeAdapter(
+            Func<ManagedServiceCatalogEntry, ManagedServiceDesiredState, ManagedServiceTechnicalResult> resultFactory,
+            Func<ManagedServiceCatalogEntry, ManagedServiceObservation>? queryFactory = null)
+        {
+            _resultFactory = resultFactory;
+            _queryFactory = queryFactory ?? static _ => new ManagedServiceObservation(ManagedServiceObservedState.Running);
+        }
+
+        public int Queries { get; private set; }
         public int Calls { get; private set; }
         public ManagedServiceCatalogEntry? LastTarget { get; private set; }
         public ManagedServiceDesiredState? LastDesiredState { get; private set; }
@@ -376,7 +500,10 @@ public sealed class BrokerManagedServicePolicyExecutorTests
         public ValueTask<ManagedServiceObservation> QueryAsync(
             ManagedServiceCatalogEntry entry,
             CancellationToken cancellationToken = default)
-            => ValueTask.FromResult(new ManagedServiceObservation(ManagedServiceObservedState.Running));
+        {
+            Queries++;
+            return ValueTask.FromResult(_queryFactory(entry));
+        }
 
         public ValueTask<ManagedServiceTechnicalResult> ApplyAsync(
             ManagedServiceCatalogEntry entry,
@@ -386,7 +513,7 @@ public sealed class BrokerManagedServicePolicyExecutorTests
             Calls++;
             LastTarget = entry;
             LastDesiredState = desiredState;
-            return ValueTask.FromResult(resultFactory(entry, desiredState));
+            return ValueTask.FromResult(_resultFactory(entry, desiredState));
         }
     }
 
