@@ -153,7 +153,7 @@ public sealed class ModeTransitionPolicyStoreTests
         using var storage = new TestStorage();
         var context = await CreateResolvingContextAsync(storage, "NONE", "WORK");
 
-        await Assert.ThrowsExactlyAsync<SqliteException>(() => context.Transitions.AdvanceAsync(
+        var denied = await context.Transitions.AdvanceAsync(
             context.TransitionId,
             context.TransitionRevision,
             context.Lease.LeaseId!.Value,
@@ -161,7 +161,9 @@ public sealed class ModeTransitionPolicyStoreTests
             context.OperationId,
             PersistedModeTransitionState.Resolving,
             PersistedModeTransitionStage.ActionPlanReady,
-            mandatoryVerified: false));
+            mandatoryVerified: false);
+        Assert.AreEqual(ModeTransitionAdvanceDisposition.InvalidLifecycle, denied.Disposition);
+        StringAssert.Contains(denied.Detail, "Durable resolved policy binding");
 
         var bound = await context.Policies.BindResolvedPolicyAsync(
             context.TransitionId,

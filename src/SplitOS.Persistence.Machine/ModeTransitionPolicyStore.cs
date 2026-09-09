@@ -573,6 +573,11 @@ public sealed class ModeTransitionPolicyStore
         ValidateDigest(identity.CatalogDigest, nameof(identity.CatalogDigest));
         ValidateDigest(resolvedDigest, nameof(resolvedDigest));
 
+        if (fallbacks is { Count: > 256 })
+        {
+            throw new ArgumentException("Fallback selection count exceeds the bounded policy rule maximum.", nameof(fallbacks));
+        }
+
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var fallback in fallbacks ?? Array.Empty<PersistedModePolicyFallbackSelection>())
         {
