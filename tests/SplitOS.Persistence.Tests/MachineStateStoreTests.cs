@@ -127,17 +127,82 @@ public sealed class MachineStateStoreTests
         Assert.AreEqual(7, migrated.Revision);
 
         SqliteConnection.ClearAllPools();
-        var backups = Directory.GetFiles(backupRoot, "*.db", SearchOption.TopDirectoryOnly);
-        Assert.AreEqual(1, backups.Length);
-        await using (var backup = await OpenUnpooledAsync(backups[0]))
+        var v1Backup = GetSingleBackupByVersion(backupRoot, 1);
+        var v2Backup = GetSingleBackupByVersion(backupRoot, 2);
+
+        await using (var backup = await OpenUnpooledAsync(v1Backup))
         {
             Assert.AreEqual(1, await ScalarIntAsync(backup, "PRAGMA user_version;"));
             Assert.AreEqual(7, await ScalarIntAsync(backup, "SELECT revision FROM operational_mode_state WHERE singleton_id = 1;"));
+            Assert.IsFalse(await TableExistsAsync(backup, "machine_mutation_lease"));
+        }
+
+        await using (var backup = await OpenUnpooledAsync(v2Backup))
+        {
+            Assert.AreEqual(2, await ScalarIntAsync(backup, "PRAGMA user_version;"));
+            Assert.AreEqual(7, await ScalarIntAsync(backup, "SELECT revision FROM operational_mode_state WHERE singleton_id = 1;"));
+            Assert.IsFalse(await TableExistsAsync(backup, "mode_transition"));
         }
 
         await using var current = await OpenUnpooledAsync(db);
         Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(current, "PRAGMA user_version;"));
+        Assert.AreEqual(3, await ScalarIntAsync(current, "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';"));
         Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id = 'machine-v1-v2';"));
+        Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id = 'machine-v2-v3-slice03-foundation';"));
+        Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_mutation_lease WHERE singleton_id = 1 AND lease_id IS NULL AND fence_token = 0;"));
+        Assert.IsTrue(await TableExistsAsync(current, "mode_transition"));
+    }
+
+    [TestMethod]
+    public async Task SchemaV2MigratesToV3PreservesStateAndExistingLease()
+    {
+        using var storage = new TestStorage();
+        var db = storage.PathFor("machine.db");
+        var marker = storage.PathFor("machine-store.initialized");
+        var backupRoot = storage.PathFor("maintenance", "backups");
+        var leaseId = Guid.NewGuid();
+        var ownerOperationId = Guid.NewGuid();
+        var ownerCorrelationId = Guid.NewGuid();
+        await CreateSchemaV2StoreAsync(
+            db,
+            marker,
+            "GAME",
+            4,
+            leaseId,
+            ownerOperationId,
+            ownerCorrelationId,
+            fenceToken: 9);
+
+        var store = new MachineStateStore(
+            db,
+            marker,
+            backupRoot,
+            storage.PathFor("maintenance", "quarantine"),
+            storage.PathFor("machine-store.quarantined.json"));
+        await store.InitializeAsync();
+
+        var migrated = await store.GetOperationalModeAsync();
+        Assert.AreEqual("GAME", migrated.CommittedMode);
+        Assert.AreEqual(4, migrated.Revision);
+
+        SqliteConnection.ClearAllPools();
+        var v2Backup = GetSingleBackupByVersion(backupRoot, 2);
+        await using (var backup = await OpenUnpooledAsync(v2Backup))
+        {
+            Assert.AreEqual(2, await ScalarIntAsync(backup, "PRAGMA user_version;"));
+            Assert.AreEqual(9L, await ScalarLongAsync(backup, "SELECT fence_token FROM machine_mutation_lease WHERE singleton_id = 1;"));
+            Assert.AreEqual(leaseId.ToString("D"), await ScalarStringAsync(backup, "SELECT lease_id FROM machine_mutation_lease WHERE singleton_id = 1;"));
+            Assert.IsFalse(await TableExistsAsync(backup, "mode_transition"));
+        }
+
+        await using var current = await OpenUnpooledAsync(db);
+        Assert.AreEqual(3, await ScalarIntAsync(current, "PRAGMA user_version;"));
+        Assert.AreEqual(3, await ScalarIntAsync(current, "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';"));
+        Assert.AreEqual(9L, await ScalarLongAsync(current, "SELECT fence_token FROM machine_mutation_lease WHERE singleton_id = 1;"));
+        Assert.AreEqual(leaseId.ToString("D"), await ScalarStringAsync(current, "SELECT lease_id FROM machine_mutation_lease WHERE singleton_id = 1;"));
+        Assert.AreEqual(ownerOperationId.ToString("D"), await ScalarStringAsync(current, "SELECT owner_operation_id FROM machine_mutation_lease WHERE singleton_id = 1;"));
+        Assert.AreEqual(1, await ScalarIntAsync(current, "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id = 'machine-v2-v3-slice03-foundation';"));
+        Assert.IsTrue(await TableExistsAsync(current, "mode_transition"));
     }
 
     [TestMethod]
@@ -234,6 +299,109 @@ public sealed class MachineStateStoreTests
         await File.WriteAllTextAsync(markerPath, now);
     }
 
+    private static async Task CreateSchemaV2StoreAsync(
+        string databasePath,
+        string markerPath,
+        string mode,
+        int revision,
+        Guid leaseId,
+        Guid ownerOperationId,
+        Guid ownerCorrelationId,
+        long fenceToken)
+    {
+        var directory = Path.GetDirectoryName(databasePath);
+        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+        await using var connection = await OpenUnpooledAsync(databasePath);
+
+        var now = DateTimeOffset.UtcNow;
+        var expires = now.AddMinutes(2);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = FULL;
+            CREATE TABLE schema_metadata (
+                component_key TEXT PRIMARY KEY,
+                schema_version INTEGER NOT NULL CHECK(schema_version >= 1),
+                created_utc TEXT NOT NULL,
+                last_migrated_utc TEXT NOT NULL,
+                release_id TEXT NULL
+            );
+            CREATE TABLE operational_mode_state (
+                singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+                committed_mode TEXT NOT NULL CHECK(committed_mode IN ('NONE','WORK','GAME')),
+                committed_utc TEXT NOT NULL,
+                committed_by_operation_id TEXT NOT NULL,
+                correlation_id TEXT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1),
+                updated_utc TEXT NOT NULL
+            );
+            CREATE TABLE machine_operation_idempotency (
+                operation_id TEXT PRIMARY KEY,
+                request_kind TEXT NOT NULL,
+                target_mode TEXT NOT NULL,
+                expected_revision INTEGER NOT NULL CHECK(expected_revision >= 1),
+                correlation_id TEXT NOT NULL,
+                result_mode TEXT NOT NULL,
+                result_revision INTEGER NOT NULL CHECK(result_revision >= 1),
+                result_committed_utc TEXT NOT NULL,
+                result_updated_utc TEXT NOT NULL,
+                created_utc TEXT NOT NULL
+            );
+            CREATE TABLE machine_schema_migration_history (
+                migration_id TEXT PRIMARY KEY,
+                from_schema_version INTEGER NOT NULL,
+                to_schema_version INTEGER NOT NULL,
+                backup_path TEXT NOT NULL,
+                migrated_utc TEXT NOT NULL,
+                release_id TEXT NOT NULL
+            );
+            CREATE TABLE machine_mutation_lease (
+                singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+                lease_id TEXT NULL,
+                mutation_type TEXT NULL CHECK(mutation_type IS NULL OR mutation_type IN ('MODE','UPDATE','RECOVERY')),
+                owner_operation_id TEXT NULL,
+                owner_correlation_id TEXT NULL,
+                owner_control_session_key TEXT NULL,
+                fence_token INTEGER NOT NULL DEFAULT 0 CHECK(fence_token >= 0),
+                acquired_utc TEXT NULL,
+                heartbeat_utc TEXT NULL,
+                expires_utc TEXT NULL,
+                revision INTEGER NOT NULL CHECK(revision >= 1)
+            );
+            INSERT INTO schema_metadata(component_key, schema_version, created_utc, last_migrated_utc, release_id)
+            VALUES ('machine', 2, $now, $now, 'schema-v2');
+            INSERT INTO operational_mode_state(
+                singleton_id, committed_mode, committed_utc, committed_by_operation_id, correlation_id, revision, updated_utc)
+            VALUES (1, $mode, $now, 'v2-operation', NULL, $revision, $now);
+            INSERT INTO machine_mutation_lease(
+                singleton_id, lease_id, mutation_type, owner_operation_id, owner_correlation_id,
+                owner_control_session_key, fence_token, acquired_utc, heartbeat_utc, expires_utc, revision)
+            VALUES (1, $lease, 'MODE', $operation, $correlation, 'session:test-v2', $fence, $now, $now, $expires, 5);
+            PRAGMA user_version = 2;
+            """;
+        command.Parameters.AddWithValue("$now", now.ToString("O"));
+        command.Parameters.AddWithValue("$expires", expires.ToString("O"));
+        command.Parameters.AddWithValue("$mode", mode);
+        command.Parameters.AddWithValue("$revision", revision);
+        command.Parameters.AddWithValue("$lease", leaseId.ToString("D"));
+        command.Parameters.AddWithValue("$operation", ownerOperationId.ToString("D"));
+        command.Parameters.AddWithValue("$correlation", ownerCorrelationId.ToString("D"));
+        command.Parameters.AddWithValue("$fence", fenceToken);
+        await command.ExecuteNonQueryAsync();
+        await connection.CloseAsync();
+        await File.WriteAllTextAsync(markerPath, now.ToString("O"));
+    }
+
+    private static string GetSingleBackupByVersion(string backupRoot, int schemaVersion)
+    {
+        var matches = Directory.GetFiles(
+            backupRoot,
+            $"machine.schema-v{schemaVersion}.*.db",
+            SearchOption.TopDirectoryOnly);
+        Assert.AreEqual(1, matches.Length, $"Expected exactly one verified schema-v{schemaVersion} backup.");
+        return matches[0];
+    }
+
     private static async Task<SqliteConnection> OpenUnpooledAsync(string path)
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -246,11 +414,33 @@ public sealed class MachineStateStoreTests
         return connection;
     }
 
+    private static async Task<bool> TableExistsAsync(SqliteConnection connection, string tableName)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;";
+        command.Parameters.AddWithValue("$name", tableName);
+        return Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+    }
+
     private static async Task<int> ScalarIntAsync(SqliteConnection connection, string sql)
     {
         var command = connection.CreateCommand();
         command.CommandText = sql;
         return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<long> ScalarLongAsync(SqliteConnection connection, string sql)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<string?> ScalarStringAsync(SqliteConnection connection, string sql)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToString(await command.ExecuteScalarAsync());
     }
 
     private static void DeleteSqliteFiles(string databasePath)
