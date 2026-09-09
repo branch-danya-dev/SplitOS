@@ -8,6 +8,9 @@ namespace SplitOS.RuntimeHost.Tests;
 [TestClass]
 public sealed class ProvisionedRuntimeAuthStartCommandTests
 {
+    private const string PackageDigestA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private const string PackageDigestB = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
     [TestMethod]
     public async Task MissingAuthorityPackageDoesNotConstructInteractiveCommand()
     {
@@ -60,11 +63,46 @@ public sealed class ProvisionedRuntimeAuthStartCommandTests
     }
 
     [TestMethod]
+    public async Task SameVersionAndEpochWithDifferentPackageIdentityIsRejectedAsEquivocation()
+    {
+        var metadataA = Metadata(version: 7, epoch: 3);
+        var metadataB = Metadata(version: 7, epoch: 3);
+        var provider = new SequenceProvider(
+            Available(metadataA, PackageDigestA),
+            Available(metadataB, PackageDigestB));
+        var factory = new RecordingFactory(new RecordingCommand());
+        var command = new ProvisionedRuntimeAuthStartCommand(provider, factory);
+
+        await command.StartAsync(Guid.NewGuid(), Guid.NewGuid());
+        var equivocation = await command.StartAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.AreEqual("Unavailable", equivocation.Disposition);
+        Assert.AreEqual("AUTH_AUTHORITY_EQUIVOCATION_REJECTED", equivocation.ProductCode);
+        Assert.AreEqual(1, factory.CreateCount);
+    }
+
+    [TestMethod]
+    public async Task AvailableMetadataWithoutExactPackageIdentityIsRejectedBeforeFactory()
+    {
+        var provider = new SequenceProvider(new NativeAuthAuthorityPackageReadResult(
+            NativeAuthAuthorityPackageStatus.Available,
+            "AUTH_AUTHORITY_PACKAGE_AVAILABLE",
+            Metadata(7, 3)));
+        var factory = new RecordingFactory(new RecordingCommand());
+        var command = new ProvisionedRuntimeAuthStartCommand(provider, factory);
+
+        var result = await command.StartAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.AreEqual("AUTH_AUTHORITY_PACKAGE_REJECTED", result.ProductCode);
+        Assert.AreEqual(0, factory.CreateCount);
+    }
+
+    [TestMethod]
     public async Task NewerVerifiedMetadataRebuildsCommand()
     {
         var provider = new SequenceProvider(
-            Available(Metadata(version: 7, epoch: 3)),
-            Available(Metadata(version: 8, epoch: 3)));
+            Available(Metadata(version: 7, epoch: 3), PackageDigestA),
+            Available(Metadata(version: 8, epoch: 3), PackageDigestB));
         var factory = new RecordingFactory(new RecordingCommand());
         var command = new ProvisionedRuntimeAuthStartCommand(provider, factory);
 
@@ -142,8 +180,14 @@ public sealed class ProvisionedRuntimeAuthStartCommandTests
             ProductApiConfiguration.FromAuthority(new Uri("https://api.splitos.test/")));
     }
 
-    private static NativeAuthAuthorityPackageReadResult Available(VerifiedNativeAuthAuthorityMetadata metadata)
-        => new(NativeAuthAuthorityPackageStatus.Available, "AUTH_AUTHORITY_PACKAGE_AVAILABLE", metadata);
+    private static NativeAuthAuthorityPackageReadResult Available(
+        VerifiedNativeAuthAuthorityMetadata metadata,
+        string packageSha256 = PackageDigestA)
+        => new(
+            NativeAuthAuthorityPackageStatus.Available,
+            "AUTH_AUTHORITY_PACKAGE_AVAILABLE",
+            metadata,
+            packageSha256);
 
     private static NativeAuthAuthorityPackageReadResult Result(NativeAuthAuthorityPackageStatus status, string code)
         => new(status, code, null);

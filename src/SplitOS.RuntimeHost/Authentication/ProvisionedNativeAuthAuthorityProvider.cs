@@ -14,9 +14,13 @@ public enum NativeAuthAuthorityPackageStatus
 public sealed record NativeAuthAuthorityPackageReadResult(
     NativeAuthAuthorityPackageStatus Status,
     string ProductCode,
-    VerifiedNativeAuthAuthorityMetadata? Metadata)
+    VerifiedNativeAuthAuthorityMetadata? Metadata,
+    string? PackageSha256 = null)
 {
-    public bool IsAvailable => Status == NativeAuthAuthorityPackageStatus.Available && Metadata is not null;
+    public bool IsAvailable
+        => Status == NativeAuthAuthorityPackageStatus.Available &&
+           Metadata is not null &&
+           PackageSha256 is { Length: 64 };
 }
 
 public interface INativeAuthAuthorityPackageProvider
@@ -29,7 +33,9 @@ public interface INativeAuthAuthorityPackageProvider
 /// exposing any OAuth/OIDC endpoint or client metadata to RuntimeHost authentication code.
 ///
 /// This provider is intentionally read-only. RuntimeHost does not download, generate, repair or replace
-/// release trust material, and it never falls back to user-supplied configuration.
+/// release trust material, and it never falls back to user-supplied configuration. Successful reads also
+/// return the SHA-256 identity of the exact verified package bytes so same-version equivocation can be
+/// detected by the semantic Auth.Start gate.
 /// </summary>
 public sealed class ProvisionedNativeAuthAuthorityProvider : INativeAuthAuthorityPackageProvider
 {
@@ -126,10 +132,12 @@ public sealed class ProvisionedNativeAuthAuthorityProvider : INativeAuthAuthorit
                 return Result(NativeAuthAuthorityPackageStatus.Rejected, "AUTH_AUTHORITY_PACKAGE_REJECTED");
             }
 
+            var packageSha256 = Convert.ToHexString(SHA256.HashData(bytes));
             return new NativeAuthAuthorityPackageReadResult(
                 NativeAuthAuthorityPackageStatus.Available,
                 "AUTH_AUTHORITY_PACKAGE_AVAILABLE",
-                metadata);
+                metadata,
+                packageSha256);
         }
         finally
         {
