@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using SplitOS.RuntimeHost.ProductIdentity;
 
 namespace SplitOS.RuntimeHost.Authentication;
 
@@ -54,11 +55,13 @@ public sealed record VerifiedNativeAuthAuthorityMetadata(
     string TrustDomain,
     long Version,
     long SecurityEpoch,
-    NativeAuthAuthorityConfiguration Authority);
+    NativeAuthAuthorityConfiguration Authority,
+    ProductApiConfiguration ProductApi);
 
 /// <summary>
-/// Verifies compact release-signed metadata that defines the public native OAuth/OIDC authority.
-/// No endpoint, client ID, scope or trust key is accepted from Manager or ordinary user configuration.
+/// Verifies compact release-signed metadata that defines both the public native OAuth/OIDC authority and
+/// the SplitOS product API origin consumed after identity validation. No endpoint, client ID, scope or
+/// trust key is accepted from Manager or ordinary user configuration.
 /// </summary>
 public sealed class SignedNativeAuthAuthorityVerifier
 {
@@ -199,20 +202,25 @@ public sealed class SignedNativeAuthAuthorityVerifier
             clockSkew,
             transactionLifetime);
 
+        ProductApiConfiguration productApi;
         try
         {
             authority.Validate();
+            productApi = ProductApiConfiguration.FromAuthority(
+                RequiredHttpsUri(payload, "productApiAuthority"));
+            productApi.Validate();
         }
         catch (Exception exception) when (exception is ArgumentException or ArgumentOutOfRangeException)
         {
-            throw new InvalidDataException("Signed native auth authority metadata violates the supported native-auth profile.", exception);
+            throw new InvalidDataException("Signed native auth authority metadata violates the supported runtime identity profile.", exception);
         }
 
         return new VerifiedNativeAuthAuthorityMetadata(
             trustDomain,
             version,
             securityEpoch,
-            authority);
+            authority,
+            productApi);
     }
 
     private static Uri RequiredHttpsUri(JsonElement element, string name)
