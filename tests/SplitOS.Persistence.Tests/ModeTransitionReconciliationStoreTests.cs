@@ -184,7 +184,8 @@ public sealed class ModeTransitionReconciliationStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             true,
-            true);
+            Guid.NewGuid(),
+            new PersistedModePolicyIdentity("mode-policy.reconciliation", 1, "development", new string('a', 64)));
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, committed.Disposition, committed.Detail);
 
         context.Time.Advance(TimeSpan.FromSeconds(31));
@@ -222,7 +223,8 @@ public sealed class ModeTransitionReconciliationStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             true,
-            true);
+            Guid.NewGuid(),
+            new PersistedModePolicyIdentity("mode-policy.reconciliation", 1, "development", new string('a', 64)));
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, committed.Disposition, committed.Detail);
 
         var reopened = Reconciliation(context);
@@ -255,7 +257,8 @@ public sealed class ModeTransitionReconciliationStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             true,
-            true);
+            Guid.NewGuid(),
+            new PersistedModePolicyIdentity("mode-policy.reconciliation", 1, "development", new string('a', 64)));
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, committed.Disposition, committed.Detail);
 
         var completed = await context.Transitions.AdvanceAsync(
@@ -310,7 +313,8 @@ public sealed class ModeTransitionReconciliationStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             true,
-            true);
+            Guid.NewGuid(),
+            new PersistedModePolicyIdentity("mode-policy.reconciliation", 1, "development", new string('a', 64)));
         var completed = await context.Transitions.AdvanceAsync(
             context.TransitionId,
             committed.Transition!.Revision,
@@ -365,7 +369,8 @@ public sealed class ModeTransitionReconciliationStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             true,
-            true);
+            Guid.NewGuid(),
+            new PersistedModePolicyIdentity("mode-policy.reconciliation", 1, "development", new string('a', 64)));
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, committed.Disposition, committed.Detail);
 
         var completed = await context.Transitions.AdvanceAsync(

@@ -286,22 +286,30 @@ public sealed class ModeTransitionPolicyStoreTests
             quarantineMarker);
         await machine.InitializeAsync();
 
+        const string controlSessionKey = "console-session-policy-binding";
         if (sourceMode != "NONE")
         {
-            var seeded = await machine.WriteOperationalModeAsync(
+            await SeedManagedSourceAsync(
+                db,
                 sourceMode,
-                1,
-                Guid.NewGuid(),
+                controlSessionKey,
                 Guid.NewGuid());
-            Assert.AreEqual(OperationalModeWriteDisposition.Applied, seeded.Disposition);
         }
 
         var source = await machine.GetOperationalModeAsync();
+        Assert.AreEqual(sourceMode, source.CommittedMode);
+        if (sourceMode != "NONE")
+        {
+            Assert.AreEqual(controlSessionKey, source.ControlSessionKey);
+            Assert.IsNotNull(source.ActivationEpochId);
+            Assert.IsNotNull(source.PolicyIdentity);
+            Assert.IsNotNull(source.ResolvedPolicyDigest);
+        }
+
         var leases = new MachineMutationLeaseStore(db, marker, quarantineMarker, time);
         await leases.InitializeAsync();
         var operationId = Guid.NewGuid();
         var correlationId = Guid.NewGuid();
-        const string controlSessionKey = "console-session-policy-binding";
         var acquired = await leases.TryAcquireAsync(
             MachineMutationType.Mode,
             operationId,
@@ -368,6 +376,51 @@ public sealed class ModeTransitionPolicyStoreTests
             operationId,
             transitionId,
             resolving.Transition!.Revision);
+    }
+
+    private static async Task SeedManagedSourceAsync(
+        string databasePath,
+        string sourceMode,
+        string controlSessionKey,
+        Guid activationEpochId)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false
+        }.ConnectionString);
+        await connection.OpenAsync();
+        var now = StartUtc.ToString("O");
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE operational_mode_state
+            SET committed_mode = $mode,
+                committed_utc = $now,
+                committed_by_operation_id = $operation,
+                correlation_id = $correlation,
+                revision = 2,
+                updated_utc = $now,
+                control_session_key = $session,
+                activation_epoch_id = $epoch,
+                policy_catalog_id = 'mode-policy.source',
+                policy_version = 1,
+                policy_release_id = 'development',
+                policy_catalog_digest = $catalog_digest,
+                policy_target = $mode,
+                resolved_policy_digest = $resolved_digest
+            WHERE singleton_id = 1;
+            """;
+        command.Parameters.AddWithValue("$mode", sourceMode);
+        command.Parameters.AddWithValue("$now", now);
+        command.Parameters.AddWithValue("$operation", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$correlation", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$session", controlSessionKey);
+        command.Parameters.AddWithValue("$epoch", activationEpochId.ToString("D"));
+        command.Parameters.AddWithValue("$catalog_digest", new string('c', 64));
+        command.Parameters.AddWithValue("$resolved_digest", new string('d', 64));
+        Assert.AreEqual(1, await command.ExecuteNonQueryAsync());
+        await connection.DisposeAsync();
     }
 
     private sealed record TestContext(

@@ -72,7 +72,8 @@ public sealed class ModeTransitionCommitStore
         long fenceToken,
         Guid ownerOperationId,
         bool runtimeAccessPermitsTarget,
-        bool policyIdentityCompatible,
+        Guid? activationEpochId,
+        PersistedModePolicyIdentity? currentPolicyIdentity,
         CancellationToken cancellationToken = default)
     {
         ValidateRequest(
@@ -82,16 +83,14 @@ public sealed class ModeTransitionCommitStore
             leaseId,
             fenceToken,
             ownerOperationId);
+        if (currentPolicyIdentity is not null && !IsValidPolicyIdentity(currentPolicyIdentity))
+            throw new ArgumentException("Current policy identity is malformed.", nameof(currentPolicyIdentity));
         EnsureCanonicalStoreAvailable();
 
         await using var connection = await OpenReadyAsync(cancellationToken).ConfigureAwait(false);
         using var transaction = connection.BeginTransaction();
 
-        var transition = await ReadTransitionAsync(
-            connection,
-            transaction,
-            transitionId,
-            cancellationToken).ConfigureAwait(false);
+        var transition = await ReadTransitionAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false);
         if (transition is null)
         {
             return new ModeTransitionCommitOutcome(
@@ -101,14 +100,12 @@ public sealed class ModeTransitionCommitStore
                 null);
         }
 
-        var canonicalMode = await ReadOperationalModeAsync(
-            connection,
-            transaction,
-            cancellationToken).ConfigureAwait(false);
+        var canonicalMode = await ReadOperationalModeAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var policyBinding = await ReadPolicyBindingAsync(connection, transaction, transitionId, cancellationToken).ConfigureAwait(false);
 
         if (transition.CommitDurable)
         {
-            return IsDurableReplay(transition, canonicalMode, ownerOperationId)
+            return IsDurableReplay(transition, canonicalMode, ownerOperationId, activationEpochId, policyBinding)
                 ? new ModeTransitionCommitOutcome(
                     ModeTransitionCommitDisposition.Replayed,
                     "MODE_COMMIT_REPLAYED",
@@ -123,7 +120,7 @@ public sealed class ModeTransitionCommitStore
                     transition,
                     canonicalMode.Revision,
                     transition.Revision,
-                    "Transition claims durable commit but canonical OperationalMode does not match the committed target evidence.");
+                    "Transition claims durable commit but canonical OperationalMode identity does not match the committed target evidence.");
         }
 
         if (transition.Revision != expectedTransitionRevision)
@@ -152,9 +149,7 @@ public sealed class ModeTransitionCommitStore
                 $"Expected canonical source {transition.SourceMode}@{expectedModeRevision}, actual {canonicalMode.CommittedMode}@{canonicalMode.Revision}.");
         }
 
-        if (transition.OperationId != ownerOperationId ||
-            transition.LeaseId != leaseId ||
-            transition.FenceToken != fenceToken)
+        if (transition.OperationId != ownerOperationId || transition.LeaseId != leaseId || transition.FenceToken != fenceToken)
         {
             return new ModeTransitionCommitOutcome(
                 ModeTransitionCommitDisposition.LeaseConflict,
@@ -191,17 +186,85 @@ public sealed class ModeTransitionCommitStore
                 "Atomic target commit requires every mandatory action to remain durably VERIFIED.");
         }
 
-        if (transition.TargetMode is "WORK" or "GAME" &&
-            (!runtimeAccessPermitsTarget || !policyIdentityCompatible))
+        if (policyBinding is null || policyBinding.Target != ExpectedPolicyTarget(transition.TargetMode))
         {
             return new ModeTransitionCommitOutcome(
-                ModeTransitionCommitDisposition.AuthorityDenied,
-                "MODE_TARGET_AUTHORITY_DENIED",
+                ModeTransitionCommitDisposition.InvalidTransition,
+                "MODE_COMMIT_POLICY_BINDING_INVALID",
                 canonicalMode,
                 transition,
                 canonicalMode.Revision,
                 transition.Revision,
-                "Premium target commit requires current RuntimeAccess and compatible policy authority.");
+                "Atomic target commit requires the durable resolved policy binding for the exact target mode.");
+        }
+
+        var managedTarget = transition.TargetMode is "WORK" or "GAME";
+        if (managedTarget)
+        {
+            if (!runtimeAccessPermitsTarget)
+            {
+                return new ModeTransitionCommitOutcome(
+                    ModeTransitionCommitDisposition.AuthorityDenied,
+                    "MODE_TARGET_AUTHORITY_DENIED",
+                    canonicalMode,
+                    transition,
+                    canonicalMode.Revision,
+                    transition.Revision,
+                    "Premium target commit requires current RuntimeAccess authority.");
+            }
+
+            if (currentPolicyIdentity is null || !MatchesPolicyIdentity(currentPolicyIdentity, policyBinding.Identity))
+            {
+                return new ModeTransitionCommitOutcome(
+                    ModeTransitionCommitDisposition.AuthorityDenied,
+                    "MODE_POLICY_IDENTITY_STALE",
+                    canonicalMode,
+                    transition,
+                    canonicalMode.Revision,
+                    transition.Revision,
+                    "The currently active release policy identity no longer matches the transition's durable policy binding.");
+            }
+
+            if (!activationEpochId.HasValue || activationEpochId.Value == Guid.Empty)
+            {
+                return new ModeTransitionCommitOutcome(
+                    ModeTransitionCommitDisposition.InvalidTransition,
+                    "MODE_ACTIVATION_EPOCH_REQUIRED",
+                    canonicalMode,
+                    transition,
+                    canonicalMode.Revision,
+                    transition.Revision,
+                    "Managed target commit requires a non-empty activation epoch identity.");
+            }
+
+            if (transition.OperationKind == PersistedModeOperationKind.Switch &&
+                (!canonicalMode.ActivationEpochId.HasValue ||
+                 canonicalMode.ActivationEpochId.Value != activationEpochId.Value ||
+                 !string.Equals(canonicalMode.ControlSessionKey, transition.ControlSessionKey, StringComparison.Ordinal) ||
+                 canonicalMode.PolicyIdentity is null ||
+                 canonicalMode.PolicyTarget is null ||
+                 string.IsNullOrWhiteSpace(canonicalMode.ResolvedPolicyDigest)))
+            {
+                return new ModeTransitionCommitOutcome(
+                    ModeTransitionCommitDisposition.ConcurrencyConflict,
+                    "MODE_SOURCE_ACTIVATION_IDENTITY_CONFLICT",
+                    canonicalMode,
+                    transition,
+                    canonicalMode.Revision,
+                    transition.Revision,
+                    "A WORK/GAME switch must remain inside the canonical source control session and activation epoch.");
+            }
+        }
+        else if (activationEpochId.HasValue)
+        {
+            return new ModeTransitionCommitOutcome(
+                ModeTransitionCommitDisposition.InvalidTransition,
+                "MODE_NONE_ACTIVATION_EPOCH_NOT_ALLOWED",
+                canonicalMode,
+                transition,
+                canonicalMode.Revision,
+                transition.Revision,
+                "NONE commits clear managed activation identity and must not supply an activation epoch.");
         }
 
         var lease = await ReadLeaseAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -250,6 +313,14 @@ public sealed class ModeTransitionCommitStore
                 committed_utc = $now,
                 committed_by_operation_id = $operation,
                 correlation_id = $correlation,
+                control_session_key = $committed_session,
+                activation_epoch_id = $activation_epoch,
+                policy_catalog_id = $policy_catalog_id,
+                policy_version = $policy_version,
+                policy_release_id = $policy_release_id,
+                policy_catalog_digest = $policy_catalog_digest,
+                policy_target = $policy_target,
+                resolved_policy_digest = $resolved_policy_digest,
                 revision = revision + 1,
                 updated_utc = $now
             WHERE singleton_id = 1
@@ -278,6 +349,14 @@ public sealed class ModeTransitionCommitStore
         command.Parameters.AddWithValue("$lease", leaseKey);
         command.Parameters.AddWithValue("$fence", fenceToken);
         command.Parameters.AddWithValue("$mode_revision", expectedModeRevision);
+        command.Parameters.AddWithValue("$committed_session", managedTarget ? (object)transition.ControlSessionKey : DBNull.Value);
+        command.Parameters.AddWithValue("$activation_epoch", managedTarget ? (object)activationEpochId!.Value.ToString("D") : DBNull.Value);
+        command.Parameters.AddWithValue("$policy_catalog_id", managedTarget ? (object)policyBinding.Identity.PolicyCatalogId : DBNull.Value);
+        command.Parameters.AddWithValue("$policy_version", managedTarget ? (object)policyBinding.Identity.PolicyVersion : DBNull.Value);
+        command.Parameters.AddWithValue("$policy_release_id", managedTarget ? (object)policyBinding.Identity.ReleaseId : DBNull.Value);
+        command.Parameters.AddWithValue("$policy_catalog_digest", managedTarget ? (object)policyBinding.Identity.CatalogDigest : DBNull.Value);
+        command.Parameters.AddWithValue("$policy_target", managedTarget ? (object)ToStoragePolicyTarget(policyBinding.Target) : DBNull.Value);
+        command.Parameters.AddWithValue("$resolved_policy_digest", managedTarget ? (object)policyBinding.ResolvedDigest : DBNull.Value);
         var modeAffected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         if (modeAffected != 1)
         {
@@ -347,7 +426,12 @@ public sealed class ModeTransitionCommitStore
             CommittedByOperationId = operationKey,
             CorrelationId = correlationKey,
             Revision = checked(expectedModeRevision + 1),
-            UpdatedUtc = now
+            UpdatedUtc = now,
+            ControlSessionKey = managedTarget ? transition.ControlSessionKey : null,
+            ActivationEpochId = managedTarget ? activationEpochId : null,
+            PolicyIdentity = managedTarget ? policyBinding.Identity : null,
+            PolicyTarget = managedTarget ? policyBinding.Target : null,
+            ResolvedPolicyDigest = managedTarget ? policyBinding.ResolvedDigest : null
         };
         var committedTransition = transition with
         {
@@ -426,14 +510,40 @@ public sealed class ModeTransitionCommitStore
     private static bool IsDurableReplay(
         ModeTransitionRecord transition,
         OperationalModeRecord mode,
-        Guid ownerOperationId)
-        => transition.OperationId == ownerOperationId &&
-           transition.Stage == PersistedModeTransitionStage.CommitDurable &&
-           transition.MandatoryVerified &&
-           string.Equals(mode.CommittedMode, transition.TargetMode, StringComparison.Ordinal) &&
-           string.Equals(mode.CommittedByOperationId, transition.OperationId.ToString("D"), StringComparison.Ordinal) &&
-           string.Equals(mode.CorrelationId, transition.CorrelationId.ToString("D"), StringComparison.Ordinal) &&
-           mode.Revision == checked(transition.SourceModeRevision + 1);
+        Guid ownerOperationId,
+        Guid? activationEpochId,
+        CommitPolicyBinding? policyBinding)
+    {
+        if (transition.OperationId != ownerOperationId ||
+            transition.Stage != PersistedModeTransitionStage.CommitDurable ||
+            !transition.MandatoryVerified ||
+            !string.Equals(mode.CommittedMode, transition.TargetMode, StringComparison.Ordinal) ||
+            !string.Equals(mode.CommittedByOperationId, transition.OperationId.ToString("D"), StringComparison.Ordinal) ||
+            !string.Equals(mode.CorrelationId, transition.CorrelationId.ToString("D"), StringComparison.Ordinal) ||
+            mode.Revision != checked(transition.SourceModeRevision + 1) ||
+            policyBinding is null ||
+            policyBinding.Target != ExpectedPolicyTarget(transition.TargetMode))
+        {
+            return false;
+        }
+
+        if (transition.TargetMode == "NONE")
+        {
+            return activationEpochId is null &&
+                   mode.ControlSessionKey is null &&
+                   mode.ActivationEpochId is null &&
+                   mode.PolicyIdentity is null &&
+                   mode.PolicyTarget is null &&
+                   mode.ResolvedPolicyDigest is null;
+        }
+
+        return activationEpochId.HasValue && activationEpochId.Value != Guid.Empty &&
+               mode.ActivationEpochId == activationEpochId &&
+               string.Equals(mode.ControlSessionKey, transition.ControlSessionKey, StringComparison.Ordinal) &&
+               mode.PolicyIdentity is not null && MatchesPolicyIdentity(mode.PolicyIdentity, policyBinding.Identity) &&
+               mode.PolicyTarget == policyBinding.Target &&
+               string.Equals(mode.ResolvedPolicyDigest, policyBinding.ResolvedDigest, StringComparison.OrdinalIgnoreCase);
+    }
 
     private async Task<SqliteConnection> OpenReadyAsync(CancellationToken cancellationToken)
     {
@@ -452,6 +562,7 @@ public sealed class ModeTransitionCommitStore
                          "operational_mode_state",
                          "machine_mutation_lease",
                          "mode_transition",
+                         "mode_transition_policy_binding",
                          "mode_transition_action"
                      })
             {
@@ -494,21 +605,108 @@ public sealed class ModeTransitionCommitStore
         var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT committed_mode, committed_utc, committed_by_operation_id, correlation_id, revision, updated_utc
+            SELECT committed_mode, committed_utc, committed_by_operation_id, correlation_id, revision, updated_utc,
+                   control_session_key, activation_epoch_id, policy_catalog_id, policy_version,
+                   policy_release_id, policy_catalog_digest, policy_target, resolved_policy_digest
             FROM operational_mode_state WHERE singleton_id = 1;
             """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             throw new InvalidDataException("OperationalModeState singleton is missing.");
 
+        var hasAnyIdentity = Enumerable.Range(6, 8).Any(index => !reader.IsDBNull(index));
+        var hasFullIdentity = Enumerable.Range(6, 8).All(index => !reader.IsDBNull(index));
+        if (hasAnyIdentity && !hasFullIdentity)
+            throw new InvalidDataException("OperationalModeState contains a partial managed identity tuple.");
+
+        string? controlSessionKey = null;
+        Guid? activationEpochId = null;
+        PersistedModePolicyIdentity? identity = null;
+        PersistedModePolicyTarget? target = null;
+        string? resolvedDigest = null;
+        if (hasFullIdentity)
+        {
+            controlSessionKey = reader.GetString(6);
+            if (!Guid.TryParse(reader.GetString(7), out var parsedEpoch) || parsedEpoch == Guid.Empty)
+                throw new InvalidDataException("OperationalModeState activation epoch is malformed.");
+            activationEpochId = parsedEpoch;
+            identity = new PersistedModePolicyIdentity(
+                reader.GetString(8), reader.GetInt64(9), reader.GetString(10), reader.GetString(11));
+            target = ParsePolicyTarget(reader.GetString(12));
+            resolvedDigest = reader.GetString(13);
+        }
+
         return new OperationalModeRecord(
-            reader.GetString(0),
-            DateTimeOffset.Parse(reader.GetString(1)),
-            reader.GetString(2),
-            reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.GetInt32(4),
-            DateTimeOffset.Parse(reader.GetString(5)));
+            reader.GetString(0), DateTimeOffset.Parse(reader.GetString(1)), reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetInt32(4), DateTimeOffset.Parse(reader.GetString(5)),
+            controlSessionKey, activationEpochId, identity, target, resolvedDigest);
     }
+
+    private static async Task<CommitPolicyBinding?> ReadPolicyBindingAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid transitionId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT policy_catalog_id, policy_version, policy_release_id, policy_catalog_digest,
+                   policy_target, resolved_policy_digest
+            FROM mode_transition_policy_binding
+            WHERE transition_id = $transition;
+            """;
+        command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        var identity = new PersistedModePolicyIdentity(
+            reader.GetString(0), reader.GetInt64(1), reader.GetString(2), reader.GetString(3));
+        if (!IsValidPolicyIdentity(identity))
+            throw new InvalidDataException("Durable mode policy binding contains malformed identity values.");
+        var resolved = reader.GetString(5);
+        if (resolved.Length != 64)
+            throw new InvalidDataException("Durable mode policy binding contains malformed resolved digest.");
+        return new CommitPolicyBinding(identity, ParsePolicyTarget(reader.GetString(4)), resolved);
+    }
+
+    private static bool IsValidPolicyIdentity(PersistedModePolicyIdentity identity)
+        => !string.IsNullOrWhiteSpace(identity.PolicyCatalogId) &&
+           identity.PolicyVersion >= 1 &&
+           !string.IsNullOrWhiteSpace(identity.ReleaseId) &&
+           identity.CatalogDigest.Length == 64;
+
+    private static bool MatchesPolicyIdentity(PersistedModePolicyIdentity left, PersistedModePolicyIdentity right)
+        => string.Equals(left.PolicyCatalogId, right.PolicyCatalogId, StringComparison.Ordinal) &&
+           left.PolicyVersion == right.PolicyVersion &&
+           string.Equals(left.ReleaseId, right.ReleaseId, StringComparison.Ordinal) &&
+           string.Equals(left.CatalogDigest, right.CatalogDigest, StringComparison.OrdinalIgnoreCase);
+
+    private static PersistedModePolicyTarget ExpectedPolicyTarget(string targetMode)
+        => targetMode switch
+        {
+            "NONE" => PersistedModePolicyTarget.Base,
+            "WORK" => PersistedModePolicyTarget.Work,
+            "GAME" => PersistedModePolicyTarget.Game,
+            _ => throw new InvalidDataException($"Unsupported transition target mode {targetMode}.")
+        };
+
+    private static PersistedModePolicyTarget ParsePolicyTarget(string value)
+        => value switch
+        {
+            "BASE" => PersistedModePolicyTarget.Base,
+            "WORK" => PersistedModePolicyTarget.Work,
+            "GAME" => PersistedModePolicyTarget.Game,
+            _ => throw new InvalidDataException($"Unsupported durable policy target {value}.")
+        };
+
+    private static string ToStoragePolicyTarget(PersistedModePolicyTarget target)
+        => target switch
+        {
+            PersistedModePolicyTarget.Base => "BASE",
+            PersistedModePolicyTarget.Work => "WORK",
+            PersistedModePolicyTarget.Game => "GAME",
+            _ => throw new ArgumentOutOfRangeException(nameof(target))
+        };
 
     private static async Task<MachineMutationLeaseRecord> ReadLeaseAsync(
         SqliteConnection connection,
@@ -612,6 +810,11 @@ public sealed class ModeTransitionCommitStore
             reader.IsDBNull(17) ? null : reader.GetString(17),
             reader.GetInt32(18));
     }
+
+    private sealed record CommitPolicyBinding(
+        PersistedModePolicyIdentity Identity,
+        PersistedModePolicyTarget Target,
+        string ResolvedDigest);
 
     private static bool TryParseMutationType(string value, out MachineMutationType type)
     {

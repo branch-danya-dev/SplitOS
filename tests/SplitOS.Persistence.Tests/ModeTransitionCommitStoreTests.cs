@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SplitOS.Persistence.Machine;
 
@@ -23,13 +24,19 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: true,
-            policyIdentityCompatible: true);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: context.BoundPolicyIdentity);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, outcome.Disposition);
         Assert.AreEqual("MODE_COMMIT_DURABLE", outcome.ProductCode);
         Assert.AreEqual("WORK", outcome.OperationalMode?.CommittedMode);
         Assert.AreEqual(context.SourceModeRevision + 1, outcome.OperationalMode?.Revision);
         Assert.AreEqual(context.OperationId.ToString("D"), outcome.OperationalMode?.CommittedByOperationId);
+        Assert.AreEqual(context.ControlSessionKey, outcome.OperationalMode?.ControlSessionKey);
+        Assert.AreEqual(context.ActivationEpochId, outcome.OperationalMode?.ActivationEpochId);
+        Assert.AreEqual(context.BoundPolicyIdentity, outcome.OperationalMode?.PolicyIdentity);
+        Assert.AreEqual(PersistedModePolicyTarget.Work, outcome.OperationalMode?.PolicyTarget);
+        Assert.AreEqual(context.BoundResolvedPolicyDigest, outcome.OperationalMode?.ResolvedPolicyDigest);
         Assert.AreEqual(PersistedModeTransitionStage.CommitDurable, outcome.Transition?.Stage);
         Assert.IsTrue(outcome.Transition?.CommitDurable == true);
         Assert.AreEqual(context.TransitionRevision + 1, outcome.Transition?.Revision);
@@ -38,6 +45,10 @@ public sealed class ModeTransitionCommitStoreTests
         var persistedTransition = await context.Transitions.GetAsync(context.TransitionId);
         Assert.AreEqual("WORK", persistedMode.CommittedMode);
         Assert.AreEqual(context.SourceModeRevision + 1, persistedMode.Revision);
+        Assert.AreEqual(context.ControlSessionKey, persistedMode.ControlSessionKey);
+        Assert.AreEqual(context.ActivationEpochId, persistedMode.ActivationEpochId);
+        Assert.AreEqual(context.BoundPolicyIdentity, persistedMode.PolicyIdentity);
+        Assert.AreEqual(context.BoundResolvedPolicyDigest, persistedMode.ResolvedPolicyDigest);
         Assert.AreEqual(PersistedModeTransitionStage.CommitDurable, persistedTransition?.Stage);
         Assert.IsTrue(persistedTransition?.CommitDurable == true);
     }
@@ -56,7 +67,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: false,
-            policyIdentityCompatible: true);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: context.BoundPolicyIdentity);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.AuthorityDenied, denied.Disposition);
         Assert.AreEqual("MODE_TARGET_AUTHORITY_DENIED", denied.ProductCode);
@@ -68,6 +80,51 @@ public sealed class ModeTransitionCommitStoreTests
         Assert.AreEqual(PersistedModeTransitionStage.CommitStarted, transition?.Stage);
         Assert.IsFalse(transition?.CommitDurable ?? true);
         Assert.AreEqual(context.TransitionRevision, transition?.Revision);
+    }
+
+    [TestMethod]
+    public async Task StaleCurrentPolicyIdentityDeniesPremiumCommit()
+    {
+        using var storage = new TestStorage();
+        var context = await CreateCommitReadyContextAsync(storage, "NONE", "WORK");
+        var staleIdentity = context.BoundPolicyIdentity with { CatalogDigest = new string('c', 64) };
+
+        var denied = await context.CommitStore.CommitTransitionAndModeAsync(
+            context.TransitionId,
+            context.TransitionRevision,
+            context.SourceModeRevision,
+            context.Lease.LeaseId!.Value,
+            context.Lease.FenceToken,
+            context.OperationId,
+            runtimeAccessPermitsTarget: true,
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: staleIdentity);
+
+        Assert.AreEqual(ModeTransitionCommitDisposition.AuthorityDenied, denied.Disposition);
+        Assert.AreEqual("MODE_POLICY_IDENTITY_STALE", denied.ProductCode);
+        await AssertStillCommitStartedAsync(context);
+    }
+
+    [TestMethod]
+    public async Task SwitchCannotCrossCanonicalActivationEpoch()
+    {
+        using var storage = new TestStorage();
+        var context = await CreateCommitReadyContextAsync(storage, "WORK", "GAME");
+
+        var denied = await context.CommitStore.CommitTransitionAndModeAsync(
+            context.TransitionId,
+            context.TransitionRevision,
+            context.SourceModeRevision,
+            context.Lease.LeaseId!.Value,
+            context.Lease.FenceToken,
+            context.OperationId,
+            runtimeAccessPermitsTarget: true,
+            activationEpochId: Guid.NewGuid(),
+            currentPolicyIdentity: context.BoundPolicyIdentity);
+
+        Assert.AreEqual(ModeTransitionCommitDisposition.ConcurrencyConflict, denied.Disposition);
+        Assert.AreEqual("MODE_SOURCE_ACTIVATION_IDENTITY_CONFLICT", denied.ProductCode);
+        await AssertStillCommitStartedAsync(context);
     }
 
     [TestMethod]
@@ -84,7 +141,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken + 1,
             context.OperationId,
             runtimeAccessPermitsTarget: true,
-            policyIdentityCompatible: true);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: context.BoundPolicyIdentity);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.LeaseConflict, stale.Disposition);
         Assert.AreEqual("MUTATION_LEASE_STALE_FENCE", stale.ProductCode);
@@ -110,7 +168,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: true,
-            policyIdentityCompatible: true);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: context.BoundPolicyIdentity);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.ReconciliationRequired, blocked.Disposition);
         Assert.AreEqual("MUTATION_LEASE_RECONCILIATION_REQUIRED", blocked.ProductCode);
@@ -131,7 +190,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: true,
-            policyIdentityCompatible: true);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: context.BoundPolicyIdentity);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.ModeRevisionConflict, conflict.Disposition);
         Assert.AreEqual("MODE_SOURCE_REVISION_CONFLICT", conflict.ProductCode);
@@ -152,7 +212,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: true,
-            policyIdentityCompatible: true);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: context.BoundPolicyIdentity);
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, first.Disposition);
 
         var released = await context.Leases.ReleaseAsync(
@@ -169,7 +230,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: false,
-            policyIdentityCompatible: false);
+            activationEpochId: context.ActivationEpochId,
+            currentPolicyIdentity: null);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.Replayed, replay.Disposition);
         Assert.AreEqual("MODE_COMMIT_REPLAYED", replay.ProductCode);
@@ -191,10 +253,16 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: false,
-            policyIdentityCompatible: false);
+            activationEpochId: null,
+            currentPolicyIdentity: null);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.Committed, outcome.Disposition);
         Assert.AreEqual("NONE", outcome.OperationalMode?.CommittedMode);
+        Assert.IsNull(outcome.OperationalMode?.ControlSessionKey);
+        Assert.IsNull(outcome.OperationalMode?.ActivationEpochId);
+        Assert.IsNull(outcome.OperationalMode?.PolicyIdentity);
+        Assert.IsNull(outcome.OperationalMode?.PolicyTarget);
+        Assert.IsNull(outcome.OperationalMode?.ResolvedPolicyDigest);
         Assert.IsTrue(outcome.Transition?.CommitDurable == true);
     }
 
@@ -225,7 +293,8 @@ public sealed class ModeTransitionCommitStoreTests
             context.Lease.FenceToken,
             context.OperationId,
             runtimeAccessPermitsTarget: true,
-            policyIdentityCompatible: true);
+            activationEpochId: Guid.NewGuid(),
+            currentPolicyIdentity: null);
 
         Assert.AreEqual(ModeTransitionCommitDisposition.InvalidTransition, denied.Disposition);
         Assert.AreEqual("MODE_TRANSITION_NOT_COMMIT_READY", denied.ProductCode);
@@ -296,15 +365,18 @@ public sealed class ModeTransitionCommitStoreTests
             "GAME" => PersistedModePolicyTarget.Game,
             _ => throw new InvalidOperationException("Unsupported policy target.")
         };
+        var targetPolicyIdentity = new PersistedModePolicyIdentity(
+            "mode-policy.test", 1, "development", new string('a', 64));
+        var targetResolvedPolicyDigest = new string('b', 64);
         var bound = await policies.BindResolvedPolicyAsync(
             transitionId,
             revision,
             context.Lease.LeaseId!.Value,
             context.Lease.FenceToken,
             context.OperationId,
-            new PersistedModePolicyIdentity("mode-policy.test", 1, "development", new string('a', 64)),
+            targetPolicyIdentity,
             policyTarget,
-            new string('b', 64));
+            targetResolvedPolicyDigest);
         Assert.AreEqual(ModeTransitionPolicyBindDisposition.Bound, bound.Disposition, bound.Detail);
         revision = bound.Binding!.TransitionRevision;
 
@@ -360,7 +432,10 @@ public sealed class ModeTransitionCommitStoreTests
             context.SourceModeRevision,
             sourceMode,
             transitionId,
-            revision);
+            revision,
+            context.ActivationEpochId,
+            targetPolicyIdentity,
+            targetResolvedPolicyDigest);
     }
 
     private static async Task<int> AdvanceAsync(
@@ -458,24 +533,26 @@ public sealed class ModeTransitionCommitStoreTests
             quarantineMarker);
         await machine.InitializeAsync();
 
+        const string controlSessionKey = "console-session-atomic-commit";
+        var activationEpochId = Guid.NewGuid();
         if (sourceMode != "NONE")
         {
-            var seeded = await machine.WriteOperationalModeAsync(
-                sourceMode,
-                1,
-                Guid.NewGuid(),
-                Guid.NewGuid());
-            Assert.AreEqual(OperationalModeWriteDisposition.Applied, seeded.Disposition);
+            await SeedManagedSourceAsync(db, sourceMode, controlSessionKey, activationEpochId);
         }
 
         var source = await machine.GetOperationalModeAsync();
         Assert.AreEqual(sourceMode, source.CommittedMode);
+        if (sourceMode != "NONE")
+        {
+            Assert.AreEqual(controlSessionKey, source.ControlSessionKey);
+            Assert.AreEqual(activationEpochId, source.ActivationEpochId);
+            Assert.IsNotNull(source.PolicyIdentity);
+        }
 
         var leases = new MachineMutationLeaseStore(db, marker, quarantineMarker, time);
         await leases.InitializeAsync();
         var operationId = Guid.NewGuid();
         var correlationId = Guid.NewGuid();
-        const string controlSessionKey = "console-session-atomic-commit";
         var acquired = await leases.TryAcquireAsync(
             MachineMutationType.Mode,
             operationId,
@@ -501,7 +578,53 @@ public sealed class ModeTransitionCommitStoreTests
             operationId,
             correlationId,
             controlSessionKey,
-            source.Revision);
+            source.Revision,
+            activationEpochId);
+    }
+
+    private static async Task SeedManagedSourceAsync(
+        string databasePath,
+        string sourceMode,
+        string controlSessionKey,
+        Guid activationEpochId)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false
+        }.ConnectionString);
+        await connection.OpenAsync();
+        var now = StartUtc.ToString("O");
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE operational_mode_state
+            SET committed_mode = $mode,
+                committed_utc = $now,
+                committed_by_operation_id = $operation,
+                correlation_id = $correlation,
+                revision = 2,
+                updated_utc = $now,
+                control_session_key = $session,
+                activation_epoch_id = $epoch,
+                policy_catalog_id = 'mode-policy.source',
+                policy_version = 1,
+                policy_release_id = 'development',
+                policy_catalog_digest = $catalog_digest,
+                policy_target = $mode,
+                resolved_policy_digest = $resolved_digest
+            WHERE singleton_id = 1;
+            """;
+        command.Parameters.AddWithValue("$mode", sourceMode);
+        command.Parameters.AddWithValue("$now", now);
+        command.Parameters.AddWithValue("$operation", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$correlation", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$session", controlSessionKey);
+        command.Parameters.AddWithValue("$epoch", activationEpochId.ToString("D"));
+        command.Parameters.AddWithValue("$catalog_digest", new string('c', 64));
+        command.Parameters.AddWithValue("$resolved_digest", new string('d', 64));
+        Assert.AreEqual(1, await command.ExecuteNonQueryAsync());
+        await connection.DisposeAsync();
     }
 
     private record BaseContext(
@@ -517,7 +640,8 @@ public sealed class ModeTransitionCommitStoreTests
         Guid OperationId,
         Guid CorrelationId,
         string ControlSessionKey,
-        int SourceModeRevision);
+        int SourceModeRevision,
+        Guid ActivationEpochId);
 
     private sealed record CommitReadyContext(
         string DatabasePath,
@@ -535,7 +659,10 @@ public sealed class ModeTransitionCommitStoreTests
         int SourceModeRevision,
         string SourceMode,
         Guid TransitionId,
-        int TransitionRevision)
+        int TransitionRevision,
+        Guid ActivationEpochId,
+        PersistedModePolicyIdentity BoundPolicyIdentity,
+        string BoundResolvedPolicyDigest)
         : BaseContext(
             DatabasePath,
             MarkerPath,
@@ -549,7 +676,8 @@ public sealed class ModeTransitionCommitStoreTests
             OperationId,
             CorrelationId,
             ControlSessionKey,
-            SourceModeRevision);
+            SourceModeRevision,
+            ActivationEpochId);
 
     private sealed class ManualTimeProvider(DateTimeOffset initialUtc) : TimeProvider
     {
