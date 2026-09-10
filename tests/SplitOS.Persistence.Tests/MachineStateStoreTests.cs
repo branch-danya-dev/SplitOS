@@ -40,6 +40,26 @@ public sealed class MachineStateStoreTests
     }
 
     [TestMethod]
+    public async Task DirectManagedModeWriteIsRejected()
+    {
+        using var storage = new TestStorage();
+        var store = CreateStore(storage);
+        await store.InitializeAsync();
+
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() =>
+            store.WriteOperationalModeAsync("WORK", 1, Guid.NewGuid(), Guid.NewGuid()));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() =>
+            store.WriteOperationalModeAsync("GAME", 1, Guid.NewGuid(), Guid.NewGuid()));
+
+        var current = await store.GetOperationalModeAsync();
+        Assert.AreEqual("NONE", current.CommittedMode);
+        Assert.AreEqual(1, current.Revision);
+        Assert.IsNull(current.ControlSessionKey);
+        Assert.IsNull(current.ActivationEpochId);
+        Assert.IsNull(current.PolicyIdentity);
+    }
+
+    [TestMethod]
     public async Task OperationalModeWriteSurvivesRestartAndReplaysIdempotently()
     {
         using var storage = new TestStorage();
@@ -48,26 +68,26 @@ public sealed class MachineStateStoreTests
         var store = CreateStore(storage);
         await store.InitializeAsync();
 
-        var applied = await store.WriteOperationalModeAsync("WORK", 1, operationId, correlationId);
+        var applied = await store.WriteOperationalModeAsync("NONE", 1, operationId, correlationId);
         Assert.AreEqual(OperationalModeWriteDisposition.Applied, applied.Disposition);
         Assert.AreEqual(2, applied.Record?.Revision);
-        Assert.AreEqual("WORK", applied.Record?.CommittedMode);
+        Assert.AreEqual("NONE", applied.Record?.CommittedMode);
 
         SqliteConnection.ClearAllPools();
         var reopened = CreateStore(storage);
         await reopened.InitializeAsync();
         var restored = await reopened.GetOperationalModeAsync();
-        Assert.AreEqual("WORK", restored.CommittedMode);
+        Assert.AreEqual("NONE", restored.CommittedMode);
         Assert.AreEqual(2, restored.Revision);
         Assert.AreEqual(operationId.ToString("D"), restored.CommittedByOperationId);
 
-        var replay = await reopened.WriteOperationalModeAsync("WORK", 1, operationId, correlationId);
+        var replay = await reopened.WriteOperationalModeAsync("NONE", 1, operationId, correlationId);
         Assert.AreEqual(OperationalModeWriteDisposition.Replayed, replay.Disposition);
         Assert.AreEqual(2, replay.Record?.Revision);
 
         var afterReplay = await reopened.GetOperationalModeAsync();
         Assert.AreEqual(2, afterReplay.Revision);
-        Assert.AreEqual("WORK", afterReplay.CommittedMode);
+        Assert.AreEqual("NONE", afterReplay.CommittedMode);
     }
 
     [TestMethod]
@@ -76,14 +96,14 @@ public sealed class MachineStateStoreTests
         using var storage = new TestStorage();
         var store = CreateStore(storage);
         await store.InitializeAsync();
-        await store.WriteOperationalModeAsync("WORK", 1, Guid.NewGuid(), Guid.NewGuid());
+        await store.WriteOperationalModeAsync("NONE", 1, Guid.NewGuid(), Guid.NewGuid());
 
-        var stale = await store.WriteOperationalModeAsync("GAME", 1, Guid.NewGuid(), Guid.NewGuid());
+        var stale = await store.WriteOperationalModeAsync("NONE", 1, Guid.NewGuid(), Guid.NewGuid());
         Assert.AreEqual(OperationalModeWriteDisposition.RevisionConflict, stale.Disposition);
         Assert.AreEqual(2, stale.ActualRevision);
 
         var current = await store.GetOperationalModeAsync();
-        Assert.AreEqual("WORK", current.CommittedMode);
+        Assert.AreEqual("NONE", current.CommittedMode);
         Assert.AreEqual(2, current.Revision);
     }
 
@@ -95,13 +115,13 @@ public sealed class MachineStateStoreTests
         await store.InitializeAsync();
         var operationId = Guid.NewGuid();
         var correlationId = Guid.NewGuid();
-        await store.WriteOperationalModeAsync("WORK", 1, operationId, correlationId);
+        await store.WriteOperationalModeAsync("NONE", 1, operationId, correlationId);
 
-        var conflict = await store.WriteOperationalModeAsync("GAME", 2, operationId, correlationId);
+        var conflict = await store.WriteOperationalModeAsync("NONE", 2, operationId, correlationId);
         Assert.AreEqual(OperationalModeWriteDisposition.IdempotencyConflict, conflict.Disposition);
 
         var current = await store.GetOperationalModeAsync();
-        Assert.AreEqual("WORK", current.CommittedMode);
+        Assert.AreEqual("NONE", current.CommittedMode);
         Assert.AreEqual(2, current.Revision);
     }
 
@@ -125,6 +145,9 @@ public sealed class MachineStateStoreTests
         var migrated = await store.GetOperationalModeAsync();
         Assert.AreEqual("WORK", migrated.CommittedMode);
         Assert.AreEqual(7, migrated.Revision);
+        Assert.IsNull(migrated.ControlSessionKey);
+        Assert.IsNull(migrated.ActivationEpochId);
+        Assert.IsNull(migrated.PolicyIdentity);
 
         SqliteConnection.ClearAllPools();
         var v1Backup = GetSingleBackupByVersion(backupRoot, 1);
@@ -184,6 +207,9 @@ public sealed class MachineStateStoreTests
         var migrated = await store.GetOperationalModeAsync();
         Assert.AreEqual("GAME", migrated.CommittedMode);
         Assert.AreEqual(4, migrated.Revision);
+        Assert.IsNull(migrated.ControlSessionKey);
+        Assert.IsNull(migrated.ActivationEpochId);
+        Assert.IsNull(migrated.PolicyIdentity);
 
         SqliteConnection.ClearAllPools();
         var v2Backup = GetSingleBackupByVersion(backupRoot, 2);

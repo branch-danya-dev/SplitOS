@@ -118,11 +118,14 @@ jobs:
       - name: Test machine schema v5 migration
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~MachineSchemaV5Tests
 
+      - name: Test machine schema v6 migration
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter FullyQualifiedName~MachineSchemaV6Tests
+
       - name: Test machine corruption quarantine
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter Name=CorruptCanonicalStoreIsPreservedAndQuarantined
 
       - name: Test machine write durability
-        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter "Name=OperationalModeWriteSurvivesRestartAndReplaysIdempotently|Name=StaleRevisionDoesNotOverwriteNewerCanonicalState|Name=ReusedOperationIdWithDifferentRequestIsRejected"
+        run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter "Name=OperationalModeWriteSurvivesRestartAndReplaysIdempotently|Name=StaleRevisionDoesNotOverwriteNewerCanonicalState|Name=ReusedOperationIdWithDifferentRequestIsRejected|Name=DirectManagedModeWriteIsRejected"
 
       - name: Test machine bootstrap invariants
         run: dotnet test tests/SplitOS.Persistence.Tests/SplitOS.Persistence.Tests.csproj -c Release --no-build --no-restore -p:Platform=x64 --filter "Name=FirstBootstrapCreatesDurableNone|Name=MissingCanonicalDatabaseAfterBootstrapDoesNotFabricateNone"
