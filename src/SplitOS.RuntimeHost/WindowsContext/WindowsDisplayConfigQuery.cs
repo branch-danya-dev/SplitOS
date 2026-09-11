@@ -110,9 +110,9 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
             DisplayDesktopPoint? sourcePosition = null;
             var supportsVirtualMode = (path.Flags & PathSupportsVirtualMode) != 0;
             var sourceModeIndex = GetSourceModeIndex(path.SourceInfo.ModeInfoIdx, supportsVirtualMode);
-            if (sourceModeIndex.HasValue && sourceModeIndex.Value < actualModeCount)
+            if (sourceModeIndex.HasValue && sourceModeIndex.Value < (uint)actualModeCount)
             {
-                var sourceModeInfo = modes[sourceModeIndex.Value];
+                var sourceModeInfo = modes[checked((int)sourceModeIndex.Value)];
                 if (sourceModeInfo.InfoType == ModeInfoTypeSource)
                 {
                     sourceResolution = new DisplayPixelSize(
