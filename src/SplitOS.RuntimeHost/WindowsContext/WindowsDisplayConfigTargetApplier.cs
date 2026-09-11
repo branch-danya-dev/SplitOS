@@ -35,6 +35,14 @@ public sealed class WindowsDisplayConfigTargetApplier : IDisplayNativeTargetAppl
 
     public DisplayNativeMutationOutcome ValidateAndApply(ResolvedDisplayTarget target)
     {
+        if (target.TopologyIntent == DisplayTopologyIntent.Extend)
+        {
+            return new DisplayNativeMutationOutcome(
+                DisplayNativeMutationDisposition.UnsupportedCapability,
+                "DISPLAY_EXTEND_REQUIRES_PERSISTENT_SELECTOR",
+                Detail: "EXTEND is not allowed to guess an inactive source-target path before persistent selector resolution is available.");
+        }
+
         if (!TryQueryActive(out var paths, out var modes, out var queryError))
         {
             return new DisplayNativeMutationOutcome(
@@ -115,9 +123,18 @@ public sealed class WindowsDisplayConfigTargetApplier : IDisplayNativeTargetAppl
         path.TargetInfo.ModeInfoIdx = InvalidateTargetModeIndex(path.TargetInfo.ModeInfoIdx, supportsVirtualMode);
         paths[pathIndex] = path;
 
+        // SetDisplayConfig enables exactly the active paths supplied in pathArray. For SelectedOnly,
+        // provide only the selected path; for PreserveActiveTopology, preserve the entire queried set.
+        var suppliedPaths = target.TopologyIntent switch
+        {
+            DisplayTopologyIntent.PreserveActiveTopology => paths,
+            DisplayTopologyIntent.SelectedOnly => new[] { path },
+            _ => throw new InvalidOperationException($"Unsupported display topology intent {target.TopologyIntent}.")
+        };
+
         var validationError = SetDisplayConfig(
-            checked((uint)paths.Length),
-            paths,
+            checked((uint)suppliedPaths.Length),
+            suppliedPaths,
             checked((uint)modes.Length),
             modes,
             CommonSetFlags | SdcValidate);
@@ -131,8 +148,8 @@ public sealed class WindowsDisplayConfigTargetApplier : IDisplayNativeTargetAppl
         }
 
         var applyError = SetDisplayConfig(
-            checked((uint)paths.Length),
-            paths,
+            checked((uint)suppliedPaths.Length),
+            suppliedPaths,
             checked((uint)modes.Length),
             modes,
             CommonSetFlags | SdcApply);

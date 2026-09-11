@@ -99,14 +99,14 @@ public sealed class DisplayTargetApplyCoordinator(
                 Detail: "The resolved target is not both active and available in the fresh pre-apply snapshot.");
         }
 
-        if (target.TopologyIntent != DisplayTopologyIntent.PreserveActiveTopology)
+        if (target.TopologyIntent == DisplayTopologyIntent.Extend)
         {
             return new DisplayTargetApplyOutcome(
                 DisplayTargetApplyDisposition.UnsupportedCapability,
-                "DISPLAY_TOPOLOGY_MUTATION_NOT_IMPLEMENTED",
+                "DISPLAY_EXTEND_REQUIRES_PERSISTENT_SELECTOR",
                 before,
                 ObservedTarget: source,
-                Detail: "This increment only mutates mode details while preserving the active topology.");
+                Detail: "EXTEND is deferred until inactive-path discovery can be bound to a persistent display selector without guessing a connection path.");
         }
 
         if (source.BoostRefreshRate)
@@ -170,7 +170,8 @@ public sealed class DisplayTargetApplyCoordinator(
         if (!observed.Active || !observed.TargetAvailable ||
             observed.SourceResolution != target.Resolution ||
             observed.Rotation != target.Rotation ||
-            !RationalEquals(observed.RefreshRate, target.RefreshRate))
+            !RationalEquals(observed.RefreshRate, target.RefreshRate) ||
+            !TopologyMatches(target, before, after))
         {
             return new DisplayTargetApplyOutcome(
                 DisplayTargetApplyDisposition.VerificationFailed,
@@ -178,7 +179,7 @@ public sealed class DisplayTargetApplyCoordinator(
                 before,
                 after,
                 observed,
-                Detail: "Fresh CCD read-back does not match one or more mandatory display target conditions.");
+                Detail: "Fresh CCD read-back does not match one or more mandatory display mode/topology conditions.");
         }
 
         return new DisplayTargetApplyOutcome(
@@ -234,6 +235,34 @@ public sealed class DisplayTargetApplyCoordinator(
             Detail: matches.Length == 0
                 ? "The resolved adapterLuid+targetId is absent from the fresh CCD snapshot."
                 : "Fresh CCD evidence contains a duplicate operation-local target key."));
+    }
+
+    private static bool TopologyMatches(
+        ResolvedDisplayTarget target,
+        DisplaySnapshot before,
+        DisplaySnapshot after)
+    {
+        var beforeActive = before.Paths
+            .Where(static path => path.Active)
+            .Select(static path => path.TargetKey)
+            .OrderBy(static key => key.AdapterLuid)
+            .ThenBy(static key => key.TargetId)
+            .ToArray();
+        var afterActive = after.Paths
+            .Where(static path => path.Active)
+            .Select(static path => path.TargetKey)
+            .OrderBy(static key => key.AdapterLuid)
+            .ThenBy(static key => key.TargetId)
+            .ToArray();
+
+        return target.TopologyIntent switch
+        {
+            DisplayTopologyIntent.PreserveActiveTopology => beforeActive.SequenceEqual(afterActive),
+            DisplayTopologyIntent.SelectedOnly =>
+                afterActive.Length == 1 && afterActive[0] == target.TargetKey,
+            DisplayTopologyIntent.Extend => false,
+            _ => false
+        };
     }
 
     private static bool RationalEquals(DisplayRational? actual, DisplayRational expected)
