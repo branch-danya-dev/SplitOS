@@ -52,16 +52,25 @@ public sealed class WindowsDisplayConfigQuery(
 public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
 {
     private const uint QueryOnlyActivePaths = 0x00000002;
+    private const uint QueryVirtualModeAware = 0x00000010;
+    private const uint QueryVirtualRefreshRateAware = 0x00000040;
     private const uint PathActive = 0x00000001;
     private const uint PathSupportsVirtualMode = 0x00000008;
     private const uint PathBoostRefreshRate = 0x00000010;
     private const uint InvalidModeIndex = 0xffffffff;
+    private const uint InvalidVirtualModeIndex = 0xffff;
     private const uint ModeInfoTypeSource = 1;
+
+    private static uint QueryFlags => QueryOnlyActivePaths |
+                                      QueryVirtualModeAware |
+                                      (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)
+                                          ? QueryVirtualRefreshRateAware
+                                          : 0u);
 
     public DisplayConfigBufferSizingResult GetActiveBufferSizes()
     {
         var error = GetDisplayConfigBufferSizes(
-            QueryOnlyActivePaths,
+            QueryFlags,
             out var pathCount,
             out var modeCount);
         return new DisplayConfigBufferSizingResult(error, pathCount, modeCount);
@@ -75,7 +84,7 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         var modeCount = modeCapacity;
 
         var error = QueryDisplayConfig(
-            QueryOnlyActivePaths,
+            QueryFlags,
             ref pathCount,
             paths,
             ref modeCount,
@@ -100,11 +109,10 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
             DisplayPixelSize? sourceResolution = null;
             DisplayDesktopPoint? sourcePosition = null;
             var supportsVirtualMode = (path.Flags & PathSupportsVirtualMode) != 0;
-            if (!supportsVirtualMode &&
-                path.SourceInfo.ModeInfoIdx != InvalidModeIndex &&
-                path.SourceInfo.ModeInfoIdx < actualModeCount)
+            var sourceModeIndex = GetSourceModeIndex(path.SourceInfo.ModeInfoIdx, supportsVirtualMode);
+            if (sourceModeIndex.HasValue && sourceModeIndex.Value < actualModeCount)
             {
-                var sourceModeInfo = modes[path.SourceInfo.ModeInfoIdx];
+                var sourceModeInfo = modes[sourceModeIndex.Value];
                 if (sourceModeInfo.InfoType == ModeInfoTypeSource)
                 {
                     sourceResolution = new DisplayPixelSize(
@@ -133,6 +141,15 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         }
 
         return new DisplayConfigQueryAttempt(0, evidence);
+    }
+
+    private static uint? GetSourceModeIndex(uint packedModeInfo, bool supportsVirtualMode)
+    {
+        if (!supportsVirtualMode)
+            return packedModeInfo == InvalidModeIndex ? null : packedModeInfo;
+
+        var sourceModeIndex = (packedModeInfo >> 16) & 0xffff;
+        return sourceModeIndex == InvalidVirtualModeIndex ? null : sourceModeIndex;
     }
 
     private static long ToInt64(DisplayConfigLuid value) =>
