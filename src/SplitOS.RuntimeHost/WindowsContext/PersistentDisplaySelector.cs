@@ -8,7 +8,8 @@ public sealed record PersistentDisplaySelector(
     int? OutputTechnology = null,
     long? AdapterLuidHint = null,
     string? FriendlyMonitorName = null,
-    bool AllowWeakFallback = false)
+    bool AllowWeakFallback = false,
+    string? PnpDeviceInstanceId = null)
 {
     public bool HasEdidPair => EdidManufactureId.HasValue && EdidProductCodeId.HasValue;
 }
@@ -41,6 +42,19 @@ public sealed class PersistentDisplaySelectorResolver
         Validate(selector);
 
         var paths = snapshot.Paths.Where(static path => path.Identity is not null).ToArray();
+
+        if (!string.IsNullOrWhiteSpace(selector.PnpDeviceInstanceId))
+        {
+            var exactPnp = paths.Where(path => string.Equals(
+                    path.Identity!.PnpDeviceInstanceId,
+                    selector.PnpDeviceInstanceId,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (exactPnp.Length > 1)
+                return Ambiguous("DISPLAY_SELECTOR_PNP_INSTANCE_AMBIGUOUS");
+            if (exactPnp.Length == 1)
+                return ResolveAvailability(exactPnp[0], DisplaySelectorResolutionDisposition.Exact, "DISPLAY_SELECTOR_PNP_INSTANCE_EXACT");
+        }
 
         if (!string.IsNullOrWhiteSpace(selector.MonitorDevicePath))
         {
@@ -139,7 +153,8 @@ public sealed class PersistentDisplaySelectorResolver
         if (selector.EdidManufactureId.HasValue != selector.EdidProductCodeId.HasValue)
             throw new ArgumentException("EDID manufacture and product identifiers must be provided together.", nameof(selector));
 
-        var hasStrong = !string.IsNullOrWhiteSpace(selector.MonitorDevicePath);
+        var hasStrong = !string.IsNullOrWhiteSpace(selector.PnpDeviceInstanceId) ||
+                        !string.IsNullOrWhiteSpace(selector.MonitorDevicePath);
         var hasFallback = selector.HasEdidPair;
         var hasWeak = selector.AllowWeakFallback && !string.IsNullOrWhiteSpace(selector.FriendlyMonitorName);
         if (!hasStrong && !hasFallback && !hasWeak)
