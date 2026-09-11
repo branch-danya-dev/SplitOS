@@ -135,19 +135,77 @@ public sealed class DisplayTargetApplyCoordinatorTests
     }
 
     [TestMethod]
-    public void TopologyChangingIntentIsNotSilentlyDowngradedToPreserveTopology()
+    public void SelectedOnlyRequiresFreshReadBackWithOnlyChosenTargetActive()
+    {
+        var generation = new DisplayGenerationTracker();
+        var key = new DisplayPathKey(20, 7);
+        var other = new DisplayPathKey(30, 8);
+        var target = Target(key, 1) with { TopologyIntent = DisplayTopologyIntent.SelectedOnly };
+        var before = Snapshot(1, Path(key), Path(other));
+        var after = Snapshot(2, Path(key, target.Resolution, target.RefreshRate, target.Rotation));
+        var native = new FakeNativeApplier();
+        var coordinator = new DisplayTargetApplyCoordinator(new QueueSnapshotReader(before, after), generation, native);
+
+        var result = coordinator.Apply(target);
+
+        Assert.AreEqual(DisplayTargetApplyDisposition.AppliedVerified, result.Disposition, result.Detail);
+        Assert.AreEqual(1, native.Calls);
+        Assert.AreEqual(DisplayTopologyIntent.SelectedOnly, native.LastTarget!.TopologyIntent);
+    }
+
+    [TestMethod]
+    public void SelectedOnlyFailsVerificationWhenAnotherDisplayRemainsActive()
+    {
+        var generation = new DisplayGenerationTracker();
+        var key = new DisplayPathKey(20, 7);
+        var other = new DisplayPathKey(30, 8);
+        var target = Target(key, 1) with { TopologyIntent = DisplayTopologyIntent.SelectedOnly };
+        var before = Snapshot(1, Path(key), Path(other));
+        var after = Snapshot(
+            2,
+            Path(key, target.Resolution, target.RefreshRate, target.Rotation),
+            Path(other));
+        var coordinator = new DisplayTargetApplyCoordinator(
+            new QueueSnapshotReader(before, after), generation, new FakeNativeApplier());
+
+        var result = coordinator.Apply(target);
+
+        Assert.AreEqual(DisplayTargetApplyDisposition.VerificationFailed, result.Disposition);
+        Assert.AreEqual("DISPLAY_VERIFICATION_FAILED", result.ProductCode);
+    }
+
+    [TestMethod]
+    public void PreserveActiveTopologyFailsVerificationWhenPathSetChanges()
+    {
+        var generation = new DisplayGenerationTracker();
+        var key = new DisplayPathKey(20, 7);
+        var other = new DisplayPathKey(30, 8);
+        var target = Target(key, 1);
+        var before = Snapshot(1, Path(key), Path(other));
+        var after = Snapshot(2, Path(key, target.Resolution, target.RefreshRate, target.Rotation));
+        var coordinator = new DisplayTargetApplyCoordinator(
+            new QueueSnapshotReader(before, after), generation, new FakeNativeApplier());
+
+        var result = coordinator.Apply(target);
+
+        Assert.AreEqual(DisplayTargetApplyDisposition.VerificationFailed, result.Disposition);
+        Assert.AreEqual("DISPLAY_VERIFICATION_FAILED", result.ProductCode);
+    }
+
+    [TestMethod]
+    public void ExtendRemainsFailClosedUntilInactiveTargetCanBeResolvedPersistently()
     {
         var generation = new DisplayGenerationTracker();
         var key = new DisplayPathKey(20, 7);
         var snapshot = Snapshot(1, Path(key));
         var native = new FakeNativeApplier();
         var coordinator = new DisplayTargetApplyCoordinator(new QueueSnapshotReader(snapshot), generation, native);
-        var target = Target(key, 1) with { TopologyIntent = DisplayTopologyIntent.SelectedOnly };
+        var target = Target(key, 1) with { TopologyIntent = DisplayTopologyIntent.Extend };
 
         var result = coordinator.Apply(target);
 
         Assert.AreEqual(DisplayTargetApplyDisposition.UnsupportedCapability, result.Disposition);
-        Assert.AreEqual("DISPLAY_TOPOLOGY_MUTATION_NOT_IMPLEMENTED", result.ProductCode);
+        Assert.AreEqual("DISPLAY_EXTEND_REQUIRES_PERSISTENT_SELECTOR", result.ProductCode);
         Assert.AreEqual(0, native.Calls);
     }
 
@@ -213,6 +271,7 @@ public sealed class DisplayTargetApplyCoordinatorTests
     private sealed class FakeNativeApplier : IDisplayNativeTargetApplier
     {
         public int Calls { get; private set; }
+        public ResolvedDisplayTarget? LastTarget { get; private set; }
         public Action? OnApply { get; init; }
         public DisplayNativeMutationOutcome Outcome { get; init; } = new(
             DisplayNativeMutationDisposition.Applied,
@@ -221,6 +280,7 @@ public sealed class DisplayTargetApplyCoordinatorTests
         public DisplayNativeMutationOutcome ValidateAndApply(ResolvedDisplayTarget target)
         {
             Calls++;
+            LastTarget = target;
             OnApply?.Invoke();
             return Outcome;
         }
