@@ -16,6 +16,7 @@ builder.Services.AddSingleton<BrokerHealthState>();
 builder.Services.AddSingleton<RuntimeStateState>();
 builder.Services.AddSingleton<RuntimeStateRefreshSignal>();
 builder.Services.AddSingleton<IDisplayGenerationTracker, DisplayGenerationTracker>();
+builder.Services.AddSingleton<IDisplayDeviceInstanceIdResolver, SetupApiDisplayDeviceInstanceIdResolver>();
 builder.Services.AddSingleton<IWindowsDisplayConfigInterop, WindowsDisplayConfigInterop>();
 builder.Services.AddSingleton<IDisplayConfigQuery, WindowsDisplayConfigQuery>();
 builder.Services.AddSingleton<IDisplaySnapshotReader, DisplaySnapshotReader>();
