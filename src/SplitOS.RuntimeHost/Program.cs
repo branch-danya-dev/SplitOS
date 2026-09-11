@@ -73,6 +73,10 @@ builder.Services.AddSingleton<IManagedServiceActionBrokerClient, NamedPipeManage
 builder.Services.AddSingleton<ManagedServiceActionApplyCoordinator>();
 builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, NamedPipeManagedServiceActionVerificationBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
+builder.Services.AddSingleton<IModeActionApplyHandler, ManagedServiceModeActionApplyHandler>();
+builder.Services.AddSingleton<IModeActionVerifyHandler, ManagedServiceModeActionVerifyHandler>();
+builder.Services.AddSingleton<IModeActionApplyCoordinator, ModeActionApplyDispatcher>();
+builder.Services.AddSingleton<IModeActionVerifyCoordinator, ModeActionVerifyDispatcher>();
 builder.Services.AddSingleton<IModeBasePolicyClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<BaselineModeTargetPreparationProvider>();
 // The durable state machine remains platform-independent. Runtime acceptance re-derives the active
@@ -81,8 +85,8 @@ builder.Services.AddSingleton<BaselineModeTargetPreparationProvider>();
 builder.Services.AddSingleton<RuntimeModeOrchestrator>(services => new RuntimeModeOrchestrator(
     services.GetRequiredService<IMachineStateStore>(), services.GetRequiredService<IMachineMutationLeaseStore>(),
     services.GetRequiredService<IModeTransitionStore>(), services.GetRequiredService<IModeTransitionPolicyStore>(),
-    services.GetRequiredService<IModeTransitionActionPlanStore>(), services.GetRequiredService<ManagedServiceActionApplyCoordinator>(),
-    services.GetRequiredService<ManagedServiceActionVerifyCoordinator>(), services.GetRequiredService<IModeTransitionCommitStore>(),
+    services.GetRequiredService<IModeTransitionActionPlanStore>(), services.GetRequiredService<IModeActionApplyCoordinator>(),
+    services.GetRequiredService<IModeActionVerifyCoordinator>(), services.GetRequiredService<IModeTransitionCommitStore>(),
     new ModeBlockerEngine(Array.Empty<IModeBlockerProvider>()), services.GetRequiredService<BaselineModeTargetPreparationProvider>()));
 builder.Services.AddSingleton<IRuntimeModeCommandExecutor>(services => new RuntimeModeCommandAuthorityExecutor(
     services.GetRequiredService<IMachineStateStore>(), services.GetRequiredService<IControlSessionIdentity>(),
