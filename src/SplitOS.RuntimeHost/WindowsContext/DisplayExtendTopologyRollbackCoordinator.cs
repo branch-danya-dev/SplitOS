@@ -3,7 +3,8 @@ namespace SplitOS.RuntimeHost.WindowsContext;
 public sealed record DisplayExtendTopologyRollbackRequest(
     DisplaySnapshot Baseline,
     DisplaySnapshot Extended,
-    DisplayPathEvidence ExtendedTarget);
+    DisplayPathEvidence ExtendedTarget,
+    long? ExpectedCurrentGeneration = null);
 
 public sealed record ResolvedDisplayTopologyRollback(
     long SnapshotGeneration,
@@ -50,17 +51,18 @@ public sealed class DisplayExtendTopologyRollbackCoordinator(
         ArgumentNullException.ThrowIfNull(request.ExtendedTarget);
 
         ValidateRequest(request);
+        var expectedGeneration = request.ExpectedCurrentGeneration ?? request.Extended.Generation;
 
         var beforeRollback = snapshotReader.Read();
-        if (beforeRollback.Generation != request.Extended.Generation ||
-            generationTracker.CurrentGeneration != request.Extended.Generation)
+        if (beforeRollback.Generation != expectedGeneration ||
+            generationTracker.CurrentGeneration != expectedGeneration)
         {
             return new DisplayExtendTopologyRollbackOutcome(
                 DisplayExtendTopologyRollbackDisposition.StaleSnapshot,
                 "DISPLAY_STALE_SNAPSHOT",
                 request.Baseline,
                 beforeRollback,
-                Detail: "Display generation changed after verified EXTEND and before topology rollback.");
+                Detail: "Display generation changed after the compensation point was established and before topology rollback.");
         }
 
         if (!TopologyMatchesVerifiedExtend(request.Baseline, request.Extended, request.ExtendedTarget) ||
@@ -71,11 +73,11 @@ public sealed class DisplayExtendTopologyRollbackCoordinator(
                 "DISPLAY_ROLLBACK_TOPOLOGY_DRIFT",
                 request.Baseline,
                 beforeRollback,
-                Detail: "Fresh pre-rollback topology no longer matches the verified EXTEND result; rollback will not overwrite external display changes.");
+                Detail: "Fresh pre-rollback topology no longer matches the verified EXTEND connection set; rollback will not overwrite external display changes.");
         }
 
         var resolved = new ResolvedDisplayTopologyRollback(
-            request.Extended.Generation,
+            expectedGeneration,
             request.Baseline.Paths.Where(static path => path.Active).ToArray(),
             request.ExtendedTarget);
 
@@ -83,7 +85,7 @@ public sealed class DisplayExtendTopologyRollbackCoordinator(
         if (!native.IsApplied)
             return MapNativeFailure(native, request.Baseline, beforeRollback);
 
-        var racedDuringMutation = generationTracker.CurrentGeneration != request.Extended.Generation;
+        var racedDuringMutation = generationTracker.CurrentGeneration != expectedGeneration;
         var expectedReadBackGeneration = generationTracker.Invalidate("SetDisplayConfig EXTEND rollback applied");
         var afterRollback = snapshotReader.Read();
 
@@ -123,6 +125,13 @@ public sealed class DisplayExtendTopologyRollbackCoordinator(
             throw new ArgumentOutOfRangeException(nameof(request), "Display generations must be positive.");
         if (request.Extended.Generation <= request.Baseline.Generation)
             throw new ArgumentException("Verified EXTEND snapshot must be newer than its baseline snapshot.", nameof(request));
+        if (request.ExpectedCurrentGeneration.HasValue &&
+            request.ExpectedCurrentGeneration.Value < request.Extended.Generation)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                "Compensation generation cannot predate the verified EXTEND snapshot.");
+        }
         if (!request.ExtendedTarget.Active || !request.ExtendedTarget.TargetAvailable)
             throw new ArgumentException("Rollback requires the verified active EXTEND target evidence.", nameof(request));
     }
