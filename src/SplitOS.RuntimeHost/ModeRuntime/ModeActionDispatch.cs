@@ -39,6 +39,26 @@ public interface IModeActionVerifyCoordinator
         CancellationToken cancellationToken = default);
 }
 
+public interface IModeActionRecordReader
+{
+    Task InitializeAsync(CancellationToken cancellationToken = default);
+
+    Task<PersistedModeActionRecord?> GetAsync(
+        Guid actionId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class ModeActionJournalRecordReader(IModeTransitionActionJournalStore inner) : IModeActionRecordReader
+{
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
+        => inner.InitializeAsync(cancellationToken);
+
+    public Task<PersistedModeActionRecord?> GetAsync(
+        Guid actionId,
+        CancellationToken cancellationToken = default)
+        => inner.GetAsync(actionId, cancellationToken);
+}
+
 public interface IModeActionApplyHandler
 {
     bool CanHandle(PersistedModeActionRecord action);
@@ -60,7 +80,7 @@ public interface IModeActionVerifyHandler
 }
 
 public sealed class ModeActionApplyDispatcher(
-    IModeTransitionActionJournalStore actionJournalStore,
+    IModeActionRecordReader actionReader,
     IEnumerable<IModeActionApplyHandler> handlers) : IModeActionApplyCoordinator
 {
     private readonly IModeActionApplyHandler[] _handlers = handlers?.ToArray()
@@ -71,10 +91,11 @@ public sealed class ModeActionApplyDispatcher(
         CancellationToken cancellationToken = default)
     {
         ValidateCommand(command);
-        await actionJournalStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        var action = await actionJournalStore.GetAsync(command.ActionId, cancellationToken).ConfigureAwait(false);
+        await actionReader.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var action = await actionReader.GetAsync(command.ActionId, cancellationToken).ConfigureAwait(false);
         var validation = ValidateDurableAction(command, action);
-        if (validation is not null) return new(false, validation.Value.ProductCode, action?.Revision, validation.Value.Detail);
+        if (validation is not null)
+            return new(false, validation.Value.ProductCode, action?.Revision, validation.Value.Detail);
 
         var matches = _handlers.Where(handler => handler.CanHandle(action!)).Take(2).ToArray();
         if (matches.Length == 0)
@@ -97,7 +118,7 @@ public sealed class ModeActionApplyDispatcher(
         return await matches[0].ApplyAsync(command, action!, cancellationToken).ConfigureAwait(false);
     }
 
-    private static void ValidateCommand(ModeActionExecutionCommand command)
+    internal static void ValidateCommand(ModeActionExecutionCommand command)
     {
         ArgumentNullException.ThrowIfNull(command);
         if (command.TransitionId == Guid.Empty || command.ActionId == Guid.Empty || command.LeaseId == Guid.Empty ||
@@ -124,7 +145,7 @@ public sealed class ModeActionApplyDispatcher(
 }
 
 public sealed class ModeActionVerifyDispatcher(
-    IModeTransitionActionJournalStore actionJournalStore,
+    IModeActionRecordReader actionReader,
     IEnumerable<IModeActionVerifyHandler> handlers) : IModeActionVerifyCoordinator
 {
     private readonly IModeActionVerifyHandler[] _handlers = handlers?.ToArray()
@@ -134,11 +155,12 @@ public sealed class ModeActionVerifyDispatcher(
         ModeActionExecutionCommand command,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(command);
-        await actionJournalStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        var action = await actionJournalStore.GetAsync(command.ActionId, cancellationToken).ConfigureAwait(false);
+        ModeActionApplyDispatcher.ValidateCommand(command);
+        await actionReader.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var action = await actionReader.GetAsync(command.ActionId, cancellationToken).ConfigureAwait(false);
         var validation = ModeActionApplyDispatcher.ValidateDurableAction(command, action);
-        if (validation is not null) return new(false, validation.Value.ProductCode, action?.Revision, validation.Value.Detail);
+        if (validation is not null)
+            return new(false, validation.Value.ProductCode, action?.Revision, validation.Value.Detail);
 
         var matches = _handlers.Where(handler => handler.CanHandle(action!)).Take(2).ToArray();
         if (matches.Length == 0)
