@@ -53,13 +53,18 @@ builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, Nam
 builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
 builder.Services.AddSingleton<IModeBasePolicyClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<BaselineModeTargetPreparationProvider>();
-// This executor is used only for access-loss deactivation; managed-target preparation is not exposed by UI.
-builder.Services.AddSingleton<IRuntimeModeCommandExecutor>(services => new RuntimeModeOrchestrator(
+// The durable state machine remains platform-independent. Runtime acceptance re-derives the active
+// physical-console owner immediately before entering it; Broker independently repeats OS validation
+// for every privileged request.
+builder.Services.AddSingleton<RuntimeModeOrchestrator>(services => new RuntimeModeOrchestrator(
     services.GetRequiredService<IMachineStateStore>(), services.GetRequiredService<IMachineMutationLeaseStore>(),
     services.GetRequiredService<IModeTransitionStore>(), services.GetRequiredService<IModeTransitionPolicyStore>(),
     services.GetRequiredService<IModeTransitionActionPlanStore>(), services.GetRequiredService<ManagedServiceActionApplyCoordinator>(),
     services.GetRequiredService<ManagedServiceActionVerifyCoordinator>(), services.GetRequiredService<IModeTransitionCommitStore>(),
     new ModeBlockerEngine(Array.Empty<IModeBlockerProvider>()), services.GetRequiredService<BaselineModeTargetPreparationProvider>()));
+builder.Services.AddSingleton<IRuntimeModeCommandExecutor>(services => new RuntimeModeCommandAuthorityExecutor(
+    services.GetRequiredService<IMachineStateStore>(), services.GetRequiredService<IControlSessionIdentity>(),
+    services.GetRequiredService<RuntimeModeOrchestrator>()));
 builder.Services.AddSingleton<RuntimeModeAccessLossCoordinator>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeAccessEvaluator>();
 
