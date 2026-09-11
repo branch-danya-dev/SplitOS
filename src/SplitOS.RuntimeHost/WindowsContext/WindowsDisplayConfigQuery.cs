@@ -60,6 +60,8 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
     private const uint InvalidModeIndex = 0xffffffff;
     private const uint InvalidVirtualModeIndex = 0xffff;
     private const uint ModeInfoTypeSource = 1;
+    private const int DeviceInfoGetTargetName = 2;
+    private const uint TargetNameEdidIdsValid = 0x00000004;
 
     private static uint QueryFlags => QueryOnlyActivePaths |
                                       QueryVirtualModeAware |
@@ -137,11 +139,44 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
                 sourceResolution,
                 sourcePosition,
                 supportsVirtualMode,
-                (path.Flags & PathBoostRefreshRate) != 0);
+                (path.Flags & PathBoostRefreshRate) != 0,
+                ReadTargetIdentity(path.TargetInfo));
         }
 
         return new DisplayConfigQueryAttempt(0, evidence);
     }
+
+    private static DisplayTargetIdentityEvidence? ReadTargetIdentity(DisplayConfigPathTargetInfo target)
+    {
+        var packet = new DisplayConfigTargetDeviceName
+        {
+            Header = new DisplayConfigDeviceInfoHeader
+            {
+                Type = DeviceInfoGetTargetName,
+                Size = checked((uint)Marshal.SizeOf<DisplayConfigTargetDeviceName>()),
+                AdapterId = target.AdapterId,
+                Id = target.Id
+            },
+            MonitorFriendlyDeviceName = string.Empty,
+            MonitorDevicePath = string.Empty
+        };
+
+        if (DisplayConfigGetDeviceInfo(ref packet) != 0)
+            return null;
+
+        var edidValid = (packet.Flags & TargetNameEdidIdsValid) != 0;
+        return new DisplayTargetIdentityEvidence(
+            Normalize(packet.MonitorDevicePath),
+            Normalize(packet.MonitorFriendlyDeviceName),
+            edidValid ? packet.EdidManufactureId : null,
+            edidValid ? packet.EdidProductCodeId : null,
+            packet.ConnectorInstance,
+            packet.OutputTechnology,
+            ToInt64(target.AdapterId));
+    }
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.TrimEnd('\0').Trim();
 
     private static uint? GetSourceModeIndex(uint packedModeInfo, bool supportsVirtualMode)
     {
@@ -232,6 +267,30 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         public DisplayConfigModeInfoUnion ModeInfo;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DisplayConfigDeviceInfoHeader
+    {
+        public int Type;
+        public uint Size;
+        public DisplayConfigLuid AdapterId;
+        public uint Id;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DisplayConfigTargetDeviceName
+    {
+        public DisplayConfigDeviceInfoHeader Header;
+        public uint Flags;
+        public int OutputTechnology;
+        public ushort EdidManufactureId;
+        public ushort EdidProductCodeId;
+        public uint ConnectorInstance;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string MonitorFriendlyDeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string MonitorDevicePath;
+    }
+
     [DllImport("user32.dll")]
     private static extern int GetDisplayConfigBufferSizes(
         uint flags,
@@ -246,4 +305,7 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         ref uint numModeInfoArrayElements,
         [Out] DisplayConfigModeInfo[] modeInfoArray,
         IntPtr currentTopologyId);
+
+    [DllImport("user32.dll")]
+    private static extern int DisplayConfigGetDeviceInfo(ref DisplayConfigTargetDeviceName requestPacket);
 }
