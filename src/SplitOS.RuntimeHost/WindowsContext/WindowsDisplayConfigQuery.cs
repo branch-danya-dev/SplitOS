@@ -49,7 +49,8 @@ public sealed class WindowsDisplayConfigQuery(
     }
 }
 
-public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
+public sealed class WindowsDisplayConfigInterop(
+    IDisplayDeviceInstanceIdResolver? deviceInstanceIdResolver = null) : IWindowsDisplayConfigInterop
 {
     private const uint QueryOnlyActivePaths = 0x00000002;
     private const uint QueryVirtualModeAware = 0x00000010;
@@ -146,7 +147,7 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         return new DisplayConfigQueryAttempt(0, evidence);
     }
 
-    private static DisplayTargetIdentityEvidence? ReadTargetIdentity(DisplayConfigPathTargetInfo target)
+    private DisplayTargetIdentityEvidence? ReadTargetIdentity(DisplayConfigPathTargetInfo target)
     {
         var packet = new DisplayConfigTargetDeviceName
         {
@@ -164,15 +165,20 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         if (DisplayConfigGetDeviceInfo(ref packet) != 0)
             return null;
 
+        var monitorDevicePath = Normalize(packet.MonitorDevicePath);
+        var pnpDeviceInstanceId = monitorDevicePath is null
+            ? null
+            : Normalize(deviceInstanceIdResolver?.Resolve(monitorDevicePath));
         var edidValid = (packet.Flags & TargetNameEdidIdsValid) != 0;
         return new DisplayTargetIdentityEvidence(
-            Normalize(packet.MonitorDevicePath),
+            monitorDevicePath,
             Normalize(packet.MonitorFriendlyDeviceName),
             edidValid ? packet.EdidManufactureId : null,
             edidValid ? packet.EdidProductCodeId : null,
             packet.ConnectorInstance,
             packet.OutputTechnology,
-            ToInt64(target.AdapterId));
+            ToInt64(target.AdapterId),
+            pnpDeviceInstanceId);
     }
 
     private static string? Normalize(string? value) =>
