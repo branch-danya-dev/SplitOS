@@ -14,6 +14,29 @@ public sealed record PersistentDisplaySelector(
     public bool HasEdidPair => EdidManufactureId.HasValue && EdidProductCodeId.HasValue;
 }
 
+public enum DisplayTargetIdentityResolutionDisposition
+{
+    Exact,
+    UniqueFallback,
+    Ambiguous,
+    NotFound
+}
+
+public sealed record DisplayTargetIdentityCandidate(
+    DisplayPathKey TargetKey,
+    DisplayTargetIdentityEvidence Identity);
+
+public sealed record DisplayTargetIdentityResolution(
+    DisplayTargetIdentityResolutionDisposition Disposition,
+    DisplayPathKey? TargetKey,
+    string ProductCode,
+    string? Detail = null)
+{
+    public bool IsResolved =>
+        Disposition is DisplayTargetIdentityResolutionDisposition.Exact or
+            DisplayTargetIdentityResolutionDisposition.UniqueFallback;
+}
+
 public enum DisplaySelectorResolutionDisposition
 {
     Exact,
@@ -37,61 +60,123 @@ public sealed class PersistentDisplaySelectorResolver
 {
     public DisplaySelectorResolution Resolve(PersistentDisplaySelector selector, DisplaySnapshot snapshot)
     {
-        ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(snapshot);
-        Validate(selector);
 
         var paths = snapshot.Paths.Where(static path => path.Identity is not null).ToArray();
+        var identityResolution = ResolveIdentity(
+            selector,
+            paths.Select(path => new DisplayTargetIdentityCandidate(path.TargetKey, path.Identity!)));
+
+        if (!identityResolution.IsResolved || !identityResolution.TargetKey.HasValue)
+        {
+            return new DisplaySelectorResolution(
+                identityResolution.Disposition == DisplayTargetIdentityResolutionDisposition.Ambiguous
+                    ? DisplaySelectorResolutionDisposition.Ambiguous
+                    : DisplaySelectorResolutionDisposition.NotFound,
+                null,
+                identityResolution.ProductCode,
+                identityResolution.Detail);
+        }
+
+        var matchingPaths = paths
+            .Where(path => path.TargetKey == identityResolution.TargetKey.Value)
+            .Take(2)
+            .ToArray();
+        if (matchingPaths.Length != 1)
+        {
+            return new DisplaySelectorResolution(
+                DisplaySelectorResolutionDisposition.Ambiguous,
+                null,
+                "DISPLAY_SELECTOR_PATH_KEY_AMBIGUOUS",
+                "The resolved physical target maps to more than one current active path; SplitOS refuses first-match selection.");
+        }
+
+        return ResolveAvailability(
+            matchingPaths[0],
+            identityResolution.Disposition == DisplayTargetIdentityResolutionDisposition.Exact
+                ? DisplaySelectorResolutionDisposition.Exact
+                : DisplaySelectorResolutionDisposition.UniqueFallback,
+            identityResolution.ProductCode);
+    }
+
+    public DisplayTargetIdentityResolution ResolveIdentity(
+        PersistentDisplaySelector selector,
+        IEnumerable<DisplayTargetIdentityCandidate> candidates)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        ArgumentNullException.ThrowIfNull(candidates);
+        Validate(selector);
+
+        var grouped = candidates
+            .GroupBy(candidate => candidate.TargetKey)
+            .Select(group =>
+            {
+                var identities = group.Select(candidate => candidate.Identity).Distinct().Take(2).ToArray();
+                return (TargetKey: group.Key, Identities: identities);
+            })
+            .ToArray();
+
+        if (grouped.Any(group => group.Identities.Length > 1))
+        {
+            return AmbiguousIdentity(
+                "DISPLAY_SELECTOR_TARGET_IDENTITY_CONFLICT",
+                "The same adapterLuid+targetId was observed with conflicting physical identity evidence.");
+        }
+
+        var targets = grouped
+            .Where(group => group.Identities.Length == 1)
+            .Select(group => new DisplayTargetIdentityCandidate(group.TargetKey, group.Identities[0]))
+            .ToArray();
 
         if (!string.IsNullOrWhiteSpace(selector.PnpDeviceInstanceId))
         {
-            var exactPnp = paths.Where(path => string.Equals(
-                    path.Identity!.PnpDeviceInstanceId,
+            var exactPnp = targets.Where(candidate => string.Equals(
+                    candidate.Identity.PnpDeviceInstanceId,
                     selector.PnpDeviceInstanceId,
                     StringComparison.OrdinalIgnoreCase))
                 .ToArray();
             if (exactPnp.Length > 1)
-                return Ambiguous("DISPLAY_SELECTOR_PNP_INSTANCE_AMBIGUOUS");
+                return AmbiguousIdentity("DISPLAY_SELECTOR_PNP_INSTANCE_AMBIGUOUS");
             if (exactPnp.Length == 1)
-                return ResolveAvailability(exactPnp[0], DisplaySelectorResolutionDisposition.Exact, "DISPLAY_SELECTOR_PNP_INSTANCE_EXACT");
+                return ResolvedIdentity(exactPnp[0].TargetKey, DisplayTargetIdentityResolutionDisposition.Exact, "DISPLAY_SELECTOR_PNP_INSTANCE_EXACT");
         }
 
         if (!string.IsNullOrWhiteSpace(selector.MonitorDevicePath))
         {
-            var exact = paths.Where(path => string.Equals(
-                    path.Identity!.MonitorDevicePath,
+            var exactPath = targets.Where(candidate => string.Equals(
+                    candidate.Identity.MonitorDevicePath,
                     selector.MonitorDevicePath,
                     StringComparison.OrdinalIgnoreCase))
                 .ToArray();
-            if (exact.Length > 1)
-                return Ambiguous("DISPLAY_SELECTOR_DEVICE_PATH_AMBIGUOUS");
-            if (exact.Length == 1)
-                return ResolveAvailability(exact[0], DisplaySelectorResolutionDisposition.Exact, "DISPLAY_SELECTOR_EXACT");
+            if (exactPath.Length > 1)
+                return AmbiguousIdentity("DISPLAY_SELECTOR_DEVICE_PATH_AMBIGUOUS");
+            if (exactPath.Length == 1)
+                return ResolvedIdentity(exactPath[0].TargetKey, DisplayTargetIdentityResolutionDisposition.Exact, "DISPLAY_SELECTOR_EXACT");
         }
 
         if (selector.HasEdidPair)
         {
-            var fallback = paths.Where(path => MatchesEdidRelationship(selector, path.Identity!)).ToArray();
+            var fallback = targets.Where(candidate => MatchesEdidRelationship(selector, candidate.Identity)).ToArray();
             if (fallback.Length > 1)
-                return Ambiguous("DISPLAY_SELECTOR_FALLBACK_AMBIGUOUS");
+                return AmbiguousIdentity("DISPLAY_SELECTOR_FALLBACK_AMBIGUOUS");
             if (fallback.Length == 1)
-                return ResolveAvailability(fallback[0], DisplaySelectorResolutionDisposition.UniqueFallback, "DISPLAY_SELECTOR_UNIQUE_FALLBACK");
+                return ResolvedIdentity(fallback[0].TargetKey, DisplayTargetIdentityResolutionDisposition.UniqueFallback, "DISPLAY_SELECTOR_UNIQUE_FALLBACK");
         }
 
         if (selector.AllowWeakFallback && !string.IsNullOrWhiteSpace(selector.FriendlyMonitorName))
         {
-            var weak = paths.Where(path => MatchesWeakSelector(selector, path.Identity!)).ToArray();
+            var weak = targets.Where(candidate => MatchesWeakSelector(selector, candidate.Identity)).ToArray();
             if (weak.Length > 1)
-                return Ambiguous("DISPLAY_SELECTOR_WEAK_FALLBACK_AMBIGUOUS");
+                return AmbiguousIdentity("DISPLAY_SELECTOR_WEAK_FALLBACK_AMBIGUOUS");
             if (weak.Length == 1)
-                return ResolveAvailability(weak[0], DisplaySelectorResolutionDisposition.UniqueFallback, "DISPLAY_SELECTOR_UNIQUE_WEAK_FALLBACK");
+                return ResolvedIdentity(weak[0].TargetKey, DisplayTargetIdentityResolutionDisposition.UniqueFallback, "DISPLAY_SELECTOR_UNIQUE_WEAK_FALLBACK");
         }
 
-        return new DisplaySelectorResolution(
-            DisplaySelectorResolutionDisposition.NotFound,
+        return new DisplayTargetIdentityResolution(
+            DisplayTargetIdentityResolutionDisposition.NotFound,
             null,
             "DISPLAY_SELECTOR_NOT_FOUND",
-            "No current display path satisfies the persistent selector without guessing.");
+            "No current physical display target satisfies the persistent selector without guessing.");
     }
 
     private static bool MatchesEdidRelationship(
@@ -142,11 +227,18 @@ public sealed class PersistentDisplaySelectorResolver
         return new DisplaySelectorResolution(resolvedDisposition, path, successCode);
     }
 
-    private static DisplaySelectorResolution Ambiguous(string productCode) => new(
-        DisplaySelectorResolutionDisposition.Ambiguous,
+    private static DisplayTargetIdentityResolution ResolvedIdentity(
+        DisplayPathKey targetKey,
+        DisplayTargetIdentityResolutionDisposition disposition,
+        string productCode) => new(disposition, targetKey, productCode);
+
+    private static DisplayTargetIdentityResolution AmbiguousIdentity(
+        string productCode,
+        string? detail = null) => new(
+        DisplayTargetIdentityResolutionDisposition.Ambiguous,
         null,
         productCode,
-        "More than one current display path satisfies the selector evidence; SplitOS refuses first-match selection.");
+        detail ?? "More than one physical display target satisfies the selector evidence; SplitOS refuses first-match selection.");
 
     private static void Validate(PersistentDisplaySelector selector)
     {
