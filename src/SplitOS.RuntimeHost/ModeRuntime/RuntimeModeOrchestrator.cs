@@ -67,14 +67,41 @@ public sealed class RuntimeModeOrchestrator(
     IModeTransitionStore transitionStore,
     IModeTransitionPolicyStore policyStore,
     IModeTransitionActionPlanStore actionPlanStore,
-    ManagedServiceActionApplyCoordinator applyCoordinator,
-    ManagedServiceActionVerifyCoordinator verifyCoordinator,
+    IModeActionApplyCoordinator applyCoordinator,
+    IModeActionVerifyCoordinator verifyCoordinator,
     IModeTransitionCommitStore commitStore,
     ModeBlockerEngine blockerEngine,
     IRuntimeModeTargetPreparationProvider preparationProvider,
     TimeProvider? timeProvider = null) : IRuntimeModeCommandExecutor
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
+    public RuntimeModeOrchestrator(
+        IMachineStateStore machineStateStore,
+        IMachineMutationLeaseStore leaseStore,
+        IModeTransitionStore transitionStore,
+        IModeTransitionPolicyStore policyStore,
+        IModeTransitionActionPlanStore actionPlanStore,
+        ManagedServiceActionApplyCoordinator applyCoordinator,
+        ManagedServiceActionVerifyCoordinator verifyCoordinator,
+        IModeTransitionCommitStore commitStore,
+        ModeBlockerEngine blockerEngine,
+        IRuntimeModeTargetPreparationProvider preparationProvider,
+        TimeProvider? timeProvider = null)
+        : this(
+            machineStateStore,
+            leaseStore,
+            transitionStore,
+            policyStore,
+            actionPlanStore,
+            new ManagedServiceDirectActionApplyCoordinatorAdapter(applyCoordinator),
+            new ManagedServiceDirectActionVerifyCoordinatorAdapter(verifyCoordinator),
+            commitStore,
+            blockerEngine,
+            preparationProvider,
+            timeProvider)
+    {
+    }
 
     public async Task<RuntimeModeExecutionOutcome> ExecuteAsync(
         RuntimeModeExecutionCommand command,
@@ -303,7 +330,7 @@ public sealed class RuntimeModeOrchestrator(
         foreach (var action in persistedPlan.Plan.Actions.OrderBy(static item => item.SequenceNo))
         {
             var apply = await applyCoordinator.ApplyAsync(
-                new ManagedServiceActionApplyCommand(
+                new ModeActionExecutionCommand(
                     transition.TransitionId,
                     action.ActionId,
                     action.Revision,
@@ -335,7 +362,7 @@ public sealed class RuntimeModeOrchestrator(
         {
             if (action.State == PersistedModeActionState.Skipped) continue;
             var verify = await verifyCoordinator.VerifyAsync(
-                new ManagedServiceActionVerifyCommand(
+                new ModeActionExecutionCommand(
                     transition.TransitionId,
                     action.ActionId,
                     action.Revision,
