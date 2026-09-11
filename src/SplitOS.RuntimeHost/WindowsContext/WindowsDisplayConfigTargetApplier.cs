@@ -84,8 +84,7 @@ public sealed class WindowsDisplayConfigTargetApplier : IDisplayNativeTargetAppl
 
         var supportsVirtualMode = (path.Flags & PathSupportsVirtualMode) != 0;
         var sourceModeIndex = GetSourceModeIndex(path.SourceInfo.ModeInfoIdx, supportsVirtualMode);
-        if (!sourceModeIndex.HasValue || sourceModeIndex.Value >= modes.Length ||
-            modes[sourceModeIndex.Value].InfoType != ModeInfoTypeSource)
+        if (!sourceModeIndex.HasValue || sourceModeIndex.Value >= (uint)modes.Length)
         {
             return new DisplayNativeMutationOutcome(
                 DisplayNativeMutationDisposition.UnsupportedCapability,
@@ -93,10 +92,19 @@ public sealed class WindowsDisplayConfigTargetApplier : IDisplayNativeTargetAppl
                 Detail: "The active CCD path does not expose a usable source mode for resolution mutation.");
         }
 
-        var sourceModeInfo = modes[sourceModeIndex.Value];
+        var sourceIndex = checked((int)sourceModeIndex.Value);
+        if (modes[sourceIndex].InfoType != ModeInfoTypeSource)
+        {
+            return new DisplayNativeMutationOutcome(
+                DisplayNativeMutationDisposition.UnsupportedCapability,
+                "DISPLAY_SOURCE_MODE_UNRESOLVED",
+                Detail: "The resolved CCD mode entry is not a source mode.");
+        }
+
+        var sourceModeInfo = modes[sourceIndex];
         sourceModeInfo.ModeInfo.SourceMode.Width = target.Resolution.Width;
         sourceModeInfo.ModeInfo.SourceMode.Height = target.Resolution.Height;
-        modes[sourceModeIndex.Value] = sourceModeInfo;
+        modes[sourceIndex] = sourceModeInfo;
 
         path.TargetInfo.Rotation = target.Rotation;
         path.TargetInfo.RefreshRate = new DisplayConfigRational
