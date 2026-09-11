@@ -33,6 +33,32 @@ public sealed class DisplayExtendTopologyRollbackCoordinatorTests
     }
 
     [TestMethod]
+    public void RollbackMayCompensateAfterModeGenerationAdvanceWhenConnectionsRemainStable()
+    {
+        var generation = GenerationAt(3);
+        var baselinePath = Path(10, 1, 20, 7);
+        var extendedTarget = Path(30, 2, 40, 8);
+        var baseline = Snapshot(1, baselinePath);
+        var extended = Snapshot(2, baselinePath, extendedTarget);
+        var modeStageSnapshot = Snapshot(3, baselinePath, extendedTarget);
+        var afterRollback = Snapshot(4, baselinePath);
+        var native = new FakeNativeRollbackApplier();
+        var coordinator = new DisplayExtendTopologyRollbackCoordinator(
+            new QueueSnapshotReader(modeStageSnapshot, afterRollback), generation, native);
+
+        var result = coordinator.Rollback(new DisplayExtendTopologyRollbackRequest(
+            baseline,
+            extended,
+            extendedTarget,
+            ExpectedCurrentGeneration: 3));
+
+        Assert.AreEqual(DisplayExtendTopologyRollbackDisposition.RolledBackVerified, result.Disposition, result.Detail);
+        Assert.AreEqual(1, native.Calls);
+        Assert.AreEqual(3L, native.LastRollback!.SnapshotGeneration);
+        Assert.AreEqual(4L, generation.CurrentGeneration);
+    }
+
+    [TestMethod]
     public void GenerationChangeBeforeRollbackNeverReachesNativeMutation()
     {
         var generation = GenerationAt(3);
