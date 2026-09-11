@@ -9,6 +9,35 @@ public sealed class PersistentDisplaySelectorTests
     private readonly PersistentDisplaySelectorResolver _resolver = new();
 
     [TestMethod]
+    public void ExactPnpInstanceWinsWhenMonitorDevicePathChanges()
+    {
+        var expected = Path(1, Identity("MONITOR#NEW", "Panel", 10, 20, 1, 5, 100, "DISPLAY\\ABC123\\UID1"));
+        var other = Path(2, Identity("MONITOR#OLD", "Panel", 10, 20, 1, 5, 100, "DISPLAY\\OTHER\\UID2"));
+        var selector = new PersistentDisplaySelector(
+            MonitorDevicePath: "MONITOR#OLD",
+            PnpDeviceInstanceId: "display\\abc123\\uid1");
+
+        var result = _resolver.Resolve(selector, Snapshot(expected, other));
+
+        Assert.AreEqual(DisplaySelectorResolutionDisposition.Exact, result.Disposition);
+        Assert.AreEqual("DISPLAY_SELECTOR_PNP_INSTANCE_EXACT", result.ProductCode);
+        Assert.AreEqual(expected.TargetKey, result.Path!.TargetKey);
+    }
+
+    [TestMethod]
+    public void DuplicatePnpInstanceEvidenceFailsClosedAsAmbiguous()
+    {
+        var selector = new PersistentDisplaySelector(PnpDeviceInstanceId: "DISPLAY\\DUP\\UID");
+        var result = _resolver.Resolve(selector, Snapshot(
+            Path(1, Identity("A", "Panel", 1, 1, 1, 5, 10, "DISPLAY\\DUP\\UID")),
+            Path(2, Identity("B", "Panel", 1, 1, 2, 5, 10, "DISPLAY\\DUP\\UID"))));
+
+        Assert.AreEqual(DisplaySelectorResolutionDisposition.Ambiguous, result.Disposition);
+        Assert.AreEqual("DISPLAY_SELECTOR_PNP_INSTANCE_AMBIGUOUS", result.ProductCode);
+        Assert.IsNull(result.Path);
+    }
+
+    [TestMethod]
     public void ExactDevicePathWinsOverWeakerIdentity()
     {
         var expected = Path(1, Identity("MONITOR#A", "Same", 10, 20, 1, 5, 100));
@@ -85,7 +114,9 @@ public sealed class PersistentDisplaySelectorTests
         ushort product,
         uint connector,
         int outputTechnology,
-        long adapter) => new(devicePath, friendlyName, manufacturer, product, connector, outputTechnology, adapter);
+        long adapter,
+        string? pnpDeviceInstanceId = null) =>
+        new(devicePath, friendlyName, manufacturer, product, connector, outputTechnology, adapter, pnpDeviceInstanceId);
 
     private static DisplayPathEvidence Path(uint targetId, DisplayTargetIdentityEvidence identity) => new(
         SourceAdapterLuid: identity.AdapterLuidHint,
