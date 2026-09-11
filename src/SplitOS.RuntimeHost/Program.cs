@@ -19,6 +19,8 @@ builder.Services.AddSingleton<IDisplayGenerationTracker, DisplayGenerationTracke
 builder.Services.AddSingleton<IWindowsDisplayConfigInterop, WindowsDisplayConfigInterop>();
 builder.Services.AddSingleton<IDisplayConfigQuery, WindowsDisplayConfigQuery>();
 builder.Services.AddSingleton<IDisplaySnapshotReader, DisplaySnapshotReader>();
+builder.Services.AddSingleton<IDisplayNativeTargetApplier, WindowsDisplayConfigTargetApplier>();
+builder.Services.AddSingleton<DisplayTargetApplyCoordinator>();
 builder.Services.AddSingleton<UserStateStore>();
 builder.Services.AddSingleton<IUserAccountAssociationStore>(services => services.GetRequiredService<UserStateStore>());
 builder.Services.AddSingleton<IUserAccountAssociationSignOutStore, UserAccountAssociationSignOutStore>();
