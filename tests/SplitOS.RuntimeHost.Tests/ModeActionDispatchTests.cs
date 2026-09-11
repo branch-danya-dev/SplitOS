@@ -138,11 +138,26 @@ public sealed class ModeActionDispatchTests
         var apply = new ModeActionApplyDispatcher(reader, Array.Empty<IModeActionApplyHandler>());
         var verify = new ModeActionVerifyDispatcher(reader, Array.Empty<IModeActionVerifyHandler>());
 
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => apply.ApplyAsync(invalid));
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => verify.VerifyAsync(invalid));
+        await AssertThrowsAsync<ArgumentException>(() => apply.ApplyAsync(invalid));
+        await AssertThrowsAsync<ArgumentException>(() => verify.VerifyAsync(invalid));
 
         Assert.AreEqual(0, reader.InitializeCalls);
         Assert.AreEqual(0, reader.GetCalls);
+    }
+
+    private static async Task AssertThrowsAsync<TException>(Func<Task> action)
+        where TException : Exception
+    {
+        try
+        {
+            await action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        Assert.Fail($"Expected {typeof(TException).Name}.");
     }
 
     private static ModeActionExecutionCommand Command(PersistedModeActionRecord action)
