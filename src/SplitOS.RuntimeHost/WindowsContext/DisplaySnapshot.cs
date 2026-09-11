@@ -16,6 +16,13 @@ public readonly record struct DisplayRational
     public double Hertz => (double)Numerator / Denominator;
 }
 
+public readonly record struct DisplayPixelSize(uint Width, uint Height)
+{
+    public bool IsValid => Width > 0 && Height > 0;
+}
+
+public readonly record struct DisplayDesktopPoint(int X, int Y);
+
 public readonly record struct DisplayPathKey(long AdapterLuid, uint TargetId);
 
 public sealed record DisplayPathEvidence(
@@ -27,7 +34,11 @@ public sealed record DisplayPathEvidence(
     int OutputTechnology,
     uint Rotation,
     uint Scaling,
-    DisplayRational? RefreshRate);
+    DisplayRational? RefreshRate,
+    DisplayPixelSize? SourceResolution = null,
+    DisplayDesktopPoint? SourcePosition = null,
+    bool SupportsVirtualMode = false,
+    bool BoostRefreshRate = false);
 
 public sealed record DisplaySnapshot(
     long Generation,
