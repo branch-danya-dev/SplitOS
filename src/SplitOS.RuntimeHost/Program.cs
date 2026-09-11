@@ -56,6 +56,7 @@ builder.Services.AddSingleton<IModeTransitionStore>(services => services.GetRequ
 builder.Services.AddSingleton<IModeTransitionPolicyStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeTransitionActionPlanStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeTransitionActionJournalStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeActionRecordReader, ModeActionJournalRecordReader>();
 builder.Services.AddSingleton<IModeTransitionRollbackStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeTransitionReconciliationStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<RuntimeModeRecoveryCoordinator>();
