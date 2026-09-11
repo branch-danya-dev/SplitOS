@@ -32,9 +32,11 @@ public sealed record DisplayTargetIdentityEvidence(
     ushort? EdidProductCodeId,
     uint ConnectorInstance,
     int OutputTechnology,
-    long AdapterLuidHint)
+    long AdapterLuidHint,
+    string? PnpDeviceInstanceId = null)
 {
     public bool HasStrongDevicePath => !string.IsNullOrWhiteSpace(MonitorDevicePath);
+    public bool HasPnpDeviceInstanceId => !string.IsNullOrWhiteSpace(PnpDeviceInstanceId);
     public bool HasEdidPair => EdidManufactureId.HasValue && EdidProductCodeId.HasValue;
 }
 
