@@ -85,7 +85,7 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         for (var index = 0; index < actualCount; index++)
         {
             var path = paths[index];
-            var refresh = path.TargetInfo.RefreshRate.Denominator == 0
+            DisplayRational? refresh = path.TargetInfo.RefreshRate.Denominator == 0
                 ? null
                 : new DisplayRational(
                     path.TargetInfo.RefreshRate.Numerator,
