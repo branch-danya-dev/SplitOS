@@ -62,6 +62,27 @@ public sealed partial class RuntimeModeOrchestratorTests
     }
 
     [TestMethod]
+    public async Task RevokedAccessDuringInterruptedSwitchConvergesBaseBeforeIdleAccessLossCheck()
+    {
+        var fixture = await CreateInterruptedManagedAsync();
+        var access = new RecoveryAccess { Enabled = false };
+        var recovered = await CreateBaseRecovery(fixture, access).ReconcileAsync();
+        Assert.IsTrue(recovered.MayCheckAccess, recovered.ProductCode);
+        Assert.AreEqual("MODE_BASE_RECOVERY_COMPLETED", recovered.ProductCode);
+        Assert.AreEqual("NONE", (await fixture.Machine.GetOperationalModeAsync()).CommittedMode);
+        Assert.AreEqual(0, (await fixture.Transitions.GetIncompleteAsync()).Count);
+        var accessCallsAfterRecovery = access.Calls;
+        var mutationsAfterRecovery = fixture.Adapter.Mutations;
+
+        var idle = await CreateAccessLossCoordinator(fixture, access).ReconcileAsync();
+        Assert.AreEqual("NO_CHANGE", idle.Disposition);
+        Assert.AreEqual("MODE_ACCESS_LOSS_ALREADY_NONE", idle.ProductCode);
+        Assert.AreEqual(accessCallsAfterRecovery, access.Calls);
+        Assert.AreEqual(mutationsAfterRecovery, fixture.Adapter.Mutations);
+        Assert.IsFalse((await fixture.Leases.GetAsync()).IsHeld);
+    }
+
+    [TestMethod]
     public async Task BaseRecoveryRetainsIntentAndResumesEvenWhenAccessReturns()
     {
         var fixture = await CreateInterruptedManagedAsync();
@@ -190,8 +211,17 @@ public sealed partial class RuntimeModeOrchestratorTests
         var command = fixture.Command with { OperationId = Guid.NewGuid(), CorrelationId = Guid.NewGuid(),
             TransitionId = Guid.NewGuid(), TargetMode = OperationalMode.Game };
         Assert.IsFalse((await executor.ExecuteAsync(command)).IsCompleted);
-        Assert.AreEqual(ModeCrashReconciliationAction.ReconcileApplyingOutcome,
+
+        var transition = (await fixture.Transitions.GetIncompleteAsync()).Single();
+        var plan = await ((IModeTransitionActionPlanStore)fixture.Proxy).GetAsync(transition.TransitionId);
+        var action = await ((IModeTransitionActionJournalStore)fixture.Proxy).GetAsync(plan!.Actions.Single().ActionId);
+        Assert.IsNotNull(action);
+        Assert.AreEqual(PersistedModeActionState.Failed, action.State);
+        Assert.AreEqual("UNKNOWN", action.ApplyResultCode);
+        Assert.IsNotNull(action.PreStateJson);
+        Assert.AreEqual(ModeCrashReconciliationAction.RollbackSource,
             (await ((IModeTransitionReconciliationStore)fixture.Proxy).InspectAsync(command.ControlSessionKey)).Action);
+
         fixture.Time.Advance(TimeSpan.FromMinutes(3));
         Assert.IsTrue((await CreateBaseRecovery(fixture).ReconcileAsync()).MayCheckAccess);
         Assert.AreEqual("NONE", (await fixture.Machine.GetOperationalModeAsync()).CommittedMode);
