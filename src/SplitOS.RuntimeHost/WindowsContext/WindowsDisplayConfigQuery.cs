@@ -52,6 +52,11 @@ public sealed class WindowsDisplayConfigQuery(
 public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
 {
     private const uint QueryOnlyActivePaths = 0x00000002;
+    private const uint PathActive = 0x00000001;
+    private const uint PathSupportsVirtualMode = 0x00000008;
+    private const uint PathBoostRefreshRate = 0x00000010;
+    private const uint InvalidModeIndex = 0xffffffff;
+    private const uint ModeInfoTypeSource = 1;
 
     public DisplayConfigBufferSizingResult GetActiveBufferSizes()
     {
@@ -80,9 +85,10 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
         if (error != 0)
             return new DisplayConfigQueryAttempt(error, Array.Empty<DisplayPathEvidence>());
 
-        var actualCount = Math.Min(checked((int)pathCount), paths.Length);
-        var evidence = new DisplayPathEvidence[actualCount];
-        for (var index = 0; index < actualCount; index++)
+        var actualPathCount = Math.Min(checked((int)pathCount), paths.Length);
+        var actualModeCount = Math.Min(checked((int)modeCount), modes.Length);
+        var evidence = new DisplayPathEvidence[actualPathCount];
+        for (var index = 0; index < actualPathCount; index++)
         {
             var path = paths[index];
             DisplayRational? refresh = path.TargetInfo.RefreshRate.Denominator == 0
@@ -91,16 +97,39 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
                     path.TargetInfo.RefreshRate.Numerator,
                     path.TargetInfo.RefreshRate.Denominator);
 
+            DisplayPixelSize? sourceResolution = null;
+            DisplayDesktopPoint? sourcePosition = null;
+            var supportsVirtualMode = (path.Flags & PathSupportsVirtualMode) != 0;
+            if (!supportsVirtualMode &&
+                path.SourceInfo.ModeInfoIdx != InvalidModeIndex &&
+                path.SourceInfo.ModeInfoIdx < actualModeCount)
+            {
+                var sourceModeInfo = modes[path.SourceInfo.ModeInfoIdx];
+                if (sourceModeInfo.InfoType == ModeInfoTypeSource)
+                {
+                    sourceResolution = new DisplayPixelSize(
+                        sourceModeInfo.ModeInfo.SourceMode.Width,
+                        sourceModeInfo.ModeInfo.SourceMode.Height);
+                    sourcePosition = new DisplayDesktopPoint(
+                        sourceModeInfo.ModeInfo.SourceMode.Position.X,
+                        sourceModeInfo.ModeInfo.SourceMode.Position.Y);
+                }
+            }
+
             evidence[index] = new DisplayPathEvidence(
                 ToInt64(path.SourceInfo.AdapterId),
                 path.SourceInfo.Id,
                 new DisplayPathKey(ToInt64(path.TargetInfo.AdapterId), path.TargetInfo.Id),
-                (path.Flags & 0x00000001) != 0,
+                (path.Flags & PathActive) != 0,
                 path.TargetInfo.TargetAvailable != 0,
                 path.TargetInfo.OutputTechnology,
                 path.TargetInfo.Rotation,
                 path.TargetInfo.Scaling,
-                refresh);
+                refresh,
+                sourceResolution,
+                sourcePosition,
+                supportsVirtualMode,
+                (path.Flags & PathBoostRefreshRate) != 0);
         }
 
         return new DisplayConfigQueryAttempt(0, evidence);
@@ -121,6 +150,22 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
     {
         public uint Numerator;
         public uint Denominator;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DisplayConfigPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DisplayConfigSourceMode
+    {
+        public uint Width;
+        public uint Height;
+        public uint PixelFormat;
+        public DisplayConfigPoint Position;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -158,6 +203,7 @@ public sealed class WindowsDisplayConfigInterop : IWindowsDisplayConfigInterop
     [StructLayout(LayoutKind.Explicit, Size = 48)]
     private struct DisplayConfigModeInfoUnion
     {
+        [FieldOffset(0)] public DisplayConfigSourceMode SourceMode;
     }
 
     [StructLayout(LayoutKind.Sequential)]
