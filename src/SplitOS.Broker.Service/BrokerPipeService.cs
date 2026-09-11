@@ -72,7 +72,19 @@ public sealed partial class BrokerPipeService(
                     LogCallerAccepted(logger, identity.ProcessId, identity.SessionId, identity.ImagePath, hello.Component);
                     return ValueTask.FromResult(HandshakeDecision.Allow());
                 },
-                messageHandler.HandleAsync,
+                async (request, token) =>
+                {
+                    // Recheck OS-derived authority for each command, including console switches
+                    // after the handshake. No payload field grants physical-console ownership.
+                    var currentSession = WindowsSessionInfo.ActiveConsoleSessionId;
+                    var authorization = currentSession == WindowsSessionInfo.NoConsoleSession
+                        ? BrokerAuthorization.Deny("NO_PHYSICAL_CONSOLE")
+                        : callerValidator.Validate(PipeClientIdentityReader.Read(server), currentSession);
+                    if (!authorization.Allowed)
+                        return WireMessage.Respond(request, MessageTypes.ErrorResponse,
+                            new ErrorResponse(ErrorCodes.CallerNotAuthorized, authorization.Reason ?? "Caller denied."));
+                    return await messageHandler.HandleAsync(request, token).ConfigureAwait(false);
+                },
                 cancellationToken).ConfigureAwait(false);
         }
     }

@@ -1,67 +1,8 @@
+using SplitOS.Contracts.ModePersistence;
 using Microsoft.Data.Sqlite;
 using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
-
-public enum MachineMutationType
-{
-    Mode,
-    Update,
-    Recovery
-}
-
-public sealed record MachineMutationLeaseRecord(
-    Guid? LeaseId,
-    MachineMutationType? MutationType,
-    Guid? OwnerOperationId,
-    Guid? OwnerCorrelationId,
-    string? OwnerControlSessionKey,
-    long FenceToken,
-    DateTimeOffset? AcquiredUtc,
-    DateTimeOffset? HeartbeatUtc,
-    DateTimeOffset? ExpiresUtc,
-    int Revision)
-{
-    public bool IsHeld => LeaseId.HasValue;
-}
-
-public enum MachineMutationLeaseAcquireDisposition
-{
-    Acquired,
-    AlreadyOwned,
-    Busy,
-    ReconciliationRequired
-}
-
-public sealed record MachineMutationLeaseAcquireOutcome(
-    MachineMutationLeaseAcquireDisposition Disposition,
-    MachineMutationLeaseRecord Lease,
-    string ProductCode);
-
-public enum MachineMutationLeaseRenewDisposition
-{
-    Renewed,
-    StaleOwner,
-    ReconciliationRequired
-}
-
-public sealed record MachineMutationLeaseRenewOutcome(
-    MachineMutationLeaseRenewDisposition Disposition,
-    MachineMutationLeaseRecord Lease,
-    string ProductCode);
-
-public enum MachineMutationLeaseReleaseDisposition
-{
-    Released,
-    AlreadyReleased,
-    StaleOwner,
-    ReconciliationRequired
-}
-
-public sealed record MachineMutationLeaseReleaseOutcome(
-    MachineMutationLeaseReleaseDisposition Disposition,
-    MachineMutationLeaseRecord Lease,
-    string ProductCode);
 
 /// <summary>
 /// Typed SPEC-05 machine-wide exclusion primitive shared by MODE/UPDATE/RECOVERY.
@@ -69,9 +10,9 @@ public sealed record MachineMutationLeaseReleaseOutcome(
 /// reconciliation path proves takeover safety. The repository never creates or migrates its schema;
 /// MachineStateStore v3 is the only canonical schema owner.
 /// </summary>
-public sealed class MachineMutationLeaseStore
+public sealed class MachineMutationLeaseStore : IMachineMutationLeaseStore
 {
-    public static readonly TimeSpan MaximumLeaseLifetime = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan MaximumLeaseLifetime = ModePersistenceProtocol.MaximumLeaseLifetime;
 
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;

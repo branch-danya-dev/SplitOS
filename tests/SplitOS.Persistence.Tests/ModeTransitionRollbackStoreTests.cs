@@ -12,6 +12,27 @@ public sealed class ModeTransitionRollbackStoreTests
         new(2026, 9, 9, 13, 0, 0, TimeSpan.Zero);
 
     [TestMethod]
+    public async Task RollbackFenceRequiresRollingBackActionCurrentOwnerAndUnexpiredLease()
+    {
+        using var storage = new TestStorage();
+        var context = await CreateRollbackContextAsync(storage);
+        var action = context.Actions[1];
+        var fence = new ModeMutationFenceStore(context.DatabasePath, context.MarkerPath, context.QuarantineMarkerPath, context.Time);
+        var request = new ModeMutationFenceContext(context.TransitionId, action.ActionId, context.Lease.LeaseId!.Value,
+            context.Lease.FenceToken, context.OperationId, context.CorrelationId, context.ControlSessionKey, 3);
+        Assert.IsFalse((await fence.ValidateRollbackAsync(request)).IsAuthorized);
+        var started = await context.Rollback.BeginRollbackAsync(context.TransitionId, action.ActionId, 3,
+            context.Lease.LeaseId.Value, context.Lease.FenceToken, context.OperationId);
+        request = request with { ExpectedActionRevision = started.Action!.Revision };
+        Assert.IsTrue((await fence.ValidateRollbackAsync(request)).IsAuthorized);
+        Assert.IsFalse((await fence.ValidateAsync(request)).IsAuthorized);
+        Assert.IsFalse((await fence.ValidateRollbackAsync(request with { OperationId = Guid.NewGuid() })).IsAuthorized);
+        Assert.IsFalse((await fence.ValidateRollbackAsync(request with { FenceToken = request.FenceToken + 1 })).IsAuthorized);
+        context.Time.Advance(TimeSpan.FromMinutes(6));
+        Assert.IsFalse((await fence.ValidateRollbackAsync(request)).IsAuthorized);
+    }
+
+    [TestMethod]
     public async Task RollbackRunsInReverseOrderAndSurvivesRestart()
     {
         using var storage = new TestStorage();

@@ -3,108 +3,11 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public enum PersistedModeOperationKind
-{
-    Activate,
-    Switch,
-    Deactivate
-}
-
-public enum PersistedModeTransitionState
-{
-    Requested,
-    Inspecting,
-    Blocked,
-    AwaitingUser,
-    Resolving,
-    Applying,
-    Verifying,
-    Committing,
-    RollingBack,
-    Completed,
-    Cancelled,
-    FailedWithSafeFallback
-}
-
-public enum PersistedModeTransitionStage
-{
-    Accepted,
-    InspectionStarted,
-    InspectionComplete,
-    WaitingForUser,
-    ResolutionStarted,
-    ActionPlanReady,
-    ApplyStarted,
-    ApplyComplete,
-    VerifyStarted,
-    VerifyComplete,
-    CommitStarted,
-    CommitDurable,
-    FinalizationStarted,
-    RollbackStarted,
-    RollbackVerify,
-    Terminal
-}
-
-public sealed record ModeTransitionRecord(
-    Guid TransitionId,
-    Guid OperationId,
-    Guid CorrelationId,
-    PersistedModeOperationKind OperationKind,
-    string SourceMode,
-    string TargetMode,
-    int SourceModeRevision,
-    string ControlSessionKey,
-    Guid LeaseId,
-    long FenceToken,
-    PersistedModeTransitionState TransitionState,
-    PersistedModeTransitionStage Stage,
-    DateTimeOffset StartedUtc,
-    DateTimeOffset UpdatedUtc,
-    bool MandatoryVerified,
-    bool CommitDurable,
-    string? TerminalOutcome,
-    string? RecoveryContextId,
-    int Revision);
-
-public enum ModeTransitionCreateDisposition
-{
-    Created,
-    Replayed,
-    IdempotencyConflict,
-    SourceConflict,
-    LeaseConflict,
-    ReconciliationRequired
-}
-
-public sealed record ModeTransitionCreateOutcome(
-    ModeTransitionCreateDisposition Disposition,
-    ModeTransitionRecord? Transition,
-    string ProductCode,
-    string? Detail = null);
-
-public enum ModeTransitionAdvanceDisposition
-{
-    Advanced,
-    Unchanged,
-    Missing,
-    RevisionConflict,
-    LeaseConflict,
-    InvalidLifecycle
-}
-
-public sealed record ModeTransitionAdvanceOutcome(
-    ModeTransitionAdvanceDisposition Disposition,
-    ModeTransitionRecord? Transition,
-    string ProductCode,
-    int? ActualRevision = null,
-    string? Detail = null);
-
 /// <summary>
 /// Typed durable SPEC-05 transition journal. This repository owns only transition persistence semantics;
 /// Windows mutation and canonical mode commit remain separate, fenced operations.
 /// </summary>
-public sealed class ModeTransitionStore
+public sealed class ModeTransitionStore : IModeTransitionStore
 {
     private static readonly HashSet<PersistedModeTransitionState> TerminalStates =
         new()
@@ -117,12 +20,13 @@ public sealed class ModeTransitionStore
     private static readonly IReadOnlyDictionary<PersistedModeTransitionState, HashSet<PersistedModeTransitionState>> StateGraph =
         new Dictionary<PersistedModeTransitionState, HashSet<PersistedModeTransitionState>>
         {
-            [PersistedModeTransitionState.Requested] = new() { PersistedModeTransitionState.Inspecting },
+            [PersistedModeTransitionState.Requested] = new() { PersistedModeTransitionState.Inspecting, PersistedModeTransitionState.Cancelled },
             [PersistedModeTransitionState.Inspecting] = new()
             {
                 PersistedModeTransitionState.Blocked,
                 PersistedModeTransitionState.AwaitingUser,
-                PersistedModeTransitionState.Resolving
+                PersistedModeTransitionState.Resolving,
+                PersistedModeTransitionState.Cancelled
             },
             [PersistedModeTransitionState.Blocked] = new()
             {
@@ -142,7 +46,8 @@ public sealed class ModeTransitionStore
             [PersistedModeTransitionState.Applying] = new()
             {
                 PersistedModeTransitionState.Verifying,
-                PersistedModeTransitionState.RollingBack
+                PersistedModeTransitionState.RollingBack,
+                PersistedModeTransitionState.Cancelled
             },
             [PersistedModeTransitionState.Verifying] = new()
             {
@@ -207,6 +112,32 @@ public sealed class ModeTransitionStore
         EnsureCanonicalStoreAvailable();
         await using var connection = await OpenReadyAsync(cancellationToken).ConfigureAwait(false);
         return await ReadByTransitionIdAsync(connection, null, transitionId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ModeTransitionRecord?> GetLatestCommittedActivationAsync(int sourceModeRevision, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(sourceModeRevision, 1);
+        EnsureCanonicalStoreAvailable();
+        await using var connection = await OpenReadyAsync(cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT transition_id FROM mode_transition
+            WHERE operation_kind = 'ACTIVATE' AND source_mode = 'NONE' AND commit_durable = 1
+              AND transition_state = 'COMPLETED' AND source_mode_revision < $revision
+            ORDER BY source_mode_revision DESC LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$revision", sourceModeRevision);
+        var id = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return id is string value && Guid.TryParse(value, out var transitionId)
+            ? await ReadByTransitionIdAsync(connection, null, transitionId, cancellationToken).ConfigureAwait(false) : null;
+    }
+
+    public async Task<ModeTransitionRecord?> GetByOperationIdAsync(Guid operationId, CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty) throw new ArgumentException("Operation id is required.", nameof(operationId));
+        EnsureCanonicalStoreAvailable();
+        await using var connection = await OpenReadyAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadByOperationIdAsync(connection, null, operationId, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ModeTransitionRecord>> GetIncompleteAsync(
@@ -402,6 +333,8 @@ public sealed class ModeTransitionStore
                 "MODE_TRANSITION_NOT_FOUND");
         }
 
+        if (current.RecoveryContextId is not null)
+            return new ModeTransitionAdvanceOutcome(ModeTransitionAdvanceDisposition.LeaseConflict, current, "MODE_BASE_RECOVERY_OWNS_TRANSITION");
         if (current.Revision != expectedRevision)
         {
             return new ModeTransitionAdvanceOutcome(
@@ -532,6 +465,23 @@ public sealed class ModeTransitionStore
         if (nextState == PersistedModeTransitionState.RollingBack && current.CommitDurable)
         {
             return EvidenceDenied(current, "A durably committed target cannot enter source rollback; reconciliation must converge around target truth.");
+        }
+
+        if (nextState == PersistedModeTransitionState.Cancelled && current.TransitionState != PersistedModeTransitionState.RollingBack)
+        {
+            // Crash recovery may cancel even at ACCEPTED or APPLY_STARTED, but only
+            // before an action could have touched Windows. Check atomically with advancement.
+            var evidence = connection.CreateCommand();
+            evidence.Transaction = transaction;
+            evidence.CommandText = """
+                SELECT COUNT(*) FROM mode_transition_action
+                WHERE transition_id = $transition AND (
+                    action_state IN ('APPLYING','APPLIED','VERIFYING','VERIFIED','ROLLING_BACK','ROLLED_BACK','ROLLBACK_FAILED')
+                    OR apply_result_code IN ('APPLIED','UNKNOWN'));
+                """;
+            evidence.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
+            if (Convert.ToInt32(await evidence.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                return EvidenceDenied(current, "Pre-mutation cancellation requires no possible Windows mutation evidence.");
         }
 
         if (nextStage == PersistedModeTransitionStage.RollbackVerify &&

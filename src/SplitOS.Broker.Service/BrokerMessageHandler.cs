@@ -10,13 +10,133 @@ public sealed class BrokerMessageHandler(
     MachineStateStore machineStateStore,
     BrokerManagedServicePolicyExecutor? managedServicePolicyExecutor = null,
     BrokerManagedServiceSnapshotExecutor? managedServiceSnapshotExecutor = null,
-    BrokerManagedServiceVerificationExecutor? managedServiceVerificationExecutor = null)
+    BrokerManagedServiceVerificationExecutor? managedServiceVerificationExecutor = null,
+    BrokerModePersistenceHandler? modePersistenceHandler = null,
+    BrokerManagedServiceRollbackExecutor? managedServiceRollbackExecutor = null,
+    BrokerManagedServiceSourceVerificationExecutor? managedServiceSourceVerificationExecutor = null,
+    BrokerModeBasePolicyResolver? modeBasePolicyResolver = null,
+    BrokerModeBaseRecoveryExecutor? modeBaseRecoveryExecutor = null)
 {
     private readonly string _componentName = ComponentIdentity.Name;
     private readonly string _componentVersion = ComponentIdentity.Version;
 
     public async ValueTask<WireMessage> HandleAsync(WireMessage request, CancellationToken cancellationToken)
     {
+        if (request.Capability == ModeBaseRecoveryProtocol.Capability)
+        {
+            if (request.MessageType != nameof(MachineModeBaseRecoveryRequest)) return Unsupported(request);
+            if (modeBaseRecoveryExecutor is null) return PersistenceUnavailable(request, "BASE recovery executor is not configured.");
+            try
+            {
+                if (request.ProtocolVersion != ProtocolConstants.CurrentVersion || request.OperationId == Guid.Empty ||
+                    request.CorrelationId == Guid.Empty || request.RequestId == Guid.Empty || request.Payload.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException("Invalid BASE recovery envelope.");
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in request.Payload.EnumerateObject())
+                    if (!names.Add(property.Name)) throw new JsonException("Duplicate BASE recovery field.");
+                var payload = request.Payload.Deserialize<MachineModeBaseRecoveryRequest>(SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.JsonOptions)
+                    ?? throw new JsonException("BASE recovery payload is required.");
+                var result = await modeBaseRecoveryExecutor.ExecuteAsync(request.OperationId, request.CorrelationId, payload, cancellationToken).ConfigureAwait(false);
+                return SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.Respond(request, result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(request, MessageTypes.ErrorResponse, new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException or UnauthorizedAccessException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (request.Capability == ManagedServiceRollbackProtocol.Capability)
+        {
+            if (request.MessageType != nameof(MachineServicePolicyRollbackRequest)) return Unsupported(request);
+            if (managedServiceRollbackExecutor is null) return PersistenceUnavailable(request, "Rollback executor is not configured.");
+            try
+            {
+                if (request.ProtocolVersion != ProtocolConstants.CurrentVersion || request.OperationId == Guid.Empty ||
+                    request.CorrelationId == Guid.Empty || request.RequestId == Guid.Empty || request.Payload.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException("Invalid rollback envelope.");
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in request.Payload.EnumerateObject())
+                    if (!names.Add(property.Name)) throw new JsonException("Duplicate rollback field.");
+                var payload = request.Payload.Deserialize<MachineServicePolicyRollbackRequest>(SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.JsonOptions)
+                    ?? throw new JsonException("Rollback payload is required.");
+                var result = await managedServiceRollbackExecutor.ExecuteAsync(request.OperationId, request.CorrelationId, payload, cancellationToken).ConfigureAwait(false);
+                return SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.Respond(request, result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(request, MessageTypes.ErrorResponse, new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException or UnauthorizedAccessException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (request.Capability == ManagedServiceSourceVerificationProtocol.Capability)
+        {
+            if (request.MessageType != nameof(MachineServiceSourceVerifyRequest)) return Unsupported(request);
+            if (managedServiceSourceVerificationExecutor is null) return PersistenceUnavailable(request, "Source verification executor is not configured.");
+            try
+            {
+                if (request.ProtocolVersion != ProtocolConstants.CurrentVersion || request.OperationId == Guid.Empty ||
+                    request.CorrelationId == Guid.Empty || request.RequestId == Guid.Empty || request.Payload.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException("Invalid source verification envelope.");
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in request.Payload.EnumerateObject())
+                    if (!names.Add(property.Name)) throw new JsonException("Duplicate source verification field.");
+                var payload = request.Payload.Deserialize<MachineServiceSourceVerifyRequest>(SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.JsonOptions)
+                    ?? throw new JsonException("Source verification payload is required.");
+                var result = await managedServiceSourceVerificationExecutor.ExecuteAsync(request.OperationId, request.CorrelationId, payload, cancellationToken).ConfigureAwait(false);
+                return SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.Respond(request, result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(request, MessageTypes.ErrorResponse, new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException or UnauthorizedAccessException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (request.Capability == ModeBasePolicyProtocol.Capability)
+        {
+            if (request.MessageType != nameof(MachineModeBasePolicyRequest)) return Unsupported(request);
+            if (modeBasePolicyResolver is null) return PersistenceUnavailable(request, "BASE policy executor is not configured.");
+            try
+            {
+                if (request.ProtocolVersion != ProtocolConstants.CurrentVersion || request.OperationId == Guid.Empty ||
+                    request.CorrelationId == Guid.Empty || request.RequestId == Guid.Empty || request.Payload.ValueKind != JsonValueKind.Object)
+                    throw new ArgumentException("Invalid BASE policy envelope.");
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in request.Payload.EnumerateObject())
+                    if (!names.Add(property.Name)) throw new JsonException("Duplicate BASE policy field.");
+                var payload = request.Payload.Deserialize<MachineModeBasePolicyRequest>(SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.JsonOptions)
+                    ?? throw new JsonException("BASE policy payload is required.");
+                var result = await modeBasePolicyResolver.ExecuteAsync(request.OperationId, request.CorrelationId, payload, cancellationToken).ConfigureAwait(false);
+                return SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.Respond(request, result);
+            }
+            catch (Exception ex) when (ex is ArgumentException or JsonException)
+            {
+                return WireMessage.Respond(request, MessageTypes.ErrorResponse, new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or SqliteException or UnauthorizedAccessException)
+            {
+                return PersistenceUnavailable(request, ex.Message);
+            }
+        }
+
+        if (request.Capability == SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.Capability)
+        {
+            if (modePersistenceHandler is null)
+                return PersistenceUnavailable(request, "Mode persistence handler is not configured.");
+            return await modePersistenceHandler.HandleAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
         if (string.Equals(request.Capability, Capabilities.BrokerHealthRead, StringComparison.Ordinal))
         {
             if (!string.Equals(request.MessageType, MessageTypes.HealthReadRequest, StringComparison.Ordinal))

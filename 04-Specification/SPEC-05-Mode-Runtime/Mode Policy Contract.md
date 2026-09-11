@@ -22,6 +22,25 @@ Mechanism-level details belong to SPEC-06 and other integration specifications.
 
 ## 2. Policy classes
 
+### BASE and ordinary Windows access — product clarification, 2026-09-11
+
+BASE is ordinary Windows with SplitOS mode-specific changes removed. Loss of managed-mode
+access MUST NOT restrict native Windows features or disable a native function as a licensing
+measure. Service restoration preserves the user's state captured before activation; it
+does not force an arbitrary RUNNING or STOPPED default. A new activation captures the
+current baseline again so changes made by the user while in BASE remain respected.
+
+Profile access, subscription renewal and viewing saved WORK/GAME settings remain available
+without managed-mode entitlement. Restrictions apply to activating/applying managed-mode
+modifications, not reading settings or using Windows. This distinction is independent of
+whether the corresponding Manager screens have been implemented yet.
+
+For the current service-only slice, first-activation rollback may verify BASE against
+immutable pre-mutation snapshots of the compensated services. Ordinary DEACTIVATE resolves
+the baseline from the successful activation that began current managed ownership, not
+from a later WORK/GAME switch. Unsupported domains or missing capture evidence require
+reconciliation; they must not be replaced by a blind canonical NONE write.
+
 v1 has three runtime policy targets:
 
 ```text

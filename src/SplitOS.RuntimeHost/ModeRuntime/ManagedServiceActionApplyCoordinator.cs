@@ -41,7 +41,7 @@ public sealed record ManagedServiceActionApplyOutcome(
 /// plan-level decisions: a transition may contain multiple ordered actions.
 /// </summary>
 public sealed class ManagedServiceActionApplyCoordinator(
-    ModeTransitionActionJournalStore actionJournalStore,
+    IModeTransitionActionJournalStore actionJournalStore,
     IManagedServiceActionBrokerClient brokerClient)
 {
     public async Task<ManagedServiceActionApplyOutcome> ApplyAsync(

@@ -3,6 +3,7 @@
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../SplitOS.Contracts/SplitOS.Contracts.csproj" />
     <ProjectReference Include="../SplitOS.Persistence/SplitOS.Persistence.csproj" />
   </ItemGroup>
 </Project>

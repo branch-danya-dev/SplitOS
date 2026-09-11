@@ -3,39 +3,13 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public enum PersistedModeRollbackResult
-{
-    RolledBack,
-    Failed,
-    Unknown
-}
-
-public enum ModeRollbackAdvanceDisposition
-{
-    Advanced,
-    Replayed,
-    Missing,
-    RevisionConflict,
-    LeaseConflict,
-    ReconciliationRequired,
-    OwnershipConflict,
-    InvalidLifecycle
-}
-
-public sealed record ModeRollbackAdvanceOutcome(
-    ModeRollbackAdvanceDisposition Disposition,
-    PersistedModeActionRecord? Action,
-    string ProductCode,
-    int? ActualActionRevision = null,
-    string? Detail = null);
-
 /// <summary>
 /// Durable SPEC-05 rollback journal for pre-commit mode transitions.
 /// The repository never invokes an owning adapter. It selects and fences rollback work,
 /// enforces reverse action order, and records the durable compensation result so Runtime
 /// can reconcile or escalate without assuming a Windows mutation succeeded.
 /// </summary>
-public sealed class ModeTransitionRollbackStore
+public sealed class ModeTransitionRollbackStore : IModeTransitionRollbackStore
 {
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;

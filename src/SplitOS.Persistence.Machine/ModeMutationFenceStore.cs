@@ -83,9 +83,18 @@ public sealed class ModeMutationFenceStore
         await using var connection = await OpenReadyAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<ModeMutationFenceValidationOutcome> ValidateAsync(
+    public Task<ModeMutationFenceValidationOutcome> ValidateAsync(
         ModeMutationFenceContext context,
         CancellationToken cancellationToken = default)
+        => ValidateCoreAsync(context, false, cancellationToken);
+
+    public Task<ModeMutationFenceValidationOutcome> ValidateRollbackAsync(
+        ModeMutationFenceContext context,
+        CancellationToken cancellationToken = default)
+        => ValidateCoreAsync(context, true, cancellationToken);
+
+    private async Task<ModeMutationFenceValidationOutcome> ValidateCoreAsync(
+        ModeMutationFenceContext context, bool rollback, CancellationToken cancellationToken)
     {
         ValidateContext(context);
         EnsureCanonicalStoreAvailable();
@@ -148,8 +157,8 @@ public sealed class ModeMutationFenceStore
                 "Owning transition identity no longer matches the current mutation context.");
         }
 
-        if (!string.Equals(transition.State, "APPLYING", StringComparison.Ordinal) ||
-            !string.Equals(transition.Stage, "APPLY_STARTED", StringComparison.Ordinal) ||
+        if (!string.Equals(transition.State, rollback ? "ROLLING_BACK" : "APPLYING", StringComparison.Ordinal) ||
+            !string.Equals(transition.Stage, rollback ? "ROLLBACK_STARTED" : "APPLY_STARTED", StringComparison.Ordinal) ||
             transition.CommitDurable)
         {
             return Denied(
@@ -207,13 +216,32 @@ public sealed class ModeMutationFenceStore
                 action.Revision);
         }
 
-        if (!string.Equals(action.State, "APPLYING", StringComparison.Ordinal))
+        if (!string.Equals(action.State, rollback ? "ROLLING_BACK" : "APPLYING", StringComparison.Ordinal))
         {
             return Denied(
                 ModeMutationFenceValidationDisposition.InvalidLifecycle,
                 "MODE_ACTION_NOT_APPLYING",
                 "Broker MODE mutation requires the owning durable action to be marked APPLYING before adapter invocation.",
                 action.Revision);
+        }
+
+        if (rollback)
+        {
+            var order = connection.CreateCommand();
+            order.Transaction = transaction;
+            order.CommandText = """
+                SELECT COUNT(*) FROM mode_transition_action
+                WHERE transition_id = $transition AND (
+                    action_state = 'APPLYING' OR action_state = 'ROLLBACK_FAILED' OR
+                    (sequence_no > (SELECT sequence_no FROM mode_transition_action WHERE action_id = $action)
+                     AND (action_state = 'ROLLING_BACK' OR
+                          (apply_result_code IN ('APPLIED','UNKNOWN') AND action_state != 'ROLLED_BACK'))));
+                """;
+            order.Parameters.AddWithValue("$transition", context.TransitionId.ToString("D"));
+            order.Parameters.AddWithValue("$action", context.ActionId.ToString("D"));
+            if (Convert.ToInt32(await order.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                return Denied(ModeMutationFenceValidationDisposition.InvalidLifecycle,
+                    "MODE_ROLLBACK_ORDER_BLOCKED", "Unresolved apply or later compensation blocks rollback.", action.Revision);
         }
 
         transaction.Commit();
@@ -322,7 +350,7 @@ public sealed class ModeMutationFenceStore
             SELECT operation_id, correlation_id, control_session_key, lease_id, fence_token,
                    transition_state, stage_code, commit_durable
             FROM mode_transition
-            WHERE transition_id = $transition;
+            WHERE transition_id = $transition AND recovery_context_id IS NULL;
             """;
         command.Parameters.AddWithValue("$transition", transitionId.ToString("D"));
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

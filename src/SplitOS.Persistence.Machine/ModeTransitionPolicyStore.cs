@@ -3,65 +3,11 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public enum PersistedModePolicyTarget
-{
-    Base,
-    Work,
-    Game
-}
-
-public enum PersistedModePolicyFallbackClass
-{
-    ReleaseDefault,
-    ApprovedAlternate,
-    PreserveCurrent
-}
-
-public sealed record PersistedModePolicyIdentity(
-    string PolicyCatalogId,
-    long PolicyVersion,
-    string ReleaseId,
-    string CatalogDigest);
-
-public sealed record PersistedModePolicyFallbackSelection(
-    string RuleId,
-    PersistedModePolicyFallbackClass FallbackClass,
-    string? TargetId);
-
-public sealed record ModeTransitionPolicyBinding(
-    Guid TransitionId,
-    PersistedModePolicyIdentity Identity,
-    PersistedModePolicyTarget Target,
-    string ResolvedDigest,
-    IReadOnlyList<PersistedModePolicyFallbackSelection> SelectedFallbacks,
-    DateTimeOffset BoundUtc,
-    int TransitionRevision);
-
-public enum ModeTransitionPolicyBindDisposition
-{
-    Bound,
-    Replayed,
-    Missing,
-    RevisionConflict,
-    LeaseConflict,
-    ReconciliationRequired,
-    InvalidLifecycle,
-    TargetMismatch,
-    BindingConflict
-}
-
-public sealed record ModeTransitionPolicyBindOutcome(
-    ModeTransitionPolicyBindDisposition Disposition,
-    ModeTransitionPolicyBinding? Binding,
-    string ProductCode,
-    int? ActualTransitionRevision = null,
-    string? Detail = null);
-
 /// <summary>
 /// Durable write-once binding between a mode transition and the immutable resolved policy snapshot
 /// that will govern its action plan. This store never accepts Windows commands or mechanism payloads.
 /// </summary>
-public sealed class ModeTransitionPolicyStore
+public sealed class ModeTransitionPolicyStore : IModeTransitionPolicyStore
 {
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;

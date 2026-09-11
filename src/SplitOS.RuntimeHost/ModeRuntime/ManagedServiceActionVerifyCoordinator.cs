@@ -39,7 +39,7 @@ public sealed record ManagedServiceActionVerifyOutcome(
 /// This coordinator never advances the transition and never commits WORK/GAME canonical truth.
 /// </summary>
 public sealed class ManagedServiceActionVerifyCoordinator(
-    ModeTransitionActionJournalStore actionJournalStore,
+    IModeTransitionActionJournalStore actionJournalStore,
     IManagedServiceActionVerificationBrokerClient brokerClient)
 {
     public async Task<ManagedServiceActionVerifyOutcome> VerifyAsync(

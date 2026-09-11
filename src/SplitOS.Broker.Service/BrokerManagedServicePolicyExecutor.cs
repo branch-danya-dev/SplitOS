@@ -18,6 +18,15 @@ public sealed class BrokerManagedServicePolicyExecutor(
     IManagedServiceAdapter adapter)
 {
     public async ValueTask<MachineServicePolicyApplyResult> ExecuteAsync(
+        Guid operationId, Guid correlationId, MachineServicePolicyApplyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await ManagedServiceMutationGate.Instance.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return await ExecuteCoreAsync(operationId, correlationId, request, cancellationToken).ConfigureAwait(false); }
+        finally { ManagedServiceMutationGate.Instance.Release(); }
+    }
+
+    private async ValueTask<MachineServicePolicyApplyResult> ExecuteCoreAsync(
         Guid operationId,
         Guid correlationId,
         MachineServicePolicyApplyRequest request,

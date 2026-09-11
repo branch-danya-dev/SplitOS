@@ -3,36 +3,10 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public sealed record OperationalModeRecord(
-    string CommittedMode,
-    DateTimeOffset CommittedUtc,
-    string CommittedByOperationId,
-    string? CorrelationId,
-    int Revision,
-    DateTimeOffset UpdatedUtc,
-    string? ControlSessionKey = null,
-    Guid? ActivationEpochId = null,
-    PersistedModePolicyIdentity? PolicyIdentity = null,
-    PersistedModePolicyTarget? PolicyTarget = null,
-    string? ResolvedPolicyDigest = null);
 
-public enum OperationalModeWriteDisposition
+public sealed class MachineStateStore : IMachineStateStore
 {
-    Applied,
-    Replayed,
-    RevisionConflict,
-    IdempotencyConflict
-}
-
-public sealed record OperationalModeWriteOutcome(
-    OperationalModeWriteDisposition Disposition,
-    OperationalModeRecord? Record,
-    int? ActualRevision,
-    string? Detail);
-
-public sealed class MachineStateStore
-{
-    public const int SchemaVersion = 6;
+    public const int SchemaVersion = 7;
     private const int LegacySchemaVersion = 1;
     private const int PreviousSchemaVersion = 2;
     private const int Slice03FoundationSchemaVersion = 3;
@@ -108,7 +82,7 @@ public sealed class MachineStateStore
                 }
 
                 await _database.InitializeMetadataAsync(connection, "machine", cancellationToken).ConfigureAwait(false);
-                await CreateSchemaV6Async(connection, null, cancellationToken).ConfigureAwait(false);
+                await CreateSchemaV7Async(connection, null, cancellationToken).ConfigureAwait(false);
                 await EnsureInitialStateAsync(connection, cancellationToken).ConfigureAwait(false);
                 await EnsureMutationLeaseSingletonAsync(connection, null, cancellationToken).ConfigureAwait(false);
             }
@@ -235,8 +209,18 @@ public sealed class MachineStateStore
                             Slice03ActionSchemaVersion,
                             cancellationToken).ConfigureAwait(false);
                         await MigrateV5ToV6Async(connection, backup.BackupPath, cancellationToken).ConfigureAwait(false);
-                        currentVersion = SchemaVersion;
+                        currentVersion = 6;
                     }
+                }
+
+                if (corruptionReason is null && currentVersion == 6)
+                {
+                    await _database.VerifyQuickCheckAsync(connection, cancellationToken).ConfigureAwait(false);
+                    await VerifyCanonicalInvariantsAsync(connection, cancellationToken, 6).ConfigureAwait(false);
+                    var backup = await CanonicalStoreRecovery.CreateVerifiedBackupAsync(connection, _databasePath,
+                        _backupDirectory, 6, cancellationToken).ConfigureAwait(false);
+                    await MigrateV6ToV7Async(connection, backup.BackupPath, cancellationToken).ConfigureAwait(false);
+                    currentVersion = SchemaVersion;
                 }
 
                 if (corruptionReason is null && currentVersion != SchemaVersion)
@@ -249,8 +233,10 @@ public sealed class MachineStateStore
                 {
                     try
                     {
+                        if (!await TableExistsAsync(connection, "mode_base_recovery", cancellationToken).ConfigureAwait(false))
+                            throw new InvalidDataException("Canonical BASE recovery journal is missing.");
                         await _database.InitializeMetadataAsync(connection, "machine", cancellationToken).ConfigureAwait(false);
-                        await CreateSchemaV6Async(connection, null, cancellationToken).ConfigureAwait(false);
+                        await CreateSchemaV7Async(connection, null, cancellationToken).ConfigureAwait(false);
                         await EnsureMutationLeaseSingletonAsync(connection, null, cancellationToken).ConfigureAwait(false);
                     }
                     catch (InvalidDataException ex)
@@ -742,6 +728,46 @@ public sealed class MachineStateStore
         }
     }
 
+    private static async Task CreateSchemaV7Async(SqliteConnection connection, SqliteTransaction? transaction, CancellationToken cancellationToken)
+    {
+        await CreateSchemaV6Async(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS mode_base_recovery (
+                transition_id TEXT PRIMARY KEY REFERENCES mode_transition(transition_id),
+                recovery_id TEXT NOT NULL UNIQUE,
+                desired_json TEXT NOT NULL,
+                desired_digest TEXT NOT NULL,
+                source_revision INTEGER NOT NULL CHECK(source_revision >= 1),
+                started_utc TEXT NOT NULL,
+                completed_utc TEXT NULL
+            );
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateV6ToV7Async(SqliteConnection connection, string backupPath, CancellationToken cancellationToken)
+    {
+        using var transaction = connection.BeginTransaction();
+        await CreateSchemaV7Async(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE schema_metadata SET schema_version=7, last_migrated_utc=$now, release_id=$release
+            WHERE component_key='machine' AND schema_version=6;
+            INSERT INTO machine_schema_migration_history
+                (migration_id,from_schema_version,to_schema_version,backup_path,migrated_utc,release_id)
+            VALUES ('machine-v6-v7-base-recovery',6,7,$backup,$now,$release);
+            PRAGMA user_version=7;
+            """;
+        command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$release", ReleaseId);
+        command.Parameters.AddWithValue("$backup", backupPath);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        transaction.Commit();
+    }
+
     private static async Task EnsureInitialStateAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
@@ -1229,7 +1255,8 @@ public sealed class MachineStateStore
 
     private static async Task VerifyCanonicalInvariantsAsync(
         SqliteConnection connection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int expectedVersion = SchemaVersion)
     {
         foreach (var table in new[]
                  {
@@ -1254,7 +1281,7 @@ public sealed class MachineStateStore
         var command = connection.CreateCommand();
         command.CommandText = "SELECT schema_version FROM schema_metadata WHERE component_key = 'machine';";
         var metadataVersion = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        if (metadataVersion is null or DBNull || Convert.ToInt32(metadataVersion) != SchemaVersion)
+        if (metadataVersion is null or DBNull || Convert.ToInt32(metadataVersion) != expectedVersion)
         {
             throw new InvalidDataException("Machine schema metadata does not match physical schema v5.");
         }

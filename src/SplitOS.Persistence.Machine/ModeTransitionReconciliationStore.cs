@@ -3,75 +3,6 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public enum ModeCrashReconciliationAction
-{
-    None,
-    ReleaseTerminalLease,
-    CancelBeforeMutation,
-    ReconcileApplyingOutcome,
-    RollbackSource,
-    ReconcileRollbackOutcome,
-    VerifySourceAfterRollback,
-    VerifyCommittedTarget,
-    ConvergeBaseForFreshSession,
-    WaitForMutationOwner,
-    EscalateRecovery
-}
-
-public enum ModeCrashReconciliationLeaseState
-{
-    None,
-    Current,
-    TakeoverRequired,
-    Busy,
-    SessionMismatch,
-    RecoveryRequired
-}
-
-public sealed record ModeCrashReconciliationSnapshot(
-    ModeCrashReconciliationAction Action,
-    ModeCrashReconciliationLeaseState LeaseState,
-    OperationalModeRecord CanonicalMode,
-    ModeTransitionRecord? Transition,
-    MachineMutationLeaseRecord Lease,
-    PersistedModeActionRecord? FocusAction,
-    bool HasMutationEvidence,
-    string ProductCode,
-    string? Detail = null);
-
-public enum ModeReconciliationTakeoverDisposition
-{
-    Acquired,
-    AlreadyCurrent,
-    Missing,
-    RevisionConflict,
-    SessionConflict,
-    Busy,
-    RecoveryRequired
-}
-
-public sealed record ModeReconciliationTakeoverOutcome(
-    ModeReconciliationTakeoverDisposition Disposition,
-    ModeTransitionRecord? Transition,
-    MachineMutationLeaseRecord Lease,
-    string ProductCode,
-    int? ActualTransitionRevision = null,
-    string? Detail = null);
-
-public enum ModeTerminalLeaseCleanupDisposition
-{
-    Released,
-    AlreadyReleased,
-    Busy,
-    RecoveryRequired
-}
-
-public sealed record ModeTerminalLeaseCleanupOutcome(
-    ModeTerminalLeaseCleanupDisposition Disposition,
-    MachineMutationLeaseRecord Lease,
-    string ProductCode,
-    string? Detail = null);
-
 /// <summary>
 /// SPEC-05 startup/crash reconciliation boundary.
 ///
@@ -82,7 +13,7 @@ public sealed record ModeTerminalLeaseCleanupOutcome(
 /// APPLYING and ROLLING_BACK actions remain explicit actual-state reconciliation work before any
 /// further machine mutation is allowed.
 /// </summary>
-public sealed class ModeTransitionReconciliationStore
+public sealed partial class ModeTransitionReconciliationStore : IModeTransitionReconciliationStore
 {
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;
@@ -978,20 +909,47 @@ public sealed class ModeTransitionReconciliationStore
         var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT committed_mode, committed_utc, committed_by_operation_id, correlation_id, revision, updated_utc
-            FROM operational_mode_state
-            WHERE singleton_id = 1;
+            SELECT committed_mode, committed_utc, committed_by_operation_id, correlation_id, revision, updated_utc,
+                   control_session_key, activation_epoch_id, policy_catalog_id, policy_version,
+                   policy_release_id, policy_catalog_digest, policy_target, resolved_policy_digest
+            FROM operational_mode_state WHERE singleton_id = 1;
             """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             throw new InvalidDataException("OperationalModeState singleton is missing.");
+
+        var hasAnyIdentity = Enumerable.Range(6, 8).Any(index => !reader.IsDBNull(index));
+        var hasFullIdentity = Enumerable.Range(6, 8).All(index => !reader.IsDBNull(index));
+        if (hasAnyIdentity && !hasFullIdentity)
+            throw new InvalidDataException("OperationalModeState contains a partial managed identity tuple.");
+
+        string? controlSessionKey = null;
+        Guid? activationEpochId = null;
+        PersistedModePolicyIdentity? identity = null;
+        PersistedModePolicyTarget? target = null;
+        string? resolvedDigest = null;
+        if (hasFullIdentity)
+        {
+            controlSessionKey = reader.GetString(6);
+            if (!Guid.TryParse(reader.GetString(7), out var parsedEpoch) || parsedEpoch == Guid.Empty)
+                throw new InvalidDataException("OperationalModeState activation epoch is malformed.");
+            activationEpochId = parsedEpoch;
+            identity = new PersistedModePolicyIdentity(
+                reader.GetString(8), reader.GetInt64(9), reader.GetString(10), reader.GetString(11));
+            target = reader.GetString(12) switch
+            {
+                "BASE" => PersistedModePolicyTarget.Base,
+                "WORK" => PersistedModePolicyTarget.Work,
+                "GAME" => PersistedModePolicyTarget.Game,
+                _ => throw new InvalidDataException("Canonical policy target is invalid.")
+            };
+            resolvedDigest = reader.GetString(13);
+        }
+
         return new OperationalModeRecord(
-            reader.GetString(0),
-            DateTimeOffset.Parse(reader.GetString(1)).ToUniversalTime(),
-            reader.GetString(2),
-            reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.GetInt32(4),
-            DateTimeOffset.Parse(reader.GetString(5)).ToUniversalTime());
+            reader.GetString(0), DateTimeOffset.Parse(reader.GetString(1)), reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetInt32(4), DateTimeOffset.Parse(reader.GetString(5)),
+            controlSessionKey, activationEpochId, identity, target, resolvedDigest);
     }
 
     private static async Task<MachineMutationLeaseRecord> ReadLeaseAsync(

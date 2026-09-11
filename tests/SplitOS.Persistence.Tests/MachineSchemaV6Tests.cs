@@ -8,7 +8,7 @@ namespace SplitOS.Persistence.Tests;
 public sealed class MachineSchemaV6Tests
 {
     [TestMethod]
-    public async Task SchemaV5MigratesToV6WithoutFabricatingManagedIdentityAndPreservesRuntimeEvidence()
+    public async Task SchemaV5MigratesThroughV6ToCurrentWithoutFabricatingIdentityAndPreservesRuntimeEvidence()
     {
         using var storage = new TestStorage();
         var db = storage.PathFor("machine.db");
@@ -51,8 +51,8 @@ public sealed class MachineSchemaV6Tests
         Assert.IsNull(mode.ResolvedPolicyDigest);
 
         await using var current = await OpenUnpooledAsync(db);
-        Assert.AreEqual(6, await ScalarIntAsync(current, "PRAGMA user_version;"));
-        Assert.AreEqual(6, await ScalarIntAsync(
+        Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(current, "PRAGMA user_version;"));
+        Assert.AreEqual(MachineStateStore.SchemaVersion, await ScalarIntAsync(
             current, "SELECT schema_version FROM schema_metadata WHERE component_key='machine';"));
         foreach (var column in new[]
                  {
@@ -70,6 +70,14 @@ public sealed class MachineSchemaV6Tests
             current, "SELECT action_id FROM mode_transition_action LIMIT 1;"));
         Assert.AreEqual(1, await ScalarIntAsync(
             current, "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id='machine-v5-v6-operational-mode-identity';"));
+        Assert.AreEqual(1, await ScalarIntAsync(current,
+            "SELECT COUNT(*) FROM machine_schema_migration_history WHERE migration_id='machine-v6-v7-base-recovery';"));
+        Assert.AreEqual(0, await ScalarIntAsync(current, "SELECT COUNT(*) FROM mode_base_recovery;"));
+        var v6Backups = Directory.GetFiles(backupRoot, "machine.schema-v6.*.db", SearchOption.TopDirectoryOnly);
+        Assert.AreEqual(1, v6Backups.Length);
+        await using var v6Backup = await OpenUnpooledAsync(v6Backups[0]);
+        Assert.AreEqual(6, await ScalarIntAsync(v6Backup, "PRAGMA user_version;"));
+        Assert.AreEqual(actionId.ToString("D"), await ScalarStringAsync(v6Backup, "SELECT action_id FROM mode_transition_action LIMIT 1;"));
     }
 
     private static async Task CreateSchemaV5StoreAsync(

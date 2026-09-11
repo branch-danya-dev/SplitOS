@@ -12,6 +12,38 @@ public sealed class ModeTransitionActionJournalStoreTests
         new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
 
     [TestMethod]
+    [DataRow("PLANNED")]
+    [DataRow("APPLYING")]
+    [DataRow("APPLIED")]
+    public async Task CancellationAtApplyStageRequiresNoPossibleMutation(string checkpoint)
+    {
+        using var storage = new TestStorage();
+        var context = await CreateApplyingContextAsync(storage);
+        var action = context.Actions[0];
+        if (checkpoint != "PLANNED")
+        {
+            var started = await context.Journal.BeginApplyAsync(context.TransitionId, action.ActionId, 1,
+                context.Lease.LeaseId!.Value, context.Lease.FenceToken, context.OperationId, "{}", Digest("{}"));
+            Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, started.Disposition);
+            if (checkpoint == "APPLIED")
+            {
+                var applied = await context.Journal.RecordApplyResultAsync(context.TransitionId, action.ActionId,
+                    started.Action!.Revision, context.Lease.LeaseId.Value, context.Lease.FenceToken,
+                    context.OperationId, PersistedModeApplyResult.Applied);
+                Assert.AreEqual(ModeActionAdvanceDisposition.Advanced, applied.Disposition);
+            }
+        }
+        var transition = (await context.Transitions.GetAsync(context.TransitionId))!;
+        var outcome = await context.Transitions.AdvanceAsync(context.TransitionId, transition.Revision,
+            context.Lease.LeaseId!.Value, context.Lease.FenceToken, context.OperationId,
+            PersistedModeTransitionState.Cancelled, PersistedModeTransitionStage.Terminal, false, "CANCELLED");
+        Assert.AreEqual(checkpoint == "PLANNED" ? ModeTransitionAdvanceDisposition.Advanced : ModeTransitionAdvanceDisposition.InvalidLifecycle,
+            outcome.Disposition, outcome.Detail);
+        if (checkpoint != "PLANNED")
+            Assert.AreEqual(transition, await context.Transitions.GetAsync(context.TransitionId));
+    }
+
+    [TestMethod]
     public async Task BeginApplyCapturesPreStateAndAuthorizesBrokerFence()
     {
         using var storage = new TestStorage();

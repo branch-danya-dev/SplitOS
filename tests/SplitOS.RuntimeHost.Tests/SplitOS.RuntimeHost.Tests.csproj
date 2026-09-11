@@ -10,6 +10,7 @@
     <PackageReference Include="MSTest.TestFramework" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/SplitOS.Broker.Service/SplitOS.Broker.Service.csproj" />
     <ProjectReference Include="../../src/SplitOS.RuntimeHost/SplitOS.RuntimeHost.csproj" />
     <ProjectReference Include="../../src/SplitOS.Ipc.Windows/SplitOS.Ipc.Windows.csproj" />
     <ProjectReference Include="../../src/SplitOS.Persistence.Machine/SplitOS.Persistence.Machine.csproj" />

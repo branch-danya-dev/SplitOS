@@ -56,18 +56,23 @@ public interface IRuntimeModeTargetPreparationProvider
 /// only fully automatic transitions: blocker decisions are refused before the first mutation until
 /// their durable observation/decision repository exists.
 /// </summary>
+public interface IRuntimeModeCommandExecutor
+{
+    Task<RuntimeModeExecutionOutcome> ExecuteAsync(RuntimeModeExecutionCommand command, CancellationToken cancellationToken = default);
+}
+
 public sealed class RuntimeModeOrchestrator(
-    MachineStateStore machineStateStore,
-    MachineMutationLeaseStore leaseStore,
-    ModeTransitionStore transitionStore,
-    ModeTransitionPolicyStore policyStore,
-    ModeTransitionActionPlanStore actionPlanStore,
+    IMachineStateStore machineStateStore,
+    IMachineMutationLeaseStore leaseStore,
+    IModeTransitionStore transitionStore,
+    IModeTransitionPolicyStore policyStore,
+    IModeTransitionActionPlanStore actionPlanStore,
     ManagedServiceActionApplyCoordinator applyCoordinator,
     ManagedServiceActionVerifyCoordinator verifyCoordinator,
-    ModeTransitionCommitStore commitStore,
+    IModeTransitionCommitStore commitStore,
     ModeBlockerEngine blockerEngine,
     IRuntimeModeTargetPreparationProvider preparationProvider,
-    TimeProvider? timeProvider = null)
+    TimeProvider? timeProvider = null) : IRuntimeModeCommandExecutor
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -610,7 +615,7 @@ public sealed class RuntimeModeOrchestrator(
             throw new ArgumentException("ControlSessionKey is outside supported bounds.", nameof(command));
         if (command.RuntimeAccessObservedUtc == default)
             throw new ArgumentException("Runtime access observation timestamp is required.", nameof(command));
-        if (command.LeaseLifetime <= TimeSpan.Zero || command.LeaseLifetime > MachineMutationLeaseStore.MaximumLeaseLifetime)
+        if (command.LeaseLifetime <= TimeSpan.Zero || command.LeaseLifetime > SplitOS.Contracts.ModePersistence.ModePersistenceProtocol.MaximumLeaseLifetime)
             throw new ArgumentOutOfRangeException(nameof(command), "Lease lifetime is outside supported bounds.");
     }
 

@@ -6,40 +6,6 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public enum PersistedModeApplyResult
-{
-    Applied,
-    Failed,
-    Unknown
-}
-
-public enum PersistedModeVerifyResult
-{
-    Verified,
-    Mismatch,
-    Unknown
-}
-
-public enum ModeActionAdvanceDisposition
-{
-    Advanced,
-    Replayed,
-    Missing,
-    RevisionConflict,
-    LeaseConflict,
-    ReconciliationRequired,
-    OwnershipConflict,
-    InvalidLifecycle,
-    EvidenceConflict
-}
-
-public sealed record ModeActionAdvanceOutcome(
-    ModeActionAdvanceDisposition Disposition,
-    PersistedModeActionRecord? Action,
-    string ProductCode,
-    int? ActualActionRevision = null,
-    string? Detail = null);
-
 /// <summary>
 /// Durable SPEC-05 per-action execution journal. The full immutable plan is persisted by
 /// <see cref="ModeTransitionActionPlanStore"/> before this repository may advance any action.
@@ -49,7 +15,7 @@ public sealed record ModeActionAdvanceOutcome(
 /// privileged adapter. Immediate apply and verification outcomes are persisted here afterwards.
 /// Rollback execution is intentionally left to the next Slice-03 increment.
 /// </summary>
-public sealed class ModeTransitionActionJournalStore
+public sealed class ModeTransitionActionJournalStore : IModeTransitionActionJournalStore
 {
     public const int MaxPreStateBytes = 64 * 1024;
 

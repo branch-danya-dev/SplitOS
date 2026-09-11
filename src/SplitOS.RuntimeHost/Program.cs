@@ -27,11 +27,40 @@ builder.Services.AddSingleton<LocalSignOutCoordinator>();
 builder.Services.AddSingleton<ILocalSignOutFlow, LocalSignOutFlow>();
 builder.Services.AddSingleton<IRuntimeSignOutCommand, RuntimeSignOutCommand>();
 builder.Services.AddSingleton<MachineStateClient>();
-builder.Services.AddSingleton<ModeTransitionActionJournalStore>();
+builder.Services.AddSingleton<NamedPipeModePersistenceClient>();
+builder.Services.AddSingleton<IMachineStateStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IMachineMutationLeaseStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionPolicyStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionActionPlanStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionActionJournalStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionRollbackStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionReconciliationStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<RuntimeModeRecoveryCoordinator>();
+builder.Services.AddSingleton<IManagedServiceRollbackClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<ManagedServiceActionRollbackCoordinator>();
+builder.Services.AddSingleton<IControlSessionIdentity, WindowsControlSessionIdentity>();
+builder.Services.AddSingleton<ICurrentModeAccess, CurrentModeAccess>();
+builder.Services.AddSingleton<IModeSourceAuthority, RuntimeModeSourceAuthority>();
+builder.Services.AddSingleton<IManagedServiceSourceVerificationClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<RuntimeModeRollbackCompletionCoordinator>();
+builder.Services.AddSingleton<RuntimeModeAutomaticRecoveryCoordinator>();
+builder.Services.AddSingleton<IModeBaseRecoveryClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeTransitionCommitStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IManagedServiceActionBrokerClient, NamedPipeManagedServiceActionBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionApplyCoordinator>();
 builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, NamedPipeManagedServiceActionVerificationBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
+builder.Services.AddSingleton<IModeBasePolicyClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<BaselineModeTargetPreparationProvider>();
+// This executor is used only for access-loss deactivation; managed-target preparation is not exposed by UI.
+builder.Services.AddSingleton<IRuntimeModeCommandExecutor>(services => new RuntimeModeOrchestrator(
+    services.GetRequiredService<IMachineStateStore>(), services.GetRequiredService<IMachineMutationLeaseStore>(),
+    services.GetRequiredService<IModeTransitionStore>(), services.GetRequiredService<IModeTransitionPolicyStore>(),
+    services.GetRequiredService<IModeTransitionActionPlanStore>(), services.GetRequiredService<ManagedServiceActionApplyCoordinator>(),
+    services.GetRequiredService<ManagedServiceActionVerifyCoordinator>(), services.GetRequiredService<IModeTransitionCommitStore>(),
+    new ModeBlockerEngine(Array.Empty<IModeBlockerProvider>()), services.GetRequiredService<BaselineModeTargetPreparationProvider>()));
+builder.Services.AddSingleton<RuntimeModeAccessLossCoordinator>();
 builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeAccessEvaluator>();
 
 // Auth.Start is now a stable semantic IPC capability, but production OAuth authority metadata is not
@@ -40,6 +69,7 @@ builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeA
 builder.Services.AddSingleton<IRuntimeAuthStartCommand, UnavailableRuntimeAuthStartCommand>();
 
 builder.Services.AddHostedService<RuntimeStateCoordinator>();
+builder.Services.AddHostedService<RuntimeModeAccessLossService>();
 builder.Services.AddHostedService<RuntimeUiPipeService>();
 builder.Services.AddHostedService<BrokerHealthMonitor>();
 

@@ -16,6 +16,13 @@ account identity
 
 ## 2. Server entitlement object
 
+Product clarification (2026-09-11): loss of managed-mode entitlement converges to ordinary
+BASE Windows, without restricting native Windows functionality. Profile access, renewal
+and read-only viewing of WORK/GAME settings remain available. Managed-mode modification
+authority and account/settings read access MUST be evaluated separately. Deactivation must
+apply and verify removal of mode deltas before committing NONE; entitlement loss is not
+permission to overwrite the canonical mode without performing convergence.
+
 SplitOS Backend is canonical owner.
 
 v1 entitlement response SHOULD contain:

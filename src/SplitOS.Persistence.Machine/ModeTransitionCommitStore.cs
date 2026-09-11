@@ -3,38 +3,15 @@ using SplitOS.Persistence;
 
 namespace SplitOS.Persistence.Machine;
 
-public enum ModeTransitionCommitDisposition
-{
-    Committed,
-    Replayed,
-    Missing,
-    TransitionRevisionConflict,
-    ModeRevisionConflict,
-    LeaseConflict,
-    ReconciliationRequired,
-    InvalidTransition,
-    AuthorityDenied,
-    ConcurrencyConflict
-}
-
-public sealed record ModeTransitionCommitOutcome(
-    ModeTransitionCommitDisposition Disposition,
-    string ProductCode,
-    OperationalModeRecord? OperationalMode,
-    ModeTransitionRecord? Transition,
-    int? ActualModeRevision = null,
-    int? ActualTransitionRevision = null,
-    string? Detail = null);
-
 /// <summary>
 /// SPEC-05 atomic semantic commit boundary. The canonical OperationalMode row and durable
 /// ModeTransition commit marker change in one SQLite transaction or neither changes.
 ///
-/// This repository is intentionally not exposed over IPC and does not itself mutate Windows.
+/// Broker exposes this repository only through the typed mode persistence capability; it does not mutate Windows.
 /// Runtime orchestration must supply current premium-target authority evidence immediately before
 /// invoking this operation; DEACTIVATE to NONE remains available even after premium authority loss.
 /// </summary>
-public sealed class ModeTransitionCommitStore
+public sealed class ModeTransitionCommitStore : IModeTransitionCommitStore
 {
     private readonly SqliteDatabase _database;
     private readonly string _databasePath;
@@ -487,6 +464,7 @@ public sealed class ModeTransitionCommitStore
 
     private static string? ValidateCommitReadyTransition(ModeTransitionRecord transition)
     {
+        if (transition.RecoveryContextId is not null) return "BASE recovery owns this transition.";
         if (transition.TransitionState != PersistedModeTransitionState.Committing ||
             transition.Stage != PersistedModeTransitionStage.CommitStarted)
         {

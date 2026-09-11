@@ -16,7 +16,19 @@ builder.Services.AddSingleton<IManagedServiceAdapter, WindowsManagedServiceAdapt
 builder.Services.AddSingleton<BrokerManagedServiceSnapshotExecutor>();
 builder.Services.AddSingleton<BrokerManagedServicePolicyExecutor>();
 builder.Services.AddSingleton<BrokerManagedServiceVerificationExecutor>();
+builder.Services.AddSingleton<BrokerManagedServiceRollbackExecutor>();
+builder.Services.AddSingleton<BrokerManagedServiceSourceVerificationExecutor>();
+builder.Services.AddSingleton<BrokerModeBasePolicyResolver>();
+builder.Services.AddSingleton<BrokerModeBaseRecoveryExecutor>();
+builder.Services.AddSingleton<MachineMutationLeaseStore>();
+builder.Services.AddSingleton<ModeTransitionStore>();
+builder.Services.AddSingleton<ModeTransitionPolicyStore>();
+builder.Services.AddSingleton<ModeTransitionActionPlanStore>();
+builder.Services.AddSingleton<ModeTransitionCommitStore>();
+builder.Services.AddSingleton<ModeTransitionRollbackStore>();
+builder.Services.AddSingleton<ModeTransitionReconciliationStore>();
 builder.Services.AddSingleton<BrokerCallerValidator>();
+builder.Services.AddSingleton<BrokerModePersistenceHandler>();
 builder.Services.AddSingleton<BrokerMessageHandler>();
 builder.Services.AddHostedService<BrokerPipeService>();
 
