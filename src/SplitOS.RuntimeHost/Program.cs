@@ -32,6 +32,10 @@ builder.Services.AddSingleton<IDisplayNativeExtendApplier, WindowsDisplayConfigE
 builder.Services.AddSingleton<DisplayExtendApplyCoordinator>();
 builder.Services.AddSingleton<IDisplayNativeTopologyRollbackApplier, WindowsDisplayConfigTopologyRollbackApplier>();
 builder.Services.AddSingleton<DisplayExtendTopologyRollbackCoordinator>();
+builder.Services.AddSingleton<IDisplayExtendTransactionTopologyStage, DisplayExtendTransactionTopologyStage>();
+builder.Services.AddSingleton<IDisplayExtendTransactionModeStage, DisplayExtendTransactionModeStage>();
+builder.Services.AddSingleton<IDisplayExtendTransactionRollbackStage, DisplayExtendTransactionRollbackStage>();
+builder.Services.AddSingleton<DisplayExtendModeTransactionCoordinator>();
 builder.Services.AddSingleton<UserStateStore>();
 builder.Services.AddSingleton<IUserAccountAssociationStore>(services => services.GetRequiredService<UserStateStore>());
 builder.Services.AddSingleton<IUserAccountAssociationSignOutStore, UserAccountAssociationSignOutStore>();
