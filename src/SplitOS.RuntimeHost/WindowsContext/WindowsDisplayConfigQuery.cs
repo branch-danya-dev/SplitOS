@@ -12,10 +12,33 @@ public sealed record DisplayConfigQueryAttempt(
     int ErrorCode,
     IReadOnlyList<DisplayPathEvidence> Paths);
 
+public sealed record DisplayConnectionCandidate(
+    int PriorityOrdinal,
+    long SourceAdapterLuid,
+    uint SourceId,
+    DisplayPathKey TargetKey,
+    bool Active,
+    DisplayTargetIdentityEvidence? Identity);
+
+public sealed record DisplayConnectionQueryAttempt(
+    int ErrorCode,
+    IReadOnlyList<DisplayConnectionCandidate> Candidates);
+
 public interface IWindowsDisplayConfigInterop
 {
     DisplayConfigBufferSizingResult GetActiveBufferSizes();
     DisplayConfigQueryAttempt QueryActive(uint pathCapacity, uint modeCapacity);
+}
+
+public interface IWindowsDisplayConnectionInterop
+{
+    DisplayConfigBufferSizingResult GetAllPathBufferSizes();
+    DisplayConnectionQueryAttempt QueryAll(uint pathCapacity, uint modeCapacity);
+}
+
+public interface IDisplayConnectionCandidateQuery
+{
+    IReadOnlyList<DisplayConnectionCandidate> QueryAllCandidates();
 }
 
 public sealed class WindowsDisplayConfigQuery(
@@ -49,9 +72,43 @@ public sealed class WindowsDisplayConfigQuery(
     }
 }
 
-public sealed class WindowsDisplayConfigInterop(
-    IDisplayDeviceInstanceIdResolver? deviceInstanceIdResolver = null) : IWindowsDisplayConfigInterop
+public sealed class WindowsDisplayConnectionCandidateQuery(
+    IWindowsDisplayConnectionInterop interop) : IDisplayConnectionCandidateQuery
 {
+    private const int ErrorSuccess = 0;
+    private const int ErrorInsufficientBuffer = 122;
+    private const int MaxQueryAttempts = 4;
+
+    public IReadOnlyList<DisplayConnectionCandidate> QueryAllCandidates()
+    {
+        for (var attempt = 0; attempt < MaxQueryAttempts; attempt++)
+        {
+            var sizing = interop.GetAllPathBufferSizes();
+            if (sizing.ErrorCode == ErrorInsufficientBuffer)
+                continue;
+            if (sizing.ErrorCode != ErrorSuccess)
+                throw new Win32Exception(sizing.ErrorCode, "GetDisplayConfigBufferSizes(QDC_ALL_PATHS) failed.");
+
+            var query = interop.QueryAll(sizing.PathCount, sizing.ModeCount);
+            if (query.ErrorCode == ErrorInsufficientBuffer)
+                continue;
+            if (query.ErrorCode != ErrorSuccess)
+                throw new Win32Exception(query.ErrorCode, "QueryDisplayConfig(QDC_ALL_PATHS) failed.");
+
+            return query.Candidates.ToArray();
+        }
+
+        throw new InvalidOperationException(
+            "Display topology kept changing while QDC_ALL_PATHS buffers were being sized; no stale connection catalog was returned.");
+    }
+}
+
+public sealed class WindowsDisplayConfigInterop(
+    IDisplayDeviceInstanceIdResolver? deviceInstanceIdResolver = null) :
+    IWindowsDisplayConfigInterop,
+    IWindowsDisplayConnectionInterop
+{
+    private const uint QueryAllPaths = 0x00000001;
     private const uint QueryOnlyActivePaths = 0x00000002;
     private const uint QueryVirtualModeAware = 0x00000010;
     private const uint QueryVirtualRefreshRateAware = 0x00000040;
@@ -64,45 +121,30 @@ public sealed class WindowsDisplayConfigInterop(
     private const int DeviceInfoGetTargetName = 2;
     private const uint TargetNameEdidIdsValid = 0x00000004;
 
-    private static uint QueryFlags => QueryOnlyActivePaths |
-                                      QueryVirtualModeAware |
-                                      (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)
-                                          ? QueryVirtualRefreshRateAware
-                                          : 0u);
+    private static bool VirtualRefreshAware => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
 
-    public DisplayConfigBufferSizingResult GetActiveBufferSizes()
-    {
-        var error = GetDisplayConfigBufferSizes(
-            QueryFlags,
-            out var pathCount,
-            out var modeCount);
-        return new DisplayConfigBufferSizingResult(error, pathCount, modeCount);
-    }
+    private static uint ActiveQueryFlags => QueryOnlyActivePaths |
+                                            QueryVirtualModeAware |
+                                            (VirtualRefreshAware ? QueryVirtualRefreshRateAware : 0u);
+
+    private static uint AllPathQueryFlags => QueryAllPaths |
+                                             QueryVirtualModeAware |
+                                             (VirtualRefreshAware ? QueryVirtualRefreshRateAware : 0u);
+
+    public DisplayConfigBufferSizingResult GetActiveBufferSizes() => GetBufferSizes(ActiveQueryFlags);
+
+    public DisplayConfigBufferSizingResult GetAllPathBufferSizes() => GetBufferSizes(AllPathQueryFlags);
 
     public DisplayConfigQueryAttempt QueryActive(uint pathCapacity, uint modeCapacity)
     {
-        var paths = new DisplayConfigPathInfo[checked((int)pathCapacity)];
-        var modes = new DisplayConfigModeInfo[checked((int)modeCapacity)];
-        var pathCount = pathCapacity;
-        var modeCount = modeCapacity;
+        var native = QueryNative(ActiveQueryFlags, pathCapacity, modeCapacity);
+        if (native.ErrorCode != 0)
+            return new DisplayConfigQueryAttempt(native.ErrorCode, Array.Empty<DisplayPathEvidence>());
 
-        var error = QueryDisplayConfig(
-            QueryFlags,
-            ref pathCount,
-            paths,
-            ref modeCount,
-            modes,
-            IntPtr.Zero);
-
-        if (error != 0)
-            return new DisplayConfigQueryAttempt(error, Array.Empty<DisplayPathEvidence>());
-
-        var actualPathCount = Math.Min(checked((int)pathCount), paths.Length);
-        var actualModeCount = Math.Min(checked((int)modeCount), modes.Length);
-        var evidence = new DisplayPathEvidence[actualPathCount];
-        for (var index = 0; index < actualPathCount; index++)
+        var evidence = new DisplayPathEvidence[native.Paths.Length];
+        for (var index = 0; index < native.Paths.Length; index++)
         {
-            var path = paths[index];
+            var path = native.Paths[index];
             DisplayRational? refresh = path.TargetInfo.RefreshRate.Denominator == 0
                 ? null
                 : new DisplayRational(
@@ -113,9 +155,9 @@ public sealed class WindowsDisplayConfigInterop(
             DisplayDesktopPoint? sourcePosition = null;
             var supportsVirtualMode = (path.Flags & PathSupportsVirtualMode) != 0;
             var sourceModeIndex = GetSourceModeIndex(path.SourceInfo.ModeInfoIdx, supportsVirtualMode);
-            if (sourceModeIndex.HasValue && sourceModeIndex.Value < (uint)actualModeCount)
+            if (sourceModeIndex.HasValue && sourceModeIndex.Value < (uint)native.Modes.Length)
             {
-                var sourceModeInfo = modes[checked((int)sourceModeIndex.Value)];
+                var sourceModeInfo = native.Modes[checked((int)sourceModeIndex.Value)];
                 if (sourceModeInfo.InfoType == ModeInfoTypeSource)
                 {
                     sourceResolution = new DisplayPixelSize(
@@ -145,6 +187,65 @@ public sealed class WindowsDisplayConfigInterop(
         }
 
         return new DisplayConfigQueryAttempt(0, evidence);
+    }
+
+    public DisplayConnectionQueryAttempt QueryAll(uint pathCapacity, uint modeCapacity)
+    {
+        var native = QueryNative(AllPathQueryFlags, pathCapacity, modeCapacity);
+        if (native.ErrorCode != 0)
+            return new DisplayConnectionQueryAttempt(native.ErrorCode, Array.Empty<DisplayConnectionCandidate>());
+
+        var identityByTarget = new Dictionary<DisplayPathKey, DisplayTargetIdentityEvidence?>();
+        var candidates = new DisplayConnectionCandidate[native.Paths.Length];
+        for (var index = 0; index < native.Paths.Length; index++)
+        {
+            var path = native.Paths[index];
+            var targetKey = new DisplayPathKey(ToInt64(path.TargetInfo.AdapterId), path.TargetInfo.Id);
+            if (!identityByTarget.TryGetValue(targetKey, out var identity))
+            {
+                identity = ReadTargetIdentity(path.TargetInfo);
+                identityByTarget.Add(targetKey, identity);
+            }
+
+            candidates[index] = new DisplayConnectionCandidate(
+                PriorityOrdinal: index,
+                SourceAdapterLuid: ToInt64(path.SourceInfo.AdapterId),
+                SourceId: path.SourceInfo.Id,
+                TargetKey: targetKey,
+                Active: (path.Flags & PathActive) != 0,
+                Identity: identity);
+        }
+
+        return new DisplayConnectionQueryAttempt(0, candidates);
+    }
+
+    private static DisplayConfigBufferSizingResult GetBufferSizes(uint flags)
+    {
+        var error = GetDisplayConfigBufferSizes(flags, out var pathCount, out var modeCount);
+        return new DisplayConfigBufferSizingResult(error, pathCount, modeCount);
+    }
+
+    private static NativeQueryAttempt QueryNative(uint flags, uint pathCapacity, uint modeCapacity)
+    {
+        var paths = new DisplayConfigPathInfo[checked((int)pathCapacity)];
+        var modes = new DisplayConfigModeInfo[checked((int)modeCapacity)];
+        var pathCount = pathCapacity;
+        var modeCount = modeCapacity;
+
+        var error = QueryDisplayConfig(
+            flags,
+            ref pathCount,
+            paths,
+            ref modeCount,
+            modes,
+            IntPtr.Zero);
+        if (error != 0)
+            return new NativeQueryAttempt(error, Array.Empty<DisplayConfigPathInfo>(), Array.Empty<DisplayConfigModeInfo>());
+
+        return new NativeQueryAttempt(
+            0,
+            paths.Take(checked((int)pathCount)).ToArray(),
+            modes.Take(checked((int)modeCount)).ToArray());
     }
 
     private DisplayTargetIdentityEvidence? ReadTargetIdentity(DisplayConfigPathTargetInfo target)
@@ -195,6 +296,11 @@ public sealed class WindowsDisplayConfigInterop(
 
     private static long ToInt64(DisplayConfigLuid value) =>
         unchecked(((long)value.HighPart << 32) | value.LowPart);
+
+    private sealed record NativeQueryAttempt(
+        int ErrorCode,
+        DisplayConfigPathInfo[] Paths,
+        DisplayConfigModeInfo[] Modes);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct DisplayConfigLuid
