@@ -9,7 +9,8 @@ public sealed record ResolvedDisplayExtendConnection(
     long SourceAdapterLuid,
     uint SourceId,
     DisplayPathKey TargetKey,
-    int PriorityOrdinal);
+    int PriorityOrdinal,
+    int OutputTechnology);
 
 public interface IDisplayNativeExtendApplier
 {
@@ -72,6 +73,16 @@ public sealed class DisplayExtendApplyCoordinator(
         if (!resolved.IsResolved || resolved.Candidate is null || !resolved.TargetKey.HasValue)
             return MapResolutionFailure(resolved, before, candidates);
 
+        if (resolved.Candidate.Identity is null)
+        {
+            return new DisplayExtendApplyOutcome(
+                DisplayExtendApplyDisposition.TechnicalFailure,
+                "DISPLAY_EXTEND_IDENTITY_EVIDENCE_LOST",
+                before,
+                candidates,
+                Detail: "The resolved source-to-target connection lost the target identity evidence used to select the physical monitor.");
+        }
+
         if (generationTracker.CurrentGeneration != request.SnapshotGeneration)
         {
             return Stale(before, candidates,
@@ -83,7 +94,8 @@ public sealed class DisplayExtendApplyCoordinator(
             resolved.Candidate.SourceAdapterLuid,
             resolved.Candidate.SourceId,
             resolved.TargetKey.Value,
-            resolved.Candidate.PriorityOrdinal);
+            resolved.Candidate.PriorityOrdinal,
+            resolved.Candidate.Identity.OutputTechnology);
 
         var native = nativeExtendApplier.ValidateAndApply(connection);
         if (!native.IsApplied)
