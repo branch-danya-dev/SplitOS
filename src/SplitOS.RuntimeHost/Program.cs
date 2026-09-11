@@ -30,6 +30,8 @@ builder.Services.AddSingleton<PersistentDisplaySelectorResolver>();
 builder.Services.AddSingleton<DisplayExtendCandidateResolver>();
 builder.Services.AddSingleton<IDisplayNativeExtendApplier, WindowsDisplayConfigExtendApplier>();
 builder.Services.AddSingleton<DisplayExtendApplyCoordinator>();
+builder.Services.AddSingleton<IDisplayNativeTopologyRollbackApplier, WindowsDisplayConfigTopologyRollbackApplier>();
+builder.Services.AddSingleton<DisplayExtendTopologyRollbackCoordinator>();
 builder.Services.AddSingleton<UserStateStore>();
 builder.Services.AddSingleton<IUserAccountAssociationStore>(services => services.GetRequiredService<UserStateStore>());
 builder.Services.AddSingleton<IUserAccountAssociationSignOutStore, UserAccountAssociationSignOutStore>();
