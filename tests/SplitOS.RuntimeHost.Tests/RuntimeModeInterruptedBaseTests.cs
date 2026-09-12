@@ -25,7 +25,8 @@ public sealed partial class RuntimeModeOrchestratorTests
         Assert.IsTrue((await fixture.Orchestrator.ExecuteAsync(fixture.Command)).IsCompleted);
         fixture.VerifyBroker.Fail = true;
         var executor = new RuntimeModeOrchestrator(fixture.Proxy, fixture.Proxy, fixture.Proxy, fixture.Proxy, fixture.Proxy,
-            new(fixture.Proxy, new ServicePipeClient(fixture.Pipe)), new(fixture.Proxy, fixture.VerifyBroker), fixture.Proxy,
+            new ManagedServiceActionApplyCoordinator(fixture.Proxy, new ServicePipeClient(fixture.Pipe)),
+            new ManagedServiceActionVerifyCoordinator(fixture.Proxy, fixture.VerifyBroker), fixture.Proxy,
             new ModeBlockerEngine(Array.Empty<IModeBlockerProvider>(), fixture.Time), fixture.Preparation, fixture.Time);
         var command = fixture.Command with { OperationId = Guid.NewGuid(), CorrelationId = Guid.NewGuid(),
             TransitionId = Guid.NewGuid(), TargetMode = OperationalMode.Game };
@@ -153,7 +154,8 @@ public sealed partial class RuntimeModeOrchestratorTests
             TransitionId = Guid.NewGuid(), ActivationEpochId = Guid.NewGuid() };
         // Use actual apply and a failed verification to retain a complete compensation plan.
         var executor = new RuntimeModeOrchestrator(fixture.Proxy, fixture.Proxy, fixture.Proxy, fixture.Proxy, fixture.Proxy,
-            new(fixture.Proxy, new ServicePipeClient(fixture.Pipe)), new(fixture.Proxy, fixture.VerifyBroker), fixture.Proxy,
+            new ManagedServiceActionApplyCoordinator(fixture.Proxy, new ServicePipeClient(fixture.Pipe)),
+            new ManagedServiceActionVerifyCoordinator(fixture.Proxy, fixture.VerifyBroker), fixture.Proxy,
             new ModeBlockerEngine(Array.Empty<IModeBlockerProvider>(), fixture.Time), fixture.Preparation, fixture.Time);
         Assert.IsFalse((await executor.ExecuteAsync(command)).IsCompleted);
         fixture.Time.Advance(TimeSpan.FromMinutes(3));
@@ -206,7 +208,8 @@ public sealed partial class RuntimeModeOrchestratorTests
         Assert.IsTrue((await fixture.Orchestrator.ExecuteAsync(fixture.Command)).IsCompleted);
         var services = new ServicePipeClient(fixture.Pipe);
         var executor = new RuntimeModeOrchestrator(fixture.Proxy, fixture.Proxy, fixture.Proxy, fixture.Proxy, fixture.Proxy,
-            new(fixture.Proxy, new LostServiceApplyResponse(services)), new(fixture.Proxy, services), fixture.Proxy,
+            new ManagedServiceActionApplyCoordinator(fixture.Proxy, new LostServiceApplyResponse(services)),
+            new ManagedServiceActionVerifyCoordinator(fixture.Proxy, services), fixture.Proxy,
             new ModeBlockerEngine(Array.Empty<IModeBlockerProvider>(), fixture.Time), fixture.Preparation, fixture.Time);
         var command = fixture.Command with { OperationId = Guid.NewGuid(), CorrelationId = Guid.NewGuid(),
             TransitionId = Guid.NewGuid(), TargetMode = OperationalMode.Game };
