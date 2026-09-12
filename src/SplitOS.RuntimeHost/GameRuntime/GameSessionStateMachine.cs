@@ -25,9 +25,10 @@ public enum GameSessionSignal
     GameExitedConfirmed,
     CorrelationLost,
     StartTimeout,
-    LaunchFailed,
+    SessionFailed,
     BeginLauncherReturn,
     LauncherRestored,
+    FailureAcknowledged,
     ModeDeactivated
 }
 
@@ -147,9 +148,10 @@ public sealed class GameSessionStateMachine
             GameSessionSignal.GameExitedConfirmed => ApplyGameExitedConfirmed(previous, request),
             GameSessionSignal.CorrelationLost => ApplyCorrelationLost(previous, request),
             GameSessionSignal.StartTimeout => ApplyStartTimeout(previous, request),
-            GameSessionSignal.LaunchFailed => ApplyLaunchFailed(previous, request),
+            GameSessionSignal.SessionFailed => ApplySessionFailed(previous, request),
             GameSessionSignal.BeginLauncherReturn => ApplyBeginLauncherReturn(previous, request),
             GameSessionSignal.LauncherRestored => ApplyLauncherRestored(previous, request),
+            GameSessionSignal.FailureAcknowledged => ApplyFailureAcknowledged(previous, request),
             _ => Reject(GameSessionReasonCodes.InvalidTransition, previous)
         };
     }
@@ -409,7 +411,7 @@ public sealed class GameSessionStateMachine
             GameSessionFailureCodes.StartTimeout);
     }
 
-    private GameSessionTransitionResult ApplyLaunchFailed(
+    private GameSessionTransitionResult ApplySessionFailed(
         GameSessionState previous,
         GameSessionTransitionRequest request)
     {
@@ -429,7 +431,8 @@ public sealed class GameSessionStateMachine
 
         if (_snapshot.State is not (GameSessionState.Preparing
             or GameSessionState.ClientHandoff
-            or GameSessionState.GameStarting))
+            or GameSessionState.GameStarting
+            or GameSessionState.ReturningToLauncher))
         {
             return Reject(GameSessionReasonCodes.InvalidTransition, previous);
         }
@@ -478,6 +481,27 @@ public sealed class GameSessionStateMachine
         if (_snapshot.State != GameSessionState.ReturningToLauncher)
             return Reject(GameSessionReasonCodes.InvalidTransition, previous);
 
+        return Move(
+            GameSessionState.Launcher,
+            previous,
+            activeLaunch: null,
+            handoffAccepted: false,
+            failureCode: null);
+    }
+
+    private GameSessionTransitionResult ApplyFailureAcknowledged(
+        GameSessionState previous,
+        GameSessionTransitionRequest request)
+    {
+        var identityFailure = RequireActiveLaunch(request, previous);
+        if (identityFailure is not null)
+            return identityFailure;
+
+        if (_snapshot.State != GameSessionState.Failed)
+            return Reject(GameSessionReasonCodes.InvalidTransition, previous);
+
+        // FAILED remains inside committed GAME by default. Acknowledging the failed managed flow
+        // returns to the idle launcher and clears the old operation identity before any retry.
         return Move(
             GameSessionState.Launcher,
             previous,
