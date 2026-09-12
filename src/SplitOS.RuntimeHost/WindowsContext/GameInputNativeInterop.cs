@@ -187,6 +187,9 @@ internal static class GameInputNativeV3
             IntPtr callbackFunc,
             out ulong callbackToken);
 
+        // Retained to preserve the public IGameInput vtable. SplitOS shutdown uses
+        // UnregisterCallback directly because that operation itself prevents future dispatch and
+        // blocks until any in-flight callback has completed.
         [PreserveSig]
         void StopCallback(ulong callbackToken);
 
@@ -357,9 +360,9 @@ internal sealed class WindowsGameInputSession(
 
             var token = _callbackToken;
 
-            // StopCallback prevents new callback delivery before the registration token is removed.
-            // Do not clear the managed callback context until UnregisterCallback confirms removal.
-            gameInput.StopCallback(token);
+            // UnregisterCallback is the synchronization boundary: on success no future callback can
+            // be dispatched and any callback already executing has finished. Keep the managed
+            // callback context alive unless native removal is positively confirmed.
             if (!gameInput.UnregisterCallback(token))
             {
                 throw new InvalidOperationException(
