@@ -58,7 +58,7 @@ public sealed class PowerSchemeApplyCoordinator(
         }
 
         var source = query.QueryActiveScheme();
-        var targetScheme = target.ResolutionKind == PowerPolicyResolutionKind.Scheme
+        Guid? targetScheme = target.ResolutionKind == PowerPolicyResolutionKind.Scheme
             ? target.SchemeId ?? throw new InvalidDataException("Resolved scheme power policy omitted target scheme GUID.")
             : null;
 
