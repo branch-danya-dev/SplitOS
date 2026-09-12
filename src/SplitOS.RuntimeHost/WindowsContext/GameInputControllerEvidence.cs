@@ -104,7 +104,7 @@ public interface IGameInputSession : IDisposable
 {
     bool IsStarted { get; }
     void Start(Action<GameInputDeviceChange> callback);
-    void Stop();
+    void StopObservation();
 }
 
 public interface IGameInputSessionFactory
@@ -151,6 +151,8 @@ public sealed class GameInputControllerMonitor(
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        // Native callback unregistration is part of correctness and must not be skipped merely
+        // because the host shutdown token is already cancelled.
         _ = cancellationToken;
 
         lock (_gate)
@@ -162,7 +164,7 @@ public sealed class GameInputControllerMonitor(
             _session = null;
             try
             {
-                session.Stop();
+                session.StopObservation();
             }
             finally
             {
@@ -184,7 +186,7 @@ public sealed class GameInputControllerMonitor(
             _session = null;
             try
             {
-                session.Stop();
+                session.StopObservation();
             }
             finally
             {
