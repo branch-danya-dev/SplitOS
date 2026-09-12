@@ -54,6 +54,10 @@ builder.Services.AddSingleton<GameInputEvidenceState>();
 builder.Services.AddSingleton<IInputGenerationTracker>(services => services.GetRequiredService<GameInputEvidenceState>());
 builder.Services.AddSingleton<IInputSnapshotReader>(services => services.GetRequiredService<GameInputEvidenceState>());
 builder.Services.AddSingleton<IGameInputSessionFactory, WindowsGameInputSessionFactory>();
+builder.Services.AddSingleton<IAudioGenerationTracker, AudioGenerationTracker>();
+builder.Services.AddSingleton<ICoreAudioSnapshotQuery, WindowsCoreAudioSnapshotQuery>();
+builder.Services.AddSingleton<IAudioSnapshotReader, AudioSnapshotReader>();
+builder.Services.AddSingleton<ICoreAudioNotificationSessionFactory, WindowsCoreAudioNotificationSessionFactory>();
 // Release power-policy mappings are not provisioned yet. Keep the production catalog empty and
 // fail closed; BaselineModeTargetPreparationProvider also does not emit power actions in this slice.
 builder.Services.AddSingleton<IPowerPolicyCatalogResolver>(_ =>
@@ -142,6 +146,7 @@ builder.Services.AddSingleton<IRuntimeAuthStartCommand, UnavailableRuntimeAuthSt
 
 builder.Services.AddHostedService<PnpHardwareGenerationMonitor>();
 builder.Services.AddHostedService<GameInputControllerMonitor>();
+builder.Services.AddHostedService<CoreAudioEndpointMonitor>();
 builder.Services.AddHostedService<RuntimeStateCoordinator>();
 builder.Services.AddHostedService<RuntimeModeAccessLossService>();
 builder.Services.AddHostedService<RuntimeUiPipeService>();
