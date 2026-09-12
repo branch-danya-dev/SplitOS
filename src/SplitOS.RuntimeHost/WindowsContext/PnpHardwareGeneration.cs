@@ -64,6 +64,7 @@ public sealed class PnpHardwareGenerationInvalidator(IHardwareGenerationTracker 
         => generationTracker.Invalidate(nativeAction);
 }
 
+[UnmanagedFunctionPointer(CallingConvention.Winapi)]
 public delegate uint PnpHardwareNotificationCallback(
     IntPtr notificationHandle,
     IntPtr context,
@@ -95,7 +96,6 @@ public sealed class ConfigurationManagerNotificationException(
 /// </summary>
 public sealed class ConfigurationManagerPnpInterop : IConfigurationManagerPnpInterop
 {
-    private const uint CrSuccess = 0;
     private const uint NotifyFilterFlagAllDeviceInstances = 0x00000002;
     private const uint NotifyFilterTypeDeviceInstance = 2;
     private const int MaxDeviceIdLength = 200;
@@ -280,7 +280,7 @@ public sealed class PnpHardwareGenerationMonitor(
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        _ = cancellationToken;
         notificationSource.Stop();
         return Task.CompletedTask;
     }
