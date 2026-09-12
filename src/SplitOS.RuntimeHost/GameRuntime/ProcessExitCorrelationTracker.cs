@@ -240,7 +240,6 @@ public sealed class ProcessExitCorrelationTracker
         if (permittedReplacements.Length == 1)
         {
             var replacement = permittedReplacements[0];
-            var oldPrimary = _trackedPrimary;
             _trackedPrimary = replacement;
             _exitCandidateSinceUtc = null;
             return new ProcessExitCorrelationResult(
@@ -252,7 +251,7 @@ public sealed class ProcessExitCorrelationTracker
                 ExitCandidateSinceUtc: null);
         }
 
-        if (HasUnknownReplacementCandidate(current, exitCandidateSinceUtc))
+        if (HasUnknownReplacementCandidate(current))
         {
             _exitCandidateSinceUtc = exitCandidateSinceUtc;
             return Result(
@@ -355,9 +354,7 @@ public sealed class ProcessExitCorrelationTracker
             observedUtc);
     }
 
-    private bool HasUnknownReplacementCandidate(
-        ProcessEvidenceSnapshot current,
-        DateTimeOffset exitCandidateSinceUtc)
+    private bool HasUnknownReplacementCandidate(ProcessEvidenceSnapshot current)
     {
         foreach (var process in current.Processes)
         {
