@@ -36,6 +36,16 @@ builder.Services.AddSingleton<IDisplayExtendTransactionTopologyStage, DisplayExt
 builder.Services.AddSingleton<IDisplayExtendTransactionModeStage, DisplayExtendTransactionModeStage>();
 builder.Services.AddSingleton<IDisplayExtendTransactionRollbackStage, DisplayExtendTransactionRollbackStage>();
 builder.Services.AddSingleton<DisplayExtendModeTransactionCoordinator>();
+builder.Services.AddSingleton<PowrProfPowerSchemeInterop>();
+builder.Services.AddSingleton<IWindowsPowerSchemeInterop>(services => services.GetRequiredService<PowrProfPowerSchemeInterop>());
+builder.Services.AddSingleton<IPowerSchemeQuery, WindowsPowerSchemeQuery>();
+builder.Services.AddSingleton<IPowerSchemeSetter, WindowsPowerSchemeSetter>();
+builder.Services.AddSingleton<IPowerSchemeSnapshotReader, PowerSchemeSnapshotReader>();
+// Release power-policy mappings are not provisioned yet. Keep the production catalog empty and
+// fail closed; BaselineModeTargetPreparationProvider also does not emit power actions in this slice.
+builder.Services.AddSingleton<IPowerPolicyCatalogResolver>(_ =>
+    new PowerPolicyCatalogResolver(Array.Empty<PowerPolicyCatalogEntry>()));
+builder.Services.AddSingleton<PowerSchemeApplyCoordinator>();
 builder.Services.AddSingleton<UserStateStore>();
 builder.Services.AddSingleton<IUserAccountAssociationStore>(services => services.GetRequiredService<UserStateStore>());
 builder.Services.AddSingleton<IUserAccountAssociationSignOutStore, UserAccountAssociationSignOutStore>();
@@ -89,6 +99,8 @@ builder.Services.AddSingleton<IModeActionApplyHandler, ManagedServiceModeActionA
 builder.Services.AddSingleton<IModeActionVerifyHandler, ManagedServiceModeActionVerifyHandler>();
 builder.Services.AddSingleton<IModeActionApplyHandler, DisplayModeActionApplyHandler>();
 builder.Services.AddSingleton<IModeActionVerifyHandler, DisplayModeActionVerifyHandler>();
+builder.Services.AddSingleton<IModeActionApplyHandler, PowerModeActionApplyHandler>();
+builder.Services.AddSingleton<IModeActionVerifyHandler, PowerModeActionVerifyHandler>();
 builder.Services.AddSingleton<IModeActionApplyCoordinator, ModeActionApplyDispatcher>();
 builder.Services.AddSingleton<IModeActionVerifyCoordinator, ModeActionVerifyDispatcher>();
 builder.Services.AddSingleton<IModeBasePolicyClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
