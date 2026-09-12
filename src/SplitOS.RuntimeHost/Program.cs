@@ -41,6 +41,9 @@ builder.Services.AddSingleton<IWindowsPowerSchemeInterop>(services => services.G
 builder.Services.AddSingleton<IPowerSchemeQuery, WindowsPowerSchemeQuery>();
 builder.Services.AddSingleton<IPowerSchemeSetter, WindowsPowerSchemeSetter>();
 builder.Services.AddSingleton<IPowerSchemeSnapshotReader, PowerSchemeSnapshotReader>();
+builder.Services.AddSingleton<WindowsProcessEvidenceInterop>();
+builder.Services.AddSingleton<IWindowsProcessEvidenceInterop>(services => services.GetRequiredService<WindowsProcessEvidenceInterop>());
+builder.Services.AddSingleton<IProcessEvidenceSnapshotReader, ProcessEvidenceSnapshotReader>();
 // Release power-policy mappings are not provisioned yet. Keep the production catalog empty and
 // fail closed; BaselineModeTargetPreparationProvider also does not emit power actions in this slice.
 builder.Services.AddSingleton<IPowerPolicyCatalogResolver>(_ =>
