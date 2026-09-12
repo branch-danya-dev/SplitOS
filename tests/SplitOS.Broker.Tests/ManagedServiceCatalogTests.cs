@@ -61,6 +61,16 @@ public sealed class ManagedServiceCatalogTests
             ManagedServiceScmAccess.QueryStatus | ManagedServiceScmAccess.Start,
             ManagedServiceScmAccess.QueryStatus | ManagedServiceScmAccess.Stop);
 
-        Assert.ThrowsException<InvalidOperationException>(unsafePolicy.Validate);
+        var rejected = false;
+        try
+        {
+            unsafePolicy.Validate();
+        }
+        catch (InvalidOperationException)
+        {
+            rejected = true;
+        }
+
+        Assert.IsTrue(rejected, "Broader-than-required SCM rights must be rejected by the release catalog policy.");
     }
 }
