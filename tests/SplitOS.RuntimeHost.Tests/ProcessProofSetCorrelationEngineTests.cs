@@ -179,11 +179,11 @@ public sealed class ProcessProofSetCorrelationEngineTests
         var result = engine.Observe(Snapshot(
             HandoffUtc.AddSeconds(2),
             new ProcessEvidenceObservation(
-                206,
-                7,
-                @"C:\Games\Title\Game.exe",
+                ProcessId: 206,
+                SessionId: 7,
+                ImagePath: @"C:\Games\Title\Game.exe",
                 ProcessCreationTimeUtc: null,
-                HandoffUtc.AddSeconds(2))));
+                ObservedUtc: HandoffUtc.AddSeconds(2))));
 
         Assert.AreEqual(ProcessCorrelationClassification.Candidate, result.Classification);
         Assert.AreEqual(ProcessCorrelationEvidenceLevel.Weak, result.EvidenceLevel);
@@ -230,12 +230,12 @@ public sealed class ProcessProofSetCorrelationEngineTests
     public void RulesRejectExecutableThatIsAlsoClassifiedAsHelper()
     {
         var rules = new ProcessCorrelationRules(
-            7,
-            HandoffUtc,
-            @"C:\Games\Title",
-            ["Game.exe"],
-            ["GAME.EXE"],
-            TimeSpan.Zero);
+            SessionId: 7,
+            HandoffUtc: HandoffUtc,
+            ValidatedInstallRoot: @"C:\Games\Title",
+            ExpectedExecutableNames: ["Game.exe"],
+            KnownHelperExecutableNames: ["GAME.EXE"],
+            MinimumStabilityWindow: TimeSpan.Zero);
 
         var exception = AssertThrows<InvalidDataException>(() => rules.Validate());
 
@@ -251,7 +251,7 @@ public sealed class ProcessProofSetCorrelationEngineTests
             baseline,
             new ProcessCorrelationRules(
                 SessionId: 7,
-                HandoffUtc,
+                HandoffUtc: HandoffUtc,
                 ValidatedInstallRoot: @"C:\Games\Title",
                 ExpectedExecutableNames: expected,
                 KnownHelperExecutableNames: helpers ?? [],
