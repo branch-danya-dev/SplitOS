@@ -61,8 +61,6 @@ builder.Services.AddSingleton<IModeTransitionRollbackStore>(services => services
 builder.Services.AddSingleton<IModeTransitionReconciliationStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<RuntimeModeRecoveryCoordinator>();
 builder.Services.AddSingleton<IManagedServiceRollbackClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
-builder.Services.AddSingleton<IModeActionRollbackHandler, ManagedServiceModeActionRollbackHandler>();
-builder.Services.AddSingleton<IModeActionRollbackExecutor, ModeActionRollbackDispatcher>();
 builder.Services.AddSingleton<ManagedServiceActionRollbackCoordinator>();
 builder.Services.AddSingleton<IControlSessionIdentity, WindowsControlSessionIdentity>();
 builder.Services.AddSingleton<ICurrentModeAccess, CurrentModeAccess>();
@@ -76,10 +74,16 @@ builder.Services.AddSingleton<IManagedServiceActionBrokerClient, NamedPipeManage
 builder.Services.AddSingleton<ManagedServiceActionApplyCoordinator>();
 builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, NamedPipeManagedServiceActionVerificationBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
+builder.Services.AddSingleton<DisplayModeActionHandler>();
 builder.Services.AddSingleton<IModeActionApplyHandler, ManagedServiceModeActionApplyHandler>();
+builder.Services.AddSingleton<IModeActionApplyHandler>(services => services.GetRequiredService<DisplayModeActionHandler>());
 builder.Services.AddSingleton<IModeActionVerifyHandler, ManagedServiceModeActionVerifyHandler>();
+builder.Services.AddSingleton<IModeActionVerifyHandler>(services => services.GetRequiredService<DisplayModeActionHandler>());
+builder.Services.AddSingleton<IModeActionRollbackHandler, ManagedServiceModeActionRollbackHandler>();
+builder.Services.AddSingleton<IModeActionRollbackHandler>(services => services.GetRequiredService<DisplayModeActionHandler>());
 builder.Services.AddSingleton<IModeActionApplyCoordinator, ModeActionApplyDispatcher>();
 builder.Services.AddSingleton<IModeActionVerifyCoordinator, ModeActionVerifyDispatcher>();
+builder.Services.AddSingleton<IModeActionRollbackExecutor, ModeActionRollbackDispatcher>();
 builder.Services.AddSingleton<IModeBasePolicyClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<BaselineModeTargetPreparationProvider>();
 // The durable state machine remains platform-independent. Runtime acceptance re-derives the active
