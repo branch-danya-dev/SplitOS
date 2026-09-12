@@ -51,6 +51,27 @@ public sealed class PowerSchemeApplyCoordinatorTests
     }
 
     [TestMethod]
+    public void DurableExpectedSourceDriftRejectsBeforeNativeMutation()
+    {
+        var query = new SequenceQuery(new[] { Performance });
+        var setter = new RecordingSetter();
+        var coordinator = new PowerSchemeApplyCoordinator(
+            Catalog(new PowerPolicyCatalogEntry("GAME_PERFORMANCE", PowerPolicyResolutionKind.Scheme, Performance)),
+            query,
+            setter);
+
+        var result = coordinator.Apply("GAME_PERFORMANCE", Balanced);
+
+        Assert.AreEqual(PowerSchemeApplyDisposition.SourceDrift, result.Disposition);
+        Assert.AreEqual("POWER_SCHEME_SOURCE_DRIFT", result.ProductCode);
+        Assert.AreEqual(Performance, result.SourceSchemeId);
+        Assert.AreEqual(1, query.Calls);
+        Assert.AreEqual(0, setter.Calls);
+        Assert.IsFalse(result.OperationAttempted);
+        Assert.IsFalse(result.IsVerified);
+    }
+
+    [TestMethod]
     public void NoChangeStillCapturesActualSourceEvidenceWithoutMutation()
     {
         var query = new SequenceQuery(new[] { Balanced });
