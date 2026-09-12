@@ -28,6 +28,10 @@ public static class MessageTypes
     public const string RuntimeAuthStartResult = "RuntimeAuthStartResult";
     public const string RuntimeSignOutRequest = "RuntimeSignOutRequest";
     public const string RuntimeSignOutResult = "RuntimeSignOutResult";
+    public const string LauncherRuntimeSnapshotRequest = "LauncherRuntimeSnapshotRequest";
+    public const string LauncherRuntimeSnapshotResult = "LauncherRuntimeSnapshotResult";
+    public const string LauncherReadyForGameModeRequest = "LauncherReadyForGameModeRequest";
+    public const string LauncherReadyForGameModeResult = "LauncherReadyForGameModeResult";
     public const string ErrorResponse = "ErrorResponse";
 }
 
@@ -43,6 +47,8 @@ public static class Capabilities
     public const string RuntimeStateRead = "Runtime.State.Read";
     public const string RuntimeAuthStart = "Runtime.Auth.Start@1";
     public const string RuntimeSignOut = "Runtime.Auth.SignOut@1";
+    public const string LauncherRuntimeSnapshotRead = "Runtime.Launcher.Snapshot.Read@1";
+    public const string LauncherReadyForGameMode = "Runtime.Launcher.ReadyForGameMode@1";
 }
 
 public static class ErrorCodes
