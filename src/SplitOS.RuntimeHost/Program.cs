@@ -63,6 +63,7 @@ builder.Services.AddSingleton<IModeTransitionReconciliationStore>(services => se
 builder.Services.AddSingleton<RuntimeModeRecoveryCoordinator>();
 builder.Services.AddSingleton<IManagedServiceRollbackClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeActionRollbackHandler, ManagedServiceModeActionRollbackHandler>();
+builder.Services.AddSingleton<IModeActionRollbackHandler, DisplayModeActionRollbackHandler>();
 builder.Services.AddSingleton<IModeActionRollbackExecutor, ModeActionRollbackDispatcher>();
 builder.Services.AddSingleton<ManagedServiceActionRollbackCoordinator>();
 builder.Services.AddSingleton<IControlSessionIdentity, WindowsControlSessionIdentity>();
