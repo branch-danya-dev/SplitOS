@@ -11,6 +11,7 @@ public sealed record DisplayTopologyPreState(
 
 public sealed record DisplayTargetModePreState(
     PersistentDisplaySelector Selector,
+    IReadOnlyList<PersistentDisplaySelector> ActiveTargets,
     uint Width,
     uint Height,
     uint RefreshNumerator,
@@ -29,23 +30,12 @@ public static class DisplayModeActionPreStateContract
     public static DisplayTopologyPreState CaptureTopology(DisplaySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        var active = snapshot.Paths.Where(static path => path.Active).ToArray();
-        if (active.Length == 0)
-            throw new InvalidDataException("Display topology pre-state has no active targets.");
-
-        var selectors = new List<PersistentDisplaySelector>(active.Length);
-        foreach (var path in active)
-        {
-            if (!path.TargetAvailable || path.Identity is null)
-                throw new InvalidDataException("Every active display target must be available and have stable identity evidence before mutation.");
-            selectors.Add(SelectorFromIdentity(path.Identity));
-        }
-
-        return Normalize(new DisplayTopologyPreState(selectors));
+        return Normalize(new DisplayTopologyPreState(CaptureActiveSelectors(snapshot)));
     }
 
-    public static DisplayTargetModePreState CaptureTargetMode(DisplayPathEvidence path)
+    public static DisplayTargetModePreState CaptureTargetMode(DisplaySnapshot snapshot, DisplayPathEvidence path)
     {
+        ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(path);
         if (!path.Active || !path.TargetAvailable || path.Identity is null)
             throw new InvalidDataException("Display target-mode pre-state requires one active, available target with stable identity evidence.");
@@ -53,9 +43,12 @@ public static class DisplayModeActionPreStateContract
             throw new InvalidDataException("Display target-mode pre-state requires exact resolution and refresh evidence.");
         if (path.BoostRefreshRate)
             throw new InvalidDataException("Dynamic/boost refresh pre-state is not supported for durable mode mutation.");
+        if (!snapshot.Paths.Any(candidate => candidate.TargetKey == path.TargetKey && candidate.Active))
+            throw new InvalidDataException("Display target-mode evidence does not belong to the captured active snapshot.");
 
         return Normalize(new DisplayTargetModePreState(
             SelectorFromIdentity(path.Identity),
+            CaptureActiveSelectors(snapshot),
             path.SourceResolution.Value.Width,
             path.SourceResolution.Value.Height,
             path.RefreshRate.Value.Numerator,
@@ -93,6 +86,7 @@ public static class DisplayModeActionPreStateContract
             new TargetModeDocument(
                 PreStateSchemaVersion,
                 normalized.Selector,
+                normalized.ActiveTargets,
                 normalized.Width,
                 normalized.Height,
                 normalized.RefreshNumerator,
@@ -111,6 +105,7 @@ public static class DisplayModeActionPreStateContract
             throw new ArgumentException($"Display target-mode pre-state schema {document.SchemaVersion} is not supported.", nameof(json));
         var normalized = Normalize(new DisplayTargetModePreState(
             document.Selector ?? throw new ArgumentException("Display target-mode pre-state selector is missing.", nameof(json)),
+            document.ActiveTargets ?? throw new ArgumentException("Display target-mode topology pre-state is missing.", nameof(json)),
             document.Width,
             document.Height,
             document.RefreshNumerator,
@@ -130,31 +125,21 @@ public static class DisplayModeActionPreStateContract
     public static DisplayTopologyPreState Normalize(DisplayTopologyPreState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        ArgumentNullException.ThrowIfNull(state.ActiveTargets);
-        if (state.ActiveTargets.Count == 0)
-            throw new ArgumentException("Display topology pre-state must contain at least one active target.", nameof(state));
-
-        var normalized = state.ActiveTargets
-            .Select(DisplayModeActionContract.NormalizeSelector)
-            .Select(selector => (Selector: selector, Key: SelectorKey(selector)))
-            .OrderBy(static item => item.Key, StringComparer.Ordinal)
-            .ToArray();
-        if (normalized.Select(static item => item.Key).Distinct(StringComparer.Ordinal).Count() != normalized.Length)
-            throw new InvalidDataException("Display topology pre-state contains duplicate physical target identity evidence.");
-        return new DisplayTopologyPreState(normalized.Select(static item => item.Selector).ToArray());
+        return new DisplayTopologyPreState(NormalizeTargetSet(state.ActiveTargets));
     }
 
     public static DisplayTargetModePreState Normalize(DisplayTargetModePreState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         var selector = DisplayModeActionContract.NormalizeSelector(state.Selector);
+        var activeTargets = NormalizeTargetSet(state.ActiveTargets);
         if (state.Width == 0 || state.Height == 0)
             throw new ArgumentOutOfRangeException(nameof(state), "Display target-mode pre-state resolution must be positive.");
         if (state.RefreshDenominator == 0)
             throw new ArgumentOutOfRangeException(nameof(state), "Display target-mode pre-state refresh denominator must be non-zero.");
         if (state.Rotation is < 1 or > 4)
             throw new ArgumentOutOfRangeException(nameof(state), "Display target-mode pre-state rotation is invalid.");
-        return state with { Selector = selector };
+        return state with { Selector = selector, ActiveTargets = activeTargets };
     }
 
     public static PersistentDisplaySelector SelectorFromIdentity(DisplayTargetIdentityEvidence identity)
@@ -172,6 +157,49 @@ public static class DisplayModeActionPreStateContract
             PnpDeviceInstanceId: identity.PnpDeviceInstanceId));
     }
 
+    public static IReadOnlyList<PersistentDisplaySelector> CaptureActiveSelectors(DisplaySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var active = snapshot.Paths.Where(static path => path.Active).ToArray();
+        if (active.Length == 0)
+            throw new InvalidDataException("Display topology pre-state has no active targets.");
+
+        var selectors = new List<PersistentDisplaySelector>(active.Length);
+        foreach (var path in active)
+        {
+            if (!path.TargetAvailable || path.Identity is null)
+                throw new InvalidDataException("Every active display target must be available and have stable identity evidence before mutation.");
+            selectors.Add(SelectorFromIdentity(path.Identity));
+        }
+        return NormalizeTargetSet(selectors);
+    }
+
+    public static bool TargetSetsEqual(
+        IReadOnlyList<PersistentDisplaySelector> expected,
+        IReadOnlyList<PersistentDisplaySelector> actual)
+    {
+        var left = NormalizeTargetSet(expected).Select(SelectorKey).ToArray();
+        var right = NormalizeTargetSet(actual).Select(SelectorKey).ToArray();
+        return left.SequenceEqual(right, StringComparer.Ordinal);
+    }
+
+    private static IReadOnlyList<PersistentDisplaySelector> NormalizeTargetSet(
+        IReadOnlyList<PersistentDisplaySelector> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        if (targets.Count == 0)
+            throw new ArgumentException("Display topology pre-state must contain at least one active target.", nameof(targets));
+
+        var normalized = targets
+            .Select(DisplayModeActionContract.NormalizeSelector)
+            .Select(selector => (Selector: selector, Key: SelectorKey(selector)))
+            .OrderBy(static item => item.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (normalized.Select(static item => item.Key).Distinct(StringComparer.Ordinal).Count() != normalized.Length)
+            throw new InvalidDataException("Display topology pre-state contains duplicate physical target identity evidence.");
+        return normalized.Select(static item => item.Selector).ToArray();
+    }
+
     private static string SelectorKey(PersistentDisplaySelector selector)
         => JsonSerializer.Serialize(selector, ProtocolJson.Options);
 
@@ -185,6 +213,7 @@ public static class DisplayModeActionPreStateContract
     private sealed record TargetModeDocument(
         int SchemaVersion,
         PersistentDisplaySelector? Selector,
+        IReadOnlyList<PersistentDisplaySelector>? ActiveTargets,
         uint Width,
         uint Height,
         uint RefreshNumerator,
