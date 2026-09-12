@@ -45,12 +45,6 @@ public sealed record LauncherBindingDecision(
     Guid? ExpectedGameModeCorrelationId,
     long? RuntimeSnapshotVersion);
 
-/// <summary>
-/// Owns only Game Launcher process/transport/presentation readiness lifecycle. Canonical mode and
-/// GameSession truth remain Runtime-owned; GAME foreground/background projection remains owned by
-/// LauncherPresentationController. Reconnect never restores authority from cache: a fresh Runtime
-/// snapshot is mandatory before ACTIVE/READY_PRECOMMIT or any mutating request can resume.
-/// </summary>
 public sealed class LauncherRuntimeBindingController
 {
     private LauncherLifecycleState _state = LauncherLifecycleState.Stopped;
@@ -110,6 +104,9 @@ public sealed class LauncherRuntimeBindingController
             return Decision(LauncherBindingDisposition.Rejected, LauncherBindingReasonCodes.InvalidLifecycleTransition);
 
         _presentationSubsystemReady = true;
+        if (!_transportConnected)
+            return Decision(LauncherBindingDisposition.Applied, LauncherBindingReasonCodes.FreshSnapshotRequired);
+
         return RecomputeFromCurrentBinding();
     }
 
@@ -171,7 +168,10 @@ public sealed class LauncherRuntimeBindingController
 
     private LauncherBindingDecision RecomputeFromCurrentBinding()
     {
-        if (!_transportConnected || !_hasFreshSnapshot || _snapshot is null)
+        if (!_transportConnected)
+            return Decision(LauncherBindingDisposition.Applied, LauncherBindingReasonCodes.FreshSnapshotRequired);
+
+        if (!_hasFreshSnapshot || _snapshot is null)
         {
             _state = LauncherLifecycleState.Preparing;
             return Decision(LauncherBindingDisposition.Applied, LauncherBindingReasonCodes.FreshSnapshotRequired);
@@ -231,7 +231,6 @@ public sealed class LauncherRuntimeBindingController
             return false;
         if (!gameCommitted && !sessionInactive)
             return false;
-
         if (gameCommitted && presentationState == LauncherPresentationState.Inactive)
             return false;
         if (!gameCommitted && presentationState != LauncherPresentationState.Inactive)
