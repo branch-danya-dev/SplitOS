@@ -44,6 +44,12 @@ builder.Services.AddSingleton<IPowerSchemeSnapshotReader, PowerSchemeSnapshotRea
 builder.Services.AddSingleton<WindowsProcessEvidenceInterop>();
 builder.Services.AddSingleton<IWindowsProcessEvidenceInterop>(services => services.GetRequiredService<WindowsProcessEvidenceInterop>());
 builder.Services.AddSingleton<IProcessEvidenceSnapshotReader, ProcessEvidenceSnapshotReader>();
+builder.Services.AddSingleton<IHardwareGenerationTracker, HardwareGenerationTracker>();
+builder.Services.AddSingleton<PnpHardwareGenerationInvalidator>();
+builder.Services.AddSingleton<ConfigurationManagerPnpInterop>();
+builder.Services.AddSingleton<IConfigurationManagerPnpInterop>(services => services.GetRequiredService<ConfigurationManagerPnpInterop>());
+builder.Services.AddSingleton<WindowsPnpHardwareNotificationSource>();
+builder.Services.AddSingleton<IPnpHardwareNotificationSource>(services => services.GetRequiredService<WindowsPnpHardwareNotificationSource>());
 // Release power-policy mappings are not provisioned yet. Keep the production catalog empty and
 // fail closed; BaselineModeTargetPreparationProvider also does not emit power actions in this slice.
 builder.Services.AddSingleton<IPowerPolicyCatalogResolver>(_ =>
@@ -130,6 +136,7 @@ builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeA
 // from Manager/user configuration. A release-owned authority provider will replace this registration.
 builder.Services.AddSingleton<IRuntimeAuthStartCommand, UnavailableRuntimeAuthStartCommand>();
 
+builder.Services.AddHostedService<PnpHardwareGenerationMonitor>();
 builder.Services.AddHostedService<RuntimeStateCoordinator>();
 builder.Services.AddHostedService<RuntimeModeAccessLossService>();
 builder.Services.AddHostedService<RuntimeUiPipeService>();
