@@ -6,6 +6,7 @@ public enum PowerSchemeApplyDisposition
     AlreadySatisfied,
     AppliedVerified,
     TargetNotFound,
+    SourceDrift,
     OperationRejected,
     VerificationFailed
 }
@@ -28,15 +29,22 @@ public sealed record PowerSchemeApplyOutcome(
 /// <summary>
 /// Applies one release-owned semantic power target for the current user. A native set call is never
 /// sufficient proof: every attempted mutation is followed by a fresh active-scheme read-back.
+/// When durable rollback evidence already captured a source scheme, expectedSourceSchemeId fences
+/// the mutation against drift between pre-state capture and the native write.
 /// </summary>
 public sealed class PowerSchemeApplyCoordinator(
     IPowerPolicyCatalogResolver policyResolver,
     IPowerSchemeQuery query,
     IPowerSchemeSetter setter)
 {
-    public PowerSchemeApplyOutcome Apply(string powerPolicyId)
+    public PowerSchemeApplyOutcome Apply(
+        string powerPolicyId,
+        Guid? expectedSourceSchemeId = null)
     {
         PowerPolicyCatalogResolver.ValidatePolicyId(powerPolicyId);
+        if (expectedSourceSchemeId == Guid.Empty)
+            throw new ArgumentException("Expected source power scheme must not be empty.", nameof(expectedSourceSchemeId));
+
         if (!policyResolver.TryResolve(powerPolicyId, out var target) || target is null)
         {
             return new PowerSchemeApplyOutcome(
@@ -50,6 +58,22 @@ public sealed class PowerSchemeApplyCoordinator(
         }
 
         var source = query.QueryActiveScheme();
+        Guid? targetScheme = target.ResolutionKind == PowerPolicyResolutionKind.Scheme
+            ? target.SchemeId ?? throw new InvalidDataException("Resolved scheme power policy omitted target scheme GUID.")
+            : null;
+
+        if (expectedSourceSchemeId.HasValue && source != expectedSourceSchemeId.Value)
+        {
+            return new PowerSchemeApplyOutcome(
+                PowerSchemeApplyDisposition.SourceDrift,
+                "POWER_SCHEME_SOURCE_DRIFT",
+                target.PowerPolicyId,
+                source,
+                targetScheme,
+                source,
+                false);
+        }
+
         if (target.ResolutionKind == PowerPolicyResolutionKind.NoChange)
         {
             return new PowerSchemeApplyOutcome(
@@ -62,8 +86,6 @@ public sealed class PowerSchemeApplyCoordinator(
                 false);
         }
 
-        var targetScheme = target.SchemeId
-            ?? throw new InvalidDataException("Resolved scheme power policy omitted target scheme GUID.");
         if (source == targetScheme)
         {
             return new PowerSchemeApplyOutcome(
@@ -76,7 +98,7 @@ public sealed class PowerSchemeApplyCoordinator(
                 false);
         }
 
-        var set = setter.SetActiveScheme(targetScheme);
+        var set = setter.SetActiveScheme(targetScheme!.Value);
         var observed = query.QueryActiveScheme();
         if (set.ErrorCode != 0)
         {

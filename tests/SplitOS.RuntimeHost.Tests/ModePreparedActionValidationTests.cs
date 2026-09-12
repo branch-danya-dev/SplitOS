@@ -51,6 +51,20 @@ public sealed class ModePreparedActionValidationTests
     }
 
     [TestMethod]
+    public void BuiltInRegistryAcceptsCanonicalPowerAction()
+    {
+        var action = PowerModeActionContract.CreateDefinition(
+            Guid.NewGuid(),
+            25,
+            "GAME_PERFORMANCE");
+
+        var outcome = ModePreparedActionValidation.ValidateBuiltIn(new[] { action });
+
+        Assert.IsTrue(outcome.IsValid, outcome.Detail);
+        Assert.AreEqual("MODE_PREPARED_ACTIONS_VALID", outcome.ProductCode);
+    }
+
+    [TestMethod]
     public void TamperedDisplayDigestFailsClosed()
     {
         var action = DisplayModeActionContract.CreateTargetModeDefinition(
@@ -65,6 +79,23 @@ public sealed class ModePreparedActionValidationTests
 
         Assert.IsFalse(outcome.IsValid);
         Assert.AreEqual("MODE_PREPARED_DISPLAY_DIGEST_MISMATCH", outcome.ProductCode);
+    }
+
+    [TestMethod]
+    public void TamperedPowerDigestFailsClosed()
+    {
+        var action = PowerModeActionContract.CreateDefinition(
+            Guid.NewGuid(),
+            35,
+            "WORK_BALANCED") with
+        {
+            DesiredStateDigest = new string('0', 64)
+        };
+
+        var outcome = ModePreparedActionValidation.ValidateBuiltIn(new[] { action });
+
+        Assert.IsFalse(outcome.IsValid);
+        Assert.AreEqual("MODE_PREPARED_POWER_DIGEST_MISMATCH", outcome.ProductCode);
     }
 
     [TestMethod]

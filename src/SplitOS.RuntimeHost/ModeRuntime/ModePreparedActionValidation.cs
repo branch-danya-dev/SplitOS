@@ -136,7 +136,8 @@ public static class ModePreparedActionValidation
         new IModePreparedActionValidator[]
         {
             new ManagedServicePreparedActionValidator(),
-            new DisplayPreparedActionValidator()
+            new DisplayPreparedActionValidator(),
+            new PowerPreparedActionValidator()
         });
 
     public static ModePreparedActionValidationOutcome ValidateBuiltIn(
@@ -224,5 +225,36 @@ public sealed class DisplayPreparedActionValidator : IModePreparedActionValidato
         }
 
         return ModePreparedActionValidationOutcome.Valid("MODE_PREPARED_DISPLAY_ACTION_VALID");
+    }
+}
+
+public sealed class PowerPreparedActionValidator : IModePreparedActionValidator
+{
+    public bool CanHandle(PersistedModeActionDefinition action)
+        => string.Equals(action.OwningModule, PowerModeActionContract.OwningModule, StringComparison.Ordinal) &&
+           string.Equals(action.ActionType, PowerModeActionContract.ActionType, StringComparison.Ordinal);
+
+    public ModePreparedActionValidationOutcome Validate(PersistedModeActionDefinition action)
+    {
+        if (!string.Equals(action.TargetRef, PowerModeActionContract.TargetRef, StringComparison.Ordinal) ||
+            action.DesiredSchemaVersion != PowerModeActionContract.DesiredSchemaVersion ||
+            !string.Equals(action.RollbackClass, PowerModeActionContract.RollbackClass, StringComparison.Ordinal) ||
+            !string.Equals(action.VerificationClass, PowerModeActionContract.VerificationClass, StringComparison.Ordinal))
+        {
+            return ModePreparedActionValidationOutcome.Invalid(
+                "MODE_PREPARED_POWER_METADATA_INVALID",
+                "Power action metadata does not match the durable power semantic contract.");
+        }
+
+        var desired = PowerModeActionContract.DeserializeDesired(action.DesiredStateJson);
+        var digest = PowerModeActionContract.ComputeDesiredDigest(desired);
+        if (!string.Equals(digest, action.DesiredStateDigest, StringComparison.OrdinalIgnoreCase))
+        {
+            return ModePreparedActionValidationOutcome.Invalid(
+                "MODE_PREPARED_POWER_DIGEST_MISMATCH",
+                "Power desired-state digest does not match canonical durable intent.");
+        }
+
+        return ModePreparedActionValidationOutcome.Valid("MODE_PREPARED_POWER_ACTION_VALID");
     }
 }
