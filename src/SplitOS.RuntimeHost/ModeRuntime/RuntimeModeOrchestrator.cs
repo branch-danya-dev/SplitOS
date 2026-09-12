@@ -585,8 +585,6 @@ public sealed class RuntimeModeOrchestrator(
         ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(prepared.Policy);
         ArgumentNullException.ThrowIfNull(prepared.Actions);
-        if (prepared.Actions.Count == 0)
-            throw new InvalidDataException("Executable mode target must contain at least one durable action.");
         var expectedTarget = targetMode switch
         {
             OperationalMode.None => ModePolicyTarget.Base,
@@ -604,14 +602,12 @@ public sealed class RuntimeModeOrchestrator(
         {
             throw new InvalidDataException("Prepared policy identity/digest is malformed.");
         }
-        foreach (var action in prepared.Actions)
+
+        var actionValidation = ModePreparedActionValidation.ValidateBuiltIn(prepared.Actions);
+        if (!actionValidation.IsValid)
         {
-            if (!string.Equals(action.OwningModule, SplitOS.Contracts.Protocol.ManagedServicePolicyActionContract.OwningModule, StringComparison.Ordinal) ||
-                !string.Equals(action.ActionType, SplitOS.Contracts.Protocol.ManagedServicePolicyActionContract.ActionType, StringComparison.Ordinal) ||
-                !string.Equals(action.TargetRef, SplitOS.Contracts.Protocol.ManagedServicePolicyActionContract.TargetRef, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("This orchestrator increment accepts only typed managed-service actions.");
-            }
+            throw new InvalidDataException(
+                $"{actionValidation.ProductCode}: {actionValidation.Detail ?? "Prepared action validation failed."}");
         }
     }
 
