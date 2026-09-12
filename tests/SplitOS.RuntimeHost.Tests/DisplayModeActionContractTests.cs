@@ -72,7 +72,7 @@ public sealed class DisplayModeActionContractTests
     public void PartialEdidSelectorIsRejected()
     {
         var selector = new PersistentDisplaySelector(EdidManufactureId: 1234);
-        Assert.ThrowsException<ArgumentException>(() =>
+        AssertThrows<ArgumentException>(() =>
             DisplayModeActionContract.SerializeTopologyExtend(new(selector)));
     }
 
@@ -80,7 +80,7 @@ public sealed class DisplayModeActionContractTests
     public void FriendlyNameOnlyRequiresExplicitWeakFallback()
     {
         var selector = new PersistentDisplaySelector(FriendlyMonitorName: "Same Name");
-        Assert.ThrowsException<ArgumentException>(() =>
+        AssertThrows<ArgumentException>(() =>
             DisplayModeActionContract.SerializeTopologyExtend(new(selector)));
 
         var allowed = selector with { AllowWeakFallback = true };
@@ -92,11 +92,11 @@ public sealed class DisplayModeActionContractTests
     public void InvalidTargetModeParametersAreRejected()
     {
         var selector = StrongSelector();
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() =>
+        AssertThrows<ArgumentOutOfRangeException>(() =>
             DisplayModeActionContract.SerializeTargetMode(new(selector, 0, 1080, 60, 1, 1)));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() =>
+        AssertThrows<ArgumentOutOfRangeException>(() =>
             DisplayModeActionContract.SerializeTargetMode(new(selector, 1920, 1080, 60000, 0, 1)));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() =>
+        AssertThrows<ArgumentOutOfRangeException>(() =>
             DisplayModeActionContract.SerializeTargetMode(new(selector, 1920, 1080, 60, 1, 5)));
     }
 
@@ -106,8 +106,28 @@ public sealed class DisplayModeActionContractTests
         var canonical = DisplayModeActionContract.SerializeTopologyExtend(new(StrongSelector()));
         var nonCanonical = canonical.Replace(":", ": ", StringComparison.Ordinal);
         Assert.AreNotEqual(canonical, nonCanonical);
-        Assert.ThrowsException<ArgumentException>(() =>
+        AssertThrows<ArgumentException>(() =>
             DisplayModeActionContract.DeserializeTopologyExtend(nonCanonical));
+    }
+
+    private static T AssertThrows<T>(Action action) where T : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (T exception)
+        {
+            return exception;
+        }
+        catch (Exception exception)
+        {
+            Assert.Fail($"Expected {typeof(T).Name}, got {exception.GetType().Name}: {exception.Message}");
+            throw;
+        }
+
+        Assert.Fail($"Expected {typeof(T).Name}.");
+        throw new InvalidOperationException();
     }
 
     private static PersistentDisplaySelector StrongSelector() => new(
