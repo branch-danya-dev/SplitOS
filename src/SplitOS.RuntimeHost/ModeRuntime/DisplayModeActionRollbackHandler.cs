@@ -40,8 +40,15 @@ public sealed class DisplayModeActionRollbackHandler(
                 _ => new RuntimeModeRollbackStepOutcome("RECONCILIATION_REQUIRED", "MODE_DISPLAY_ACTION_SEMANTICS_INVALID")
             });
         }
-        catch (Exception ex) when (ex is ArgumentException or JsonException or InvalidDataException or InvalidOperationException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            throw;
+        }
+        catch
+        {
+            // A native/display query failure during recovery must never be converted into a guessed
+            // ROLLED_BACK result. Leave the durable action ROLLING_BACK so a later attempt can inspect
+            // actual Windows state and recognize either the pre-state or the still-mutated state.
             return Task.FromResult(new RuntimeModeRollbackStepOutcome(
                 "RECONCILIATION_REQUIRED",
                 "MODE_DISPLAY_ROLLBACK_EVIDENCE_UNAVAILABLE"));
@@ -57,6 +64,20 @@ public sealed class DisplayModeActionRollbackHandler(
         var before = snapshots.Read();
         if (before.Generation != generationTracker.CurrentGeneration)
             return Reconciliation("DISPLAY_STALE_SNAPSHOT");
+
+        var currentTargets = DisplayModeActionPreStateContract.CaptureActiveSelectors(before);
+        if (DisplayModeActionPreStateContract.TargetSetsEqual(baseline.ActiveTargets, currentTargets))
+        {
+            // The native rollback may have succeeded before Runtime lost the reply or crashed. The
+            // durable journal is allowed to advance only after fresh actual-state evidence proves the
+            // exact physical baseline is already restored.
+            var unexpectedActiveTarget = selectorResolver.Resolve(desired.Selector, before);
+            if (unexpectedActiveTarget.IsResolved && unexpectedActiveTarget.Path is { Active: true })
+                return Reconciliation("MODE_DISPLAY_ROLLBACK_BASELINE_CONFLICT");
+            return AuthorityMatches(command.ControlSessionKey)
+                ? new RuntimeModeRollbackStepOutcome("VERIFIED", "MODE_DISPLAY_TOPOLOGY_ROLLBACK_ALREADY_VERIFIED")
+                : Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
+        }
 
         var resolved = selectorResolver.Resolve(desired.Selector, before);
         if (!resolved.IsResolved || resolved.Path is null || !resolved.Path.Active ||
@@ -75,7 +96,6 @@ public sealed class DisplayModeActionRollbackHandler(
             return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_AMBIGUOUS");
         }
 
-        var currentTargets = DisplayModeActionPreStateContract.CaptureActiveSelectors(before);
         if (!DisplayModeActionPreStateContract.TargetSetsEqual(expected, currentTargets))
             return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_DRIFT");
 
@@ -127,6 +147,15 @@ public sealed class DisplayModeActionRollbackHandler(
         var resolved = selectorResolver.Resolve(preState.Selector, before);
         if (!resolved.IsResolved || resolved.Path is null || !resolved.Path.Active || !resolved.Path.TargetAvailable)
             return Reconciliation(resolved.ProductCode);
+
+        var oldMode = new DisplayRational(preState.RefreshNumerator, preState.RefreshDenominator);
+        if (ModeMatches(resolved.Path, preState, oldMode))
+        {
+            return AuthorityMatches(command.ControlSessionKey)
+                ? new RuntimeModeRollbackStepOutcome("VERIFIED", "MODE_DISPLAY_MODE_ROLLBACK_ALREADY_VERIFIED")
+                : Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
+        }
+
         if (!AuthorityMatches(command.ControlSessionKey) || before.Generation != generationTracker.CurrentGeneration)
             return Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
 
@@ -134,7 +163,7 @@ public sealed class DisplayModeActionRollbackHandler(
             resolved.Path.TargetKey,
             before.Generation,
             new DisplayPixelSize(preState.Width, preState.Height),
-            new DisplayRational(preState.RefreshNumerator, preState.RefreshDenominator),
+            oldMode,
             preState.Rotation,
             DisplayTopologyIntent.PreserveActiveTopology));
         if (!outcome.IsVerified)
@@ -149,10 +178,7 @@ public sealed class DisplayModeActionRollbackHandler(
         if (!DisplayModeActionPreStateContract.TargetSetsEqual(preState.ActiveTargets, restoredTargets))
             return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_DRIFT");
         var restored = selectorResolver.Resolve(preState.Selector, after);
-        if (!restored.IsResolved || restored.Path is null ||
-            restored.Path.SourceResolution != new DisplayPixelSize(preState.Width, preState.Height) ||
-            restored.Path.Rotation != preState.Rotation ||
-            !RationalEquals(restored.Path.RefreshRate, new DisplayRational(preState.RefreshNumerator, preState.RefreshDenominator)))
+        if (!restored.IsResolved || restored.Path is null || !ModeMatches(restored.Path, preState, oldMode))
             return Reconciliation("MODE_DISPLAY_ROLLBACK_VERIFICATION_FAILED");
 
         return new RuntimeModeRollbackStepOutcome("VERIFIED", "MODE_DISPLAY_MODE_ROLLBACK_VERIFIED");
@@ -195,6 +221,14 @@ public sealed class DisplayModeActionRollbackHandler(
             return false;
         }
     }
+
+    private static bool ModeMatches(
+        DisplayPathEvidence path,
+        DisplayTargetModePreState preState,
+        DisplayRational expectedRefresh)
+        => path.SourceResolution == new DisplayPixelSize(preState.Width, preState.Height) &&
+           path.Rotation == preState.Rotation &&
+           RationalEquals(path.RefreshRate, expectedRefresh);
 
     private static bool RationalEquals(DisplayRational? actual, DisplayRational expected)
         => actual.HasValue &&
