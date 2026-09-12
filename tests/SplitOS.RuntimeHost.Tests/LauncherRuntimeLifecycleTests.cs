@@ -40,8 +40,15 @@ public sealed class LauncherRuntimeLifecycleTests
         var state = new LauncherReadinessState();
         state.Arm(OperationId, CorrelationId);
 
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            state.Arm(Guid.NewGuid(), Guid.NewGuid()));
+        try
+        {
+            state.Arm(Guid.NewGuid(), Guid.NewGuid());
+            Assert.Fail("Conflicting Launcher readiness expectation must be rejected.");
+        }
+        catch (InvalidOperationException)
+        {
+            // Expected fail-closed behavior.
+        }
     }
 
     [TestMethod]
@@ -59,8 +66,8 @@ public sealed class LauncherRuntimeLifecycleTests
         readiness.Arm(OperationId, CorrelationId);
         var armed = provider.Read();
         Assert.IsTrue(armed.SnapshotVersion > first.SnapshotVersion);
-        Assert.AreEqual(OperationId, armed.ExpectedGameModeOperationId);
-        Assert.AreEqual(CorrelationId, armed.ExpectedGameModeCorrelationId);
+        Assert.IsTrue(armed.ExpectedGameModeOperationId == OperationId);
+        Assert.IsTrue(armed.ExpectedGameModeCorrelationId == CorrelationId);
 
         _ = readiness.ReportReady(OperationId, CorrelationId);
         var ready = provider.Read();
