@@ -187,18 +187,18 @@ public sealed class GameSessionStateMachineTests
     }
 
     [TestMethod]
-    public void TypedLaunchFailureRequiresFailureCode()
+    public void TypedSessionFailureRequiresFailureCode()
     {
         var machine = new GameSessionStateMachine();
         AssertApplied(machine, GameSessionSignal.LauncherReady, GameSessionState.Launcher);
         AssertApplied(machine, GameSessionSignal.LaunchRequested, GameSessionState.Preparing, LaunchA);
 
-        var missing = machine.Apply(Request(GameSessionSignal.LaunchFailed, LaunchA));
+        var missing = machine.Apply(Request(GameSessionSignal.SessionFailed, LaunchA));
         Assert.AreEqual(GameSessionTransitionDisposition.Rejected, missing.Disposition);
         Assert.AreEqual(GameSessionReasonCodes.FailureCodeRequired, missing.ReasonCode);
 
         var failed = machine.Apply(new GameSessionTransitionRequest(
-            GameSessionSignal.LaunchFailed,
+            GameSessionSignal.SessionFailed,
             IsGameModeCommitted: true,
             LaunchA,
             FailureCode: "CLIENT_NOT_AVAILABLE"));
@@ -206,6 +206,28 @@ public sealed class GameSessionStateMachineTests
         Assert.AreEqual(GameSessionTransitionDisposition.Applied, failed.Disposition);
         Assert.AreEqual(GameSessionState.Failed, failed.Snapshot.State);
         Assert.AreEqual("CLIENT_NOT_AVAILABLE", failed.Snapshot.FailureCode);
+    }
+
+    [TestMethod]
+    public void LauncherReturnFailureCanBeAcknowledgedBackToLauncher()
+    {
+        var machine = CreateAtGameRunning();
+        AssertApplied(machine, GameSessionSignal.GameExitedConfirmed, GameSessionState.GameExitDetected, LaunchA);
+        AssertApplied(machine, GameSessionSignal.BeginLauncherReturn, GameSessionState.ReturningToLauncher, LaunchA);
+
+        var failed = machine.Apply(new GameSessionTransitionRequest(
+            GameSessionSignal.SessionFailed,
+            IsGameModeCommitted: true,
+            LaunchA,
+            FailureCode: "LAUNCHER_RETURN_FAILED"));
+        Assert.AreEqual(GameSessionTransitionDisposition.Applied, failed.Disposition);
+        Assert.AreEqual(GameSessionState.Failed, failed.Snapshot.State);
+        Assert.AreEqual("LAUNCHER_RETURN_FAILED", failed.Snapshot.FailureCode);
+        Assert.AreEqual(LaunchA, failed.Snapshot.ActiveLaunch);
+
+        AssertApplied(machine, GameSessionSignal.FailureAcknowledged, GameSessionState.Launcher, LaunchA);
+        Assert.IsNull(machine.Snapshot.ActiveLaunch);
+        Assert.IsNull(machine.Snapshot.FailureCode);
     }
 
     [TestMethod]
