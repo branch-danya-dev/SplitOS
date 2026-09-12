@@ -90,6 +90,25 @@ public sealed class ProcessEvidenceSnapshotTests
         StringAssert.Contains(exception.Message, "received PID 101");
     }
 
+    [TestMethod]
+    public void NativeInteropEnumeratesAndProbesCurrentProcess()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Native process evidence smoke requires Windows.");
+
+        var interop = new WindowsProcessEvidenceInterop();
+        var processIds = interop.EnumerateProcessIds();
+
+        Assert.IsTrue(processIds.Contains(Environment.ProcessId));
+
+        var probe = interop.Probe(Environment.ProcessId);
+
+        Assert.AreEqual(Environment.ProcessId, probe.ProcessId);
+        Assert.IsNotNull(probe.SessionId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(probe.ImagePath));
+        Assert.IsTrue(probe.ProcessCreationFileTimeUtc is > 0);
+    }
+
     private static ProcessInstanceIdentity? ReadIdentity(int processId, DateTimeOffset creationTime)
     {
         var reader = new ProcessEvidenceSnapshotReader(
