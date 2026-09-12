@@ -16,7 +16,16 @@ public sealed record DisplayTopologyTargetModePreState(
 
 public sealed record DisplayTopologyPreState(
     IReadOnlyList<PersistentDisplaySelector> ActiveTargets,
-    IReadOnlyList<DisplayTopologyTargetModePreState> ActiveTargetModes);
+    IReadOnlyList<DisplayTopologyTargetModePreState> ActiveTargetModes)
+{
+    // Selector-only construction is retained as an in-memory set-normalization helper. Durable
+    // serialization/digesting rejects it; captured/persisted topology pre-state must always carry
+    // one exact mode record per physical target.
+    public DisplayTopologyPreState(IReadOnlyList<PersistentDisplaySelector> activeTargets)
+        : this(activeTargets, Array.Empty<DisplayTopologyTargetModePreState>())
+    {
+    }
+}
 
 public sealed record DisplayTargetModePreState(
     PersistentDisplaySelector Selector,
@@ -92,6 +101,7 @@ public static class DisplayModeActionPreStateContract
     public static string SerializeTopology(DisplayTopologyPreState state)
     {
         var normalized = Normalize(state);
+        EnsureCompleteTopologyEvidence(normalized);
         return JsonSerializer.Serialize(
             new TopologyDocument(
                 PreStateSchemaVersion,
@@ -111,6 +121,7 @@ public static class DisplayModeActionPreStateContract
         var normalized = Normalize(new DisplayTopologyPreState(
             document.ActiveTargets ?? throw new ArgumentException("Display topology pre-state targets are missing.", nameof(json)),
             document.ActiveTargetModes ?? throw new ArgumentException("Display topology per-target mode evidence is missing.", nameof(json))));
+        EnsureCompleteTopologyEvidence(normalized);
         if (!string.Equals(json, SerializeTopology(normalized), StringComparison.Ordinal))
             throw new ArgumentException("Display topology pre-state JSON is not in canonical serialization form.", nameof(json));
         return normalized;
@@ -164,6 +175,8 @@ public static class DisplayModeActionPreStateContract
         ArgumentNullException.ThrowIfNull(state);
         var activeTargets = NormalizeTargetSet(state.ActiveTargets);
         ArgumentNullException.ThrowIfNull(state.ActiveTargetModes);
+        if (state.ActiveTargetModes.Count == 0)
+            return new DisplayTopologyPreState(activeTargets, Array.Empty<DisplayTopologyTargetModePreState>());
         if (state.ActiveTargetModes.Count != activeTargets.Count)
             throw new InvalidDataException("Display topology pre-state must bind exactly one mode evidence record to every active physical target.");
 
@@ -314,6 +327,12 @@ public static class DisplayModeActionPreStateContract
         if (normalized.Select(static item => item.Key).Distinct(StringComparer.Ordinal).Count() != normalized.Length)
             throw new InvalidDataException("Display topology pre-state contains duplicate physical target identity evidence.");
         return normalized.Select(static item => item.Selector).ToArray();
+    }
+
+    private static void EnsureCompleteTopologyEvidence(DisplayTopologyPreState state)
+    {
+        if (state.ActiveTargetModes.Count != state.ActiveTargets.Count || state.ActiveTargetModes.Count == 0)
+            throw new InvalidDataException("Durable display topology pre-state requires exact mode evidence for every active physical target.");
     }
 
     private static void ValidateMode(
