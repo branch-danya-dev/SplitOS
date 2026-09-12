@@ -5,10 +5,36 @@ namespace SplitOS.GameLauncher;
 
 public sealed partial class MainWindow : Window
 {
+    private readonly LauncherPresentationController _presentationController = new();
+    private readonly LauncherPresentationWindowAdapter _presentationWindow;
+
     public MainWindow()
     {
         InitializeComponent();
+        _presentationWindow = new LauncherPresentationWindowAdapter(this);
     }
+
+    internal bool IsNavigationInputEnabled => _presentationWindow.NavigationInputEnabled;
+
+    /// <summary>
+    /// Runtime-binding hook for coherent GameSession snapshots/events. The Launcher only projects
+    /// authoritative Runtime truth; callers must requery a fresh snapshot when the returned decision
+    /// says revision continuity could not be proven.
+    /// </summary>
+    internal LauncherPresentationDecision ObserveGameSession(
+        LauncherGameSessionProjection projection,
+        LauncherRuntimeUpdateKind updateKind)
+    {
+        var decision = _presentationController.Observe(projection, updateKind);
+        if (decision.Disposition == LauncherPresentationDisposition.Applied)
+            _presentationWindow.Apply(decision);
+
+        return decision;
+    }
+
+    internal LauncherPresentationDecision CapturePresentationBookmark(
+        LauncherPresentationBookmark bookmark)
+        => _presentationController.CaptureBookmark(bookmark);
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
