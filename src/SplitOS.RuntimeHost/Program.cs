@@ -71,6 +71,7 @@ builder.Services.AddSingleton<ICurrentModeAccess, CurrentModeAccess>();
 builder.Services.AddSingleton<IModeSourceAuthority, RuntimeModeSourceAuthority>();
 builder.Services.AddSingleton<IManagedServiceSourceVerificationClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeSourceVerificationHandler, ManagedServiceModeSourceVerificationHandler>();
+builder.Services.AddSingleton<IModeSourceVerificationHandler, DisplayModeSourceVerificationHandler>();
 builder.Services.AddSingleton<IModeSourceVerificationCoordinator, ModeSourceVerificationDispatcher>();
 builder.Services.AddSingleton<RuntimeModeRollbackCompletionCoordinator>(services => new RuntimeModeRollbackCompletionCoordinator(
     services.GetRequiredService<IModeTransitionStore>(),
