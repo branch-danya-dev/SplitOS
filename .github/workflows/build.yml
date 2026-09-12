@@ -27,6 +27,10 @@ jobs:
       - name: Restore
         run: dotnet restore SplitOS.sln -p:Platform=x64
 
+      - name: Provision GameInput redistributable
+        shell: pwsh
+        run: ./eng/lab/install-gameinput-redist-ci.ps1
+
       - name: Build
         run: dotnet build SplitOS.sln -c Release --no-restore -p:Platform=x64
 

@@ -50,6 +50,10 @@ builder.Services.AddSingleton<ConfigurationManagerPnpInterop>();
 builder.Services.AddSingleton<IConfigurationManagerPnpInterop>(services => services.GetRequiredService<ConfigurationManagerPnpInterop>());
 builder.Services.AddSingleton<WindowsPnpHardwareNotificationSource>();
 builder.Services.AddSingleton<IPnpHardwareNotificationSource>(services => services.GetRequiredService<WindowsPnpHardwareNotificationSource>());
+builder.Services.AddSingleton<GameInputEvidenceState>();
+builder.Services.AddSingleton<IInputGenerationTracker>(services => services.GetRequiredService<GameInputEvidenceState>());
+builder.Services.AddSingleton<IInputSnapshotReader>(services => services.GetRequiredService<GameInputEvidenceState>());
+builder.Services.AddSingleton<IGameInputSessionFactory, WindowsGameInputSessionFactory>();
 // Release power-policy mappings are not provisioned yet. Keep the production catalog empty and
 // fail closed; BaselineModeTargetPreparationProvider also does not emit power actions in this slice.
 builder.Services.AddSingleton<IPowerPolicyCatalogResolver>(_ =>
@@ -137,6 +141,7 @@ builder.Services.AddSingleton<IRuntimeAccessEvaluator, OnlineEntitlementRuntimeA
 builder.Services.AddSingleton<IRuntimeAuthStartCommand, UnavailableRuntimeAuthStartCommand>();
 
 builder.Services.AddHostedService<PnpHardwareGenerationMonitor>();
+builder.Services.AddHostedService<GameInputControllerMonitor>();
 builder.Services.AddHostedService<RuntimeStateCoordinator>();
 builder.Services.AddHostedService<RuntimeModeAccessLossService>();
 builder.Services.AddHostedService<RuntimeUiPipeService>();
