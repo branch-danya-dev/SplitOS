@@ -66,7 +66,6 @@ public sealed class WindowsCoreAudioSnapshotQuery(
             var render = Enumerate(enumerator, AudioEndpointFlow.Render, observedUtc);
             var capture = Enumerate(enumerator, AudioEndpointFlow.Capture, observedUtc);
             var defaults = QueryDefaults(enumerator, observedUtc);
-
             return new AudioObservedState(render, capture, defaults);
         }
         finally
@@ -145,7 +144,6 @@ public sealed class WindowsCoreAudioSnapshotQuery(
         DateTimeOffset observedUtc)
     {
         var defaults = new List<AudioDefaultEndpointEvidence>(6);
-
         foreach (var flow in Enum.GetValues<AudioEndpointFlow>())
         {
             foreach (var role in Enum.GetValues<AudioEndpointRole>())
@@ -498,7 +496,7 @@ internal interface IMMDeviceEnumerator
 }
 
 [ComImport]
-[Guid("0BD7A1BE-7A1A-44DB-8397-C0A70E2B24D9")]
+[Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IMMDeviceCollection
 {
