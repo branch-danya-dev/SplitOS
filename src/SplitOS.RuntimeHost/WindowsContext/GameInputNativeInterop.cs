@@ -195,8 +195,13 @@ internal static class GameInputNativeV3
         bool UnregisterCallback(ulong callbackToken);
     }
 
+    // GameInput v3's public C++ GameInputCreate(IGameInput**) is an inline wrapper around this
+    // version-aware export. Calling the legacy GameInputCreate export directly returns the legacy
+    // activation object, which does not expose the v3 IGameInput IID.
     [DllImport("GameInput.dll", ExactSpelling = true)]
-    internal static extern int GameInputCreate(out IGameInput gameInput);
+    internal static extern int GameInputInitialize(
+        ref Guid interfaceId,
+        out IntPtr interfacePointer);
 }
 
 public sealed class GameInputRuntimeUnavailableException : Exception
@@ -223,12 +228,15 @@ public sealed class WindowsGameInputSessionFactory : IGameInputSessionFactory
 {
     public IGameInputSession Create()
     {
-        GameInputNativeV3.IGameInput gameInput;
+        var interfaceId = typeof(GameInputNativeV3.IGameInput).GUID;
+        IntPtr interfacePointer;
         int hresult;
 
         try
         {
-            hresult = GameInputNativeV3.GameInputCreate(out gameInput);
+            hresult = GameInputNativeV3.GameInputInitialize(
+                ref interfaceId,
+                out interfacePointer);
         }
         catch (Exception exception) when (
             exception is DllNotFoundException or
@@ -236,21 +244,40 @@ public sealed class WindowsGameInputSessionFactory : IGameInputSessionFactory
             BadImageFormatException)
         {
             throw new GameInputRuntimeUnavailableException(
-                "The Microsoft GameInput runtime is unavailable or incompatible.",
+                "The Microsoft GameInput v3 runtime is unavailable or incompatible.",
                 exception);
         }
 
         if (hresult < 0)
         {
             throw new GameInputRuntimeUnavailableException(
-                $"GameInputCreate failed with HRESULT 0x{unchecked((uint)hresult):X8}.",
+                $"GameInputInitialize failed with HRESULT 0x{unchecked((uint)hresult):X8}.",
                 Marshal.GetExceptionForHR(hresult));
         }
 
-        if (gameInput is null)
-            throw new GameInputRuntimeUnavailableException("GameInputCreate succeeded without returning IGameInput.");
+        if (interfacePointer == IntPtr.Zero)
+        {
+            throw new GameInputRuntimeUnavailableException(
+                "GameInputInitialize succeeded without returning IGameInput.");
+        }
 
-        return new WindowsGameInputSession(gameInput, TimeProvider.System);
+        try
+        {
+            var gameInput = Marshal.GetObjectForIUnknown(interfacePointer) as GameInputNativeV3.IGameInput;
+            if (gameInput is null)
+            {
+                throw new GameInputRuntimeUnavailableException(
+                    "GameInputInitialize returned an object that could not be materialized as v3 IGameInput.");
+            }
+
+            return new WindowsGameInputSession(gameInput, TimeProvider.System);
+        }
+        finally
+        {
+            // Balance the interface reference returned by GameInputInitialize; the RCW retains its
+            // own COM lifetime until WindowsGameInputSession.Dispose releases it.
+            _ = Marshal.Release(interfacePointer);
+        }
     }
 }
 
