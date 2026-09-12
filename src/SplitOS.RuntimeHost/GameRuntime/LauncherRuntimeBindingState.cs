@@ -159,7 +159,8 @@ public sealed class LauncherReadinessState
 /// </summary>
 public sealed class LauncherRuntimeSnapshotProvider(
     RuntimeStateState runtimeState,
-    GameSessionStateMachine gameSession)
+    GameSessionStateMachine gameSession,
+    LauncherReadinessState readinessState)
 {
     private readonly object _gate = new();
     private LauncherRuntimeSnapshotResult? _lastSnapshot;
@@ -171,9 +172,11 @@ public sealed class LauncherRuntimeSnapshotProvider(
         {
             var runtime = runtimeState.Snapshot;
             var session = gameSession.Snapshot;
+            var readiness = readinessState.Snapshot;
             var active = session.ActiveLaunch;
+            var expected = readiness.ExpectedOperation;
 
-            if (_lastSnapshot is null || SemanticStateChanged(_lastSnapshot, runtime, session))
+            if (_lastSnapshot is null || SemanticStateChanged(_lastSnapshot, runtime, session, readiness))
                 _snapshotVersion = checked(_snapshotVersion + 1);
 
             var snapshot = new LauncherRuntimeSnapshotResult(
@@ -185,6 +188,9 @@ public sealed class LauncherRuntimeSnapshotProvider(
                 active?.LaunchOperationId,
                 active?.CorrelationId,
                 active?.GameId,
+                expected?.OperationId,
+                expected?.CorrelationId,
+                readiness.Revision,
                 _snapshotVersion,
                 DateTimeOffset.UtcNow);
 
@@ -196,9 +202,11 @@ public sealed class LauncherRuntimeSnapshotProvider(
     private static bool SemanticStateChanged(
         LauncherRuntimeSnapshotResult previous,
         RuntimeStateReadResult runtime,
-        GameSessionSnapshot session)
+        GameSessionSnapshot session,
+        LauncherReadinessSnapshot readiness)
     {
         var active = session.ActiveLaunch;
+        var expected = readiness.ExpectedOperation;
         return !string.Equals(previous.RuntimeStatus, runtime.Status, StringComparison.Ordinal)
             || !string.Equals(previous.ManagedRuntimeAccess, runtime.ManagedRuntimeAccess, StringComparison.Ordinal)
             || !string.Equals(previous.CommittedMode, runtime.OperationalMode, StringComparison.Ordinal)
@@ -206,6 +214,9 @@ public sealed class LauncherRuntimeSnapshotProvider(
             || previous.GameSessionRevision != session.Revision
             || !string.Equals(previous.ActiveLaunchOperationId, active?.LaunchOperationId, StringComparison.Ordinal)
             || !string.Equals(previous.ActiveLaunchCorrelationId, active?.CorrelationId, StringComparison.Ordinal)
-            || !string.Equals(previous.ActiveGameId, active?.GameId, StringComparison.Ordinal);
+            || !string.Equals(previous.ActiveGameId, active?.GameId, StringComparison.Ordinal)
+            || previous.ExpectedGameModeOperationId != expected?.OperationId
+            || previous.ExpectedGameModeCorrelationId != expected?.CorrelationId
+            || previous.ReadinessRevision != readiness.Revision;
     }
 }
