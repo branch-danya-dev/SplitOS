@@ -14,22 +14,12 @@ public sealed class GameInputControllerEvidenceTests
         var deviceId = new string('A', 64);
 
         state.Apply(new GameInputDeviceChange(
-            new GameInputDeviceEvidence(
-                deviceId,
-                true,
+            new GameInputDeviceEvidence(deviceId, true,
                 SplitOSInputKinds.Gamepad | SplitOSInputKinds.Controller,
-                0x045E,
-                0x0B13,
-                1,
-                1,
-                now),
-            1,
-            0,
-            100,
-            now));
+                0x045E, 0x0B13, 1, 1, now),
+            1, 0, 100, now));
 
         var snapshot = state.Read();
-
         Assert.AreEqual(2L, snapshot.Generation);
         Assert.AreEqual(now, snapshot.ObservedUtc);
         Assert.AreEqual(1, snapshot.Devices.Count);
@@ -47,11 +37,10 @@ public sealed class GameInputControllerEvidenceTests
         var state = new GameInputEvidenceState(new FixedTimeProvider(now));
         var deviceId = new string('B', 64);
 
-        state.Apply(Change(deviceId, connected: true, now));
-        state.Apply(Change(deviceId, connected: false, now.AddSeconds(1)));
+        state.Apply(Change(deviceId, true, now));
+        state.Apply(Change(deviceId, false, now.AddSeconds(1)));
 
         var snapshot = state.Read();
-
         Assert.AreEqual(3L, snapshot.Generation);
         Assert.AreEqual(1, snapshot.Devices.Count);
         Assert.IsFalse(snapshot.Devices[0].Connected);
@@ -63,11 +52,9 @@ public sealed class GameInputControllerEvidenceTests
     {
         var now = new DateTimeOffset(2026, 9, 12, 10, 50, 0, TimeSpan.Zero);
         var state = new GameInputEvidenceState(new FixedTimeProvider(now));
-
         state.Apply(new GameInputDeviceChange(null, 1, 0, 123, now));
 
         var snapshot = state.Read();
-
         Assert.AreEqual(2L, snapshot.Generation);
         Assert.AreEqual(0, snapshot.Devices.Count);
     }
@@ -76,10 +63,7 @@ public sealed class GameInputControllerEvidenceTests
     public async Task MonitorRetainsOneSessionAndUnregistersDuringShutdownEvenWhenCancelled()
     {
         var session = new FakeSession();
-        var monitor = new GameInputControllerMonitor(
-            new FakeSessionFactory(session),
-            new GameInputEvidenceState());
-
+        var monitor = new GameInputControllerMonitor(new FakeSessionFactory(session), new GameInputEvidenceState());
         await monitor.StartAsync(CancellationToken.None);
         await monitor.StartAsync(CancellationToken.None);
 
@@ -88,7 +72,7 @@ public sealed class GameInputControllerEvidenceTests
         await monitor.StopAsync(cancelled.Token);
 
         Assert.AreEqual(1, session.StartCount);
-        Assert.AreEqual(1, session.StopCount);
+        Assert.AreEqual(1, session.StopObservationCount);
         Assert.AreEqual(1, session.DisposeCount);
     }
 
@@ -100,33 +84,18 @@ public sealed class GameInputControllerEvidenceTests
 
         using var session = new WindowsGameInputSessionFactory().Create();
         session.Start(_ => { });
-
         Assert.IsTrue(session.IsStarted);
-
-        session.Stop();
+        session.StopObservation();
         Assert.IsFalse(session.IsStarted);
     }
 
-    private static GameInputDeviceChange Change(
-        string deviceId,
-        bool connected,
-        DateTimeOffset observedUtc)
+    private static GameInputDeviceChange Change(string deviceId, bool connected, DateTimeOffset observedUtc)
     {
         var status = connected ? 1 : 0;
         return new GameInputDeviceChange(
-            new GameInputDeviceEvidence(
-                deviceId,
-                connected,
-                SplitOSInputKinds.Gamepad,
-                1,
-                2,
-                3,
-                status,
-                observedUtc),
-            status,
-            connected ? 0 : 1,
-            10,
-            observedUtc);
+            new GameInputDeviceEvidence(deviceId, connected, SplitOSInputKinds.Gamepad,
+                1, 2, 3, status, observedUtc),
+            status, connected ? 0 : 1, 10, observedUtc);
     }
 
     private sealed class FakeSessionFactory(FakeSession session) : IGameInputSessionFactory
@@ -137,7 +106,7 @@ public sealed class GameInputControllerEvidenceTests
     private sealed class FakeSession : IGameInputSession
     {
         public int StartCount { get; private set; }
-        public int StopCount { get; private set; }
+        public int StopObservationCount { get; private set; }
         public int DisposeCount { get; private set; }
         public bool IsStarted { get; private set; }
 
@@ -146,17 +115,15 @@ public sealed class GameInputControllerEvidenceTests
             ArgumentNullException.ThrowIfNull(callback);
             if (IsStarted)
                 return;
-
             StartCount++;
             IsStarted = true;
         }
 
-        public void Stop()
+        public void StopObservation()
         {
             if (!IsStarted)
                 return;
-
-            StopCount++;
+            StopObservationCount++;
             IsStarted = false;
         }
 
