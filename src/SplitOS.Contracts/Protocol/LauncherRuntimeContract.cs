@@ -15,6 +15,9 @@ public sealed record LauncherRuntimeSnapshotResult(
     string? ActiveLaunchOperationId,
     string? ActiveLaunchCorrelationId,
     string? ActiveGameId,
+    Guid? ExpectedGameModeOperationId,
+    Guid? ExpectedGameModeCorrelationId,
+    long ReadinessRevision,
     long SnapshotVersion,
     DateTimeOffset ObservedAtUtc);
 
