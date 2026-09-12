@@ -191,7 +191,7 @@ public sealed class ProcessProofSetCorrelationEngine
                         imagePath,
                         CorrelatedExecutableRole.GamePrimary,
                         ProcessCorrelationEvidenceLevel.Weak,
-                        proofSetId: null,
+                        ProofSetId: null,
                         current.ObservedUtc));
                 }
 
@@ -242,7 +242,7 @@ public sealed class ProcessProofSetCorrelationEngine
                 return new ProcessCorrelationResult(
                     ProcessCorrelationClassification.NoMatch,
                     ProcessCorrelationEvidenceLevel.None,
-                    proofSetId: null,
+                    ProofSetId: null,
                     ProcessCorrelationReasonCodes.NoSupportedProof,
                     current.ObservedUtc,
                     Array.Empty<CorrelatedProcessEvidence>());
@@ -251,7 +251,7 @@ public sealed class ProcessProofSetCorrelationEngine
             return new ProcessCorrelationResult(
                 ProcessCorrelationClassification.Candidate,
                 ProcessCorrelationEvidenceLevel.Weak,
-                proofSetId: null,
+                ProofSetId: null,
                 ProcessCorrelationReasonCodes.ProcessIdentityIncomplete,
                 current.ObservedUtc,
                 incomplete.Select(candidate => candidate.ToEvidence(current.ObservedUtc)).ToArray());
@@ -268,7 +268,7 @@ public sealed class ProcessProofSetCorrelationEngine
             return new ProcessCorrelationResult(
                 ProcessCorrelationClassification.Ambiguous,
                 strongestLevel,
-                proofSetId: null,
+                ProofSetId: null,
                 ProcessCorrelationReasonCodes.MultipleEquivalentCandidates,
                 current.ObservedUtc,
                 strongest.Select(candidate => candidate.ToEvidence(current.ObservedUtc)).ToArray());
