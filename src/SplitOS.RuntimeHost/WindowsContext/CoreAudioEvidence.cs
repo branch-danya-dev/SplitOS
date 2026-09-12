@@ -260,7 +260,7 @@ public sealed class CoreAudioEndpointMonitor(
             var session = sessionFactory.Create();
             try
             {
-                session.Start(generationTracker.Invalidate);
+                session.Start(change => _ = generationTracker.Invalidate(change));
                 _session = session;
             }
             catch
