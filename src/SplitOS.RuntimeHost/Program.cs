@@ -85,6 +85,8 @@ builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, Nam
 builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
 builder.Services.AddSingleton<IModeActionApplyHandler, ManagedServiceModeActionApplyHandler>();
 builder.Services.AddSingleton<IModeActionVerifyHandler, ManagedServiceModeActionVerifyHandler>();
+builder.Services.AddSingleton<IModeActionApplyHandler, DisplayModeActionApplyHandler>();
+builder.Services.AddSingleton<IModeActionVerifyHandler, DisplayModeActionVerifyHandler>();
 builder.Services.AddSingleton<IModeActionApplyCoordinator, ModeActionApplyDispatcher>();
 builder.Services.AddSingleton<IModeActionVerifyCoordinator, ModeActionVerifyDispatcher>();
 builder.Services.AddSingleton<IModeBasePolicyClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
