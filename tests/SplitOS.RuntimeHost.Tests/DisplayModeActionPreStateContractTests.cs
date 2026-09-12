@@ -8,15 +8,23 @@ namespace SplitOS.RuntimeHost.Tests;
 public sealed class DisplayModeActionPreStateContractTests
 {
     [TestMethod]
-    public void TopologyPreStatePersistsStablePhysicalTargetSetOnly()
+    public void TopologyPreStatePersistsStablePhysicalTargetSetAndExactModes()
     {
-        var snapshot = Snapshot(Path(2, "DISPLAY\\B\\0"), Path(1, "DISPLAY\\A\\0"));
+        var snapshot = Snapshot(
+            Path(2, "DISPLAY\\B\\0", 1920, 1080, 60, 1),
+            Path(1, "DISPLAY\\A\\0", 2560, 1440, 60000, 1001));
 
         var state = DisplayModeActionPreStateContract.CaptureTopology(snapshot);
         var json = DisplayModeActionPreStateContract.SerializeTopology(state);
         var roundTrip = DisplayModeActionPreStateContract.DeserializeTopology(json);
 
         Assert.AreEqual(2, roundTrip.ActiveTargets.Count);
+        Assert.AreEqual(2, roundTrip.ActiveTargetModes.Count);
+        var first = roundTrip.ActiveTargetModes.Single(mode => mode.Selector.PnpDeviceInstanceId == "DISPLAY\\A\\0");
+        Assert.AreEqual(2560u, first.Width);
+        Assert.AreEqual(1440u, first.Height);
+        Assert.AreEqual(60000u, first.RefreshNumerator);
+        Assert.AreEqual(1001u, first.RefreshDenominator);
         Assert.IsFalse(json.Contains("targetId", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(json.Contains("generation", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(json.Contains("sourceId", StringComparison.OrdinalIgnoreCase));
@@ -62,6 +70,36 @@ public sealed class DisplayModeActionPreStateContractTests
     }
 
     [TestMethod]
+    public void TopologyModesAreOrderIndependentAndRationallyExact()
+    {
+        var snapshot = Snapshot(
+            Path(1, "DISPLAY\\A\\0", 2560, 1440, 60000, 1001),
+            Path(2, "DISPLAY\\B\\0", 1920, 1080, 60, 1));
+        var expected = DisplayModeActionPreStateContract.CaptureActiveTargetModes(snapshot);
+        var equivalent = expected.Reverse().ToArray();
+        var changed = equivalent
+            .Select(mode => mode.Selector.PnpDeviceInstanceId == "DISPLAY\\A\\0"
+                ? mode with { RefreshNumerator = 60, RefreshDenominator = 1 }
+                : mode)
+            .ToArray();
+
+        Assert.IsTrue(DisplayModeActionPreStateContract.TopologyModesEqual(expected, equivalent));
+        Assert.IsFalse(DisplayModeActionPreStateContract.TopologyModesEqual(expected, changed));
+    }
+
+    [TestMethod]
+    public void TopologyPreStateRejectsModeEvidenceForDifferentPhysicalTargetSet()
+    {
+        var first = DisplayModeActionPreStateContract.SelectorFromIdentity(Identity("DISPLAY\\A\\0", 1));
+        var second = DisplayModeActionPreStateContract.SelectorFromIdentity(Identity("DISPLAY\\B\\0", 2));
+        var mismatched = new DisplayTopologyPreState(
+            new[] { first },
+            new[] { new DisplayTopologyTargetModePreState(second, 1920, 1080, 60, 1, 1) });
+
+        AssertThrows<InvalidDataException>(() => DisplayModeActionPreStateContract.Normalize(mismatched));
+    }
+
+    [TestMethod]
     public void CaptureFailsClosedWithoutStableIdentityEvidence()
     {
         var path = Path(1, "DISPLAY\\A\\0") with { Identity = null };
@@ -72,11 +110,12 @@ public sealed class DisplayModeActionPreStateContractTests
     }
 
     [TestMethod]
-    public void CaptureFailsClosedForDynamicRefreshTargetMode()
+    public void CaptureFailsClosedForDynamicRefresh()
     {
         var path = Path(1, "DISPLAY\\A\\0") with { BoostRefreshRate = true };
         var snapshot = Snapshot(path);
 
+        AssertThrows<InvalidDataException>(() => DisplayModeActionPreStateContract.CaptureTopology(snapshot));
         AssertThrows<InvalidDataException>(() => DisplayModeActionPreStateContract.CaptureTargetMode(snapshot, path));
     }
 

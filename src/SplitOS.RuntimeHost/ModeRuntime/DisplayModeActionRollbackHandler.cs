@@ -68,15 +68,13 @@ public sealed class DisplayModeActionRollbackHandler(
         var currentTargets = DisplayModeActionPreStateContract.CaptureActiveSelectors(before);
         if (DisplayModeActionPreStateContract.TargetSetsEqual(baseline.ActiveTargets, currentTargets))
         {
-            // The native rollback may have succeeded before Runtime lost the reply or crashed. The
-            // durable journal is allowed to advance only after fresh actual-state evidence proves the
-            // exact physical baseline is already restored.
+            // The topology rollback may already have succeeded before Runtime lost the reply or
+            // crashed. Do not call it verified until the exact per-target baseline modes are also
+            // restored from durable pre-state evidence.
             var unexpectedActiveTarget = selectorResolver.Resolve(desired.Selector, before);
             if (unexpectedActiveTarget.IsResolved && unexpectedActiveTarget.Path is { Active: true })
                 return Reconciliation("MODE_DISPLAY_ROLLBACK_BASELINE_CONFLICT");
-            return AuthorityMatches(command.ControlSessionKey)
-                ? new RuntimeModeRollbackStepOutcome("VERIFIED", "MODE_DISPLAY_TOPOLOGY_ROLLBACK_ALREADY_VERIFIED")
-                : Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
+            return RestoreTopologyBaselineModes(command, baseline, before, topologyWasAlreadyRestored: true);
         }
 
         var resolved = selectorResolver.Resolve(desired.Selector, before);
@@ -85,19 +83,16 @@ public sealed class DisplayModeActionRollbackHandler(
             return Reconciliation(resolved.ProductCode);
 
         var addedSelector = DisplayModeActionPreStateContract.SelectorFromIdentity(resolved.Path.Identity);
-        IReadOnlyList<PersistentDisplaySelector> expected;
         try
         {
-            expected = DisplayModeActionPreStateContract.Normalize(
-                new DisplayTopologyPreState(baseline.ActiveTargets.Append(addedSelector).ToArray())).ActiveTargets;
+            var expectedTargets = baseline.ActiveTargets.Append(addedSelector).ToArray();
+            if (!DisplayModeActionPreStateContract.TargetSetsEqual(expectedTargets, currentTargets))
+                return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_DRIFT");
         }
         catch (InvalidDataException)
         {
             return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_AMBIGUOUS");
         }
-
-        if (!DisplayModeActionPreStateContract.TargetSetsEqual(expected, currentTargets))
-            return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_DRIFT");
 
         var baselinePaths = before.Paths
             .Where(path => path.Active && path.TargetKey != resolved.Path.TargetKey)
@@ -127,7 +122,66 @@ public sealed class DisplayModeActionRollbackHandler(
         if (!DisplayModeActionPreStateContract.TargetSetsEqual(baseline.ActiveTargets, restoredTargets))
             return Reconciliation("MODE_DISPLAY_ROLLBACK_VERIFICATION_FAILED");
 
-        return new RuntimeModeRollbackStepOutcome("VERIFIED", "MODE_DISPLAY_TOPOLOGY_ROLLBACK_VERIFIED");
+        return RestoreTopologyBaselineModes(command, baseline, after, topologyWasAlreadyRestored: false);
+    }
+
+    private RuntimeModeRollbackStepOutcome RestoreTopologyBaselineModes(
+        ModeActionRollbackCommand command,
+        DisplayTopologyPreState baseline,
+        DisplaySnapshot initialSnapshot,
+        bool topologyWasAlreadyRestored)
+    {
+        var current = initialSnapshot;
+        var repairedMode = false;
+        foreach (var expectedMode in baseline.ActiveTargetModes)
+        {
+            if (current.Generation != generationTracker.CurrentGeneration)
+                return Reconciliation("DISPLAY_STALE_SNAPSHOT");
+            if (!AuthorityMatches(command.ControlSessionKey))
+                return Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
+
+            var currentTargets = DisplayModeActionPreStateContract.CaptureActiveSelectors(current);
+            if (!DisplayModeActionPreStateContract.TargetSetsEqual(baseline.ActiveTargets, currentTargets))
+                return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_DRIFT");
+
+            var resolved = selectorResolver.Resolve(expectedMode.Selector, current);
+            if (!resolved.IsResolved || resolved.Path is null || !resolved.Path.Active || !resolved.Path.TargetAvailable)
+                return Reconciliation(resolved.ProductCode);
+            if (TopologyModeMatches(resolved.Path, expectedMode))
+                continue;
+
+            var outcome = targetApply.Apply(new ResolvedDisplayTarget(
+                resolved.Path.TargetKey,
+                current.Generation,
+                new DisplayPixelSize(expectedMode.Width, expectedMode.Height),
+                new DisplayRational(expectedMode.RefreshNumerator, expectedMode.RefreshDenominator),
+                expectedMode.Rotation,
+                DisplayTopologyIntent.PreserveActiveTopology));
+            if (!outcome.IsVerified)
+                return Reconciliation(outcome.ProductCode);
+            if (!AuthorityMatches(command.ControlSessionKey))
+                return Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
+
+            current = snapshots.Read();
+            if (current.Generation != generationTracker.CurrentGeneration)
+                return Reconciliation("DISPLAY_STALE_SNAPSHOT");
+            repairedMode = true;
+        }
+
+        var finalTargets = DisplayModeActionPreStateContract.CaptureActiveSelectors(current);
+        if (!DisplayModeActionPreStateContract.TargetSetsEqual(baseline.ActiveTargets, finalTargets))
+            return Reconciliation("MODE_DISPLAY_ROLLBACK_TOPOLOGY_DRIFT");
+        var finalModes = DisplayModeActionPreStateContract.CaptureActiveTargetModes(current);
+        if (!DisplayModeActionPreStateContract.TopologyModesEqual(baseline.ActiveTargetModes, finalModes))
+            return Reconciliation("MODE_DISPLAY_ROLLBACK_MODE_VERIFICATION_FAILED");
+        if (!AuthorityMatches(command.ControlSessionKey))
+            return Reconciliation("MODE_DISPLAY_CONTROL_CONTEXT_STALE");
+
+        return new RuntimeModeRollbackStepOutcome(
+            "VERIFIED",
+            topologyWasAlreadyRestored && !repairedMode
+                ? "MODE_DISPLAY_TOPOLOGY_ROLLBACK_ALREADY_VERIFIED"
+                : "MODE_DISPLAY_TOPOLOGY_ROLLBACK_VERIFIED");
     }
 
     private RuntimeModeRollbackStepOutcome RollbackTargetMode(
@@ -221,6 +275,13 @@ public sealed class DisplayModeActionRollbackHandler(
             return false;
         }
     }
+
+    private static bool TopologyModeMatches(
+        DisplayPathEvidence path,
+        DisplayTopologyTargetModePreState preState)
+        => path.SourceResolution == new DisplayPixelSize(preState.Width, preState.Height) &&
+           path.Rotation == preState.Rotation &&
+           RationalEquals(path.RefreshRate, new DisplayRational(preState.RefreshNumerator, preState.RefreshDenominator));
 
     private static bool ModeMatches(
         DisplayPathEvidence path,

@@ -58,6 +58,47 @@ public sealed class DisplayModeActionRollbackHandlerTests
     }
 
     [TestMethod]
+    public async Task TopologyRollbackAlreadyRemovedTargetStillRestoresExactBaselineMode()
+    {
+        var tracker = new DisplayGenerationTracker();
+        var baselinePath = Path(1, "DISPLAY\\A\\0", 1920, 1080, 60000, 1001);
+        var wrongModePath = Path(1, "DISPLAY\\A\\0", 2560, 1440, 144, 1);
+        var baseline = Snapshot(1, baselinePath);
+        var wrongMode = Snapshot(1, wrongModePath);
+        var restored = Snapshot(2, baselinePath);
+        var handlerReader = new QueueSnapshotReader(wrongMode, restored);
+        var targetReader = new QueueSnapshotReader(wrongMode, restored);
+        var nativeTarget = new FakeTargetApplier(new(
+            DisplayNativeMutationDisposition.Applied,
+            "DISPLAY_NATIVE_APPLIED"));
+        var targetCoordinator = new DisplayTargetApplyCoordinator(targetReader, tracker, nativeTarget);
+        var topologyNative = new FakeTopologyRollbackApplier(new(
+            DisplayNativeMutationDisposition.Applied,
+            "MUST_NOT_RUN"));
+        var action = TopologyAction(baseline, Selector("DISPLAY\\B\\0", 2));
+        var handler = new DisplayModeActionRollbackHandler(
+            handlerReader,
+            tracker,
+            new PersistentDisplaySelectorResolver(),
+            topologyNative,
+            targetCoordinator,
+            new FixedControlSessionIdentity("session:test"));
+
+        var outcome = await handler.RollbackAsync(Command(action), action);
+
+        Assert.AreEqual("VERIFIED", outcome.Disposition);
+        Assert.AreEqual("MODE_DISPLAY_TOPOLOGY_ROLLBACK_VERIFIED", outcome.ProductCode);
+        Assert.AreEqual(0, topologyNative.Calls);
+        Assert.AreEqual(1, nativeTarget.Calls);
+        Assert.IsNotNull(nativeTarget.LastTarget);
+        Assert.AreEqual(1920u, nativeTarget.LastTarget!.Resolution.Width);
+        Assert.AreEqual(1080u, nativeTarget.LastTarget.Resolution.Height);
+        Assert.AreEqual(60000u, nativeTarget.LastTarget.RefreshRate.Numerator);
+        Assert.AreEqual(1001u, nativeTarget.LastTarget.RefreshRate.Denominator);
+        Assert.AreEqual(DisplayTopologyIntent.PreserveActiveTopology, nativeTarget.LastTarget.TopologyIntent);
+    }
+
+    [TestMethod]
     public async Task TargetModeRollbackRestoresExactRationalModeWithoutChangingPhysicalTopology()
     {
         var tracker = new DisplayGenerationTracker();
