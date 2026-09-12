@@ -20,7 +20,8 @@ public sealed class ManagedServiceActionRollbackCoordinator(
     IModeTransitionRollbackStore rollback,
     IManagedServiceRollbackClient broker,
     IModeTransitionReconciliationStore reconciliation,
-    IModeSourceAuthority? sourceAuthority = null)
+    IModeSourceAuthority? sourceAuthority = null,
+    IModeActionRollbackExecutor? actionRollbackExecutor = null)
 {
     public async Task<RuntimeModeRollbackStepOutcome> ExecuteNextAsync(Guid transitionId, CancellationToken cancellationToken = default)
     {
@@ -54,16 +55,38 @@ public sealed class ManagedServiceActionRollbackCoordinator(
                 return new("REJECTED", started.ProductCode);
             action = started.Action;
         }
-        var result = await broker.RollbackAsync(transition.OperationId, transition.CorrelationId,
-            new(transitionId, candidate.ActionId, transition.LeaseId, transition.FenceToken, transition.ControlSessionKey,
-                action.Revision), cancellationToken).ConfigureAwait(false);
-        if (result.Disposition != "VERIFIED") return new(result.Disposition, result.ProductCode);
+
+        RuntimeModeRollbackStepOutcome result;
+        if (actionRollbackExecutor is not null)
+        {
+            result = await actionRollbackExecutor.RollbackAsync(
+                new ModeActionRollbackCommand(
+                    transitionId,
+                    action.ActionId,
+                    action.Revision,
+                    transition.LeaseId,
+                    transition.FenceToken,
+                    transition.OperationId,
+                    transition.CorrelationId,
+                    transition.ControlSessionKey),
+                action,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var brokerResult = await broker.RollbackAsync(transition.OperationId, transition.CorrelationId,
+                new(transitionId, action.ActionId, transition.LeaseId, transition.FenceToken, transition.ControlSessionKey,
+                    action.Revision), cancellationToken).ConfigureAwait(false);
+            result = new RuntimeModeRollbackStepOutcome(brokerResult.Disposition, brokerResult.ProductCode);
+        }
+
+        if (result.Disposition != "VERIFIED") return result;
         if (sourceAuthority is not null)
         {
             var authority = await sourceAuthority.EvaluateAsync(transition, cancellationToken).ConfigureAwait(false);
             if (!authority.MayRestoreSource) return new("RECONCILIATION_REQUIRED", authority.ProductCode);
         }
-        var recorded = await rollback.RecordRollbackResultAsync(transitionId, candidate.ActionId, action.Revision,
+        var recorded = await rollback.RecordRollbackResultAsync(transitionId, action.ActionId, action.Revision,
             transition.LeaseId, transition.FenceToken, transition.OperationId, PersistedModeRollbackResult.RolledBack,
             cancellationToken).ConfigureAwait(false);
         return recorded.Disposition is ModeRollbackAdvanceDisposition.Advanced or ModeRollbackAdvanceDisposition.Replayed
