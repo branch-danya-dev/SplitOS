@@ -21,11 +21,6 @@ public sealed record LauncherReadinessSnapshot(
     long Revision,
     DateTimeOffset ObservedAtUtc);
 
-/// <summary>
-/// Runtime-owned handshake state for the GAME transition currently waiting on Launcher UX readiness.
-/// Only the mode-orchestration owner may arm/clear an expectation; the Launcher can only acknowledge
-/// the exact operation/correlation pair already selected by Runtime.
-/// </summary>
 public sealed class LauncherReadinessState
 {
     private readonly object _gate = new();
@@ -39,9 +34,7 @@ public sealed class LauncherReadinessState
         get
         {
             lock (_gate)
-            {
                 return new LauncherReadinessSnapshot(_expected, _isReady, _revision, _observedAtUtc);
-            }
         }
     }
 
@@ -54,7 +47,6 @@ public sealed class LauncherReadinessState
             {
                 if (_expected.OperationId == operationId && _expected.CorrelationId == correlationId)
                     return _expected;
-
                 throw new InvalidOperationException(
                     "A different GAME mode operation already owns the Launcher readiness expectation.");
             }
@@ -74,12 +66,9 @@ public sealed class LauncherReadinessState
         {
             if (_expected is null)
                 return;
-
             if (_expected.OperationId != operationId || _expected.CorrelationId != correlationId)
-            {
                 throw new InvalidOperationException(
                     "Cannot clear Launcher readiness owned by a different GAME mode operation.");
-            }
 
             _revision = checked(_revision + 1);
             _expected = null;
@@ -94,40 +83,16 @@ public sealed class LauncherReadinessState
         lock (_gate)
         {
             if (_expected is null)
-            {
-                return Result(
-                    "REJECTED",
-                    LauncherReadinessProductCodes.NoExpectedOperation,
-                    operationId,
-                    correlationId);
-            }
-
+                return Result("REJECTED", LauncherReadinessProductCodes.NoExpectedOperation, operationId, correlationId);
             if (_expected.OperationId != operationId || _expected.CorrelationId != correlationId)
-            {
-                return Result(
-                    "REJECTED",
-                    LauncherReadinessProductCodes.OperationMismatch,
-                    operationId,
-                    correlationId);
-            }
-
+                return Result("REJECTED", LauncherReadinessProductCodes.OperationMismatch, operationId, correlationId);
             if (_isReady)
-            {
-                return Result(
-                    "NO_OP",
-                    LauncherReadinessProductCodes.ReadyAlreadyRecorded,
-                    operationId,
-                    correlationId);
-            }
+                return Result("NO_OP", LauncherReadinessProductCodes.ReadyAlreadyRecorded, operationId, correlationId);
 
             _revision = checked(_revision + 1);
             _isReady = true;
             _observedAtUtc = DateTimeOffset.UtcNow;
-            return Result(
-                "ACCEPTED",
-                LauncherReadinessProductCodes.ReadyAccepted,
-                operationId,
-                correlationId);
+            return Result("ACCEPTED", LauncherReadinessProductCodes.ReadyAccepted, operationId, correlationId);
         }
     }
 
@@ -136,13 +101,7 @@ public sealed class LauncherReadinessState
         string productCode,
         Guid operationId,
         Guid correlationId)
-        => new(
-            disposition,
-            productCode,
-            operationId,
-            correlationId,
-            _revision,
-            _observedAtUtc);
+        => new(disposition, productCode, operationId, correlationId, _revision, _observedAtUtc);
 
     private static void ValidateIdentity(Guid operationId, Guid correlationId)
     {
@@ -153,10 +112,6 @@ public sealed class LauncherReadinessState
     }
 }
 
-/// <summary>
-/// Produces the coherent semantic snapshot used by Game Launcher after every IPC connect/reconnect.
-/// SnapshotVersion advances only when authoritative fields change, not merely when a client rereads.
-/// </summary>
 public sealed class LauncherRuntimeSnapshotProvider(
     RuntimeStateState runtimeState,
     GameSessionStateMachine gameSession,
@@ -175,15 +130,16 @@ public sealed class LauncherRuntimeSnapshotProvider(
             var readiness = readinessState.Snapshot;
             var active = session.ActiveLaunch;
             var expected = readiness.ExpectedOperation;
+            var sessionState = ToWireState(session.State);
 
-            if (_lastSnapshot is null || SemanticStateChanged(_lastSnapshot, runtime, session, readiness))
+            if (_lastSnapshot is null || SemanticStateChanged(_lastSnapshot, runtime, session, readiness, sessionState))
                 _snapshotVersion = checked(_snapshotVersion + 1);
 
             var snapshot = new LauncherRuntimeSnapshotResult(
                 runtime.Status,
                 runtime.ManagedRuntimeAccess,
                 runtime.OperationalMode,
-                session.State.ToString().ToUpperInvariant(),
+                sessionState,
                 session.Revision,
                 active?.LaunchOperationId,
                 active?.CorrelationId,
@@ -203,14 +159,15 @@ public sealed class LauncherRuntimeSnapshotProvider(
         LauncherRuntimeSnapshotResult previous,
         RuntimeStateReadResult runtime,
         GameSessionSnapshot session,
-        LauncherReadinessSnapshot readiness)
+        LauncherReadinessSnapshot readiness,
+        string sessionState)
     {
         var active = session.ActiveLaunch;
         var expected = readiness.ExpectedOperation;
         return !string.Equals(previous.RuntimeStatus, runtime.Status, StringComparison.Ordinal)
             || !string.Equals(previous.ManagedRuntimeAccess, runtime.ManagedRuntimeAccess, StringComparison.Ordinal)
             || !string.Equals(previous.CommittedMode, runtime.OperationalMode, StringComparison.Ordinal)
-            || !string.Equals(previous.GameSessionState, session.State.ToString().ToUpperInvariant(), StringComparison.Ordinal)
+            || !string.Equals(previous.GameSessionState, sessionState, StringComparison.Ordinal)
             || previous.GameSessionRevision != session.Revision
             || !string.Equals(previous.ActiveLaunchOperationId, active?.LaunchOperationId, StringComparison.Ordinal)
             || !string.Equals(previous.ActiveLaunchCorrelationId, active?.CorrelationId, StringComparison.Ordinal)
@@ -219,4 +176,19 @@ public sealed class LauncherRuntimeSnapshotProvider(
             || previous.ExpectedGameModeCorrelationId != expected?.CorrelationId
             || previous.ReadinessRevision != readiness.Revision;
     }
+
+    internal static string ToWireState(GameSessionState state)
+        => state switch
+        {
+            GameSessionState.Inactive => "INACTIVE",
+            GameSessionState.Launcher => "LAUNCHER",
+            GameSessionState.Preparing => "PREPARING",
+            GameSessionState.ClientHandoff => "CLIENT_HANDOFF",
+            GameSessionState.GameStarting => "GAME_STARTING",
+            GameSessionState.GameRunning => "GAME_RUNNING",
+            GameSessionState.GameExitDetected => "GAME_EXIT_DETECTED",
+            GameSessionState.ReturningToLauncher => "RETURNING_TO_LAUNCHER",
+            GameSessionState.Failed => "FAILED",
+            _ => throw new InvalidDataException($"Unsupported GameSession state {state}.")
+        };
 }
