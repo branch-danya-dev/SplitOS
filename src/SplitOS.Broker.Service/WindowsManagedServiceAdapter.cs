@@ -6,15 +6,12 @@ namespace SplitOS.Broker.Service;
 
 /// <summary>
 /// Narrow SCM adapter for release-owned managed service targets. The adapter accepts a trusted
-/// catalog entry, never an IPC-provided service key name. Start/stop submission is followed by
-/// bounded QueryServiceStatusEx read-back before a verified result is returned.
+/// catalog entry, never an IPC-provided service key name or access mask. Start/stop submission is
+/// followed by bounded QueryServiceStatusEx read-back before a verified result is returned.
 /// </summary>
 public sealed class WindowsManagedServiceAdapter : IManagedServiceAdapter
 {
     private const uint ScManagerConnect = 0x0001;
-    private const uint ServiceQueryStatus = 0x0004;
-    private const uint ServiceStart = 0x0010;
-    private const uint ServiceStop = 0x0020;
     private const uint ServiceControlStop = 0x00000001;
     private const int ScStatusProcessInfo = 0;
 
@@ -56,7 +53,10 @@ public sealed class WindowsManagedServiceAdapter : IManagedServiceAdapter
                 NativeErrorCode: error));
         }
 
-        using var service = NativeMethods.OpenServiceW(scm, entry.WindowsServiceName, ServiceQueryStatus);
+        using var service = NativeMethods.OpenServiceW(
+            scm,
+            entry.WindowsServiceName,
+            (uint)entry.AccessPolicy.QueryAccess);
         if (service.IsInvalid)
         {
             var error = Marshal.GetLastWin32Error();
@@ -121,8 +121,7 @@ public sealed class WindowsManagedServiceAdapter : IManagedServiceAdapter
             return OpenFailure(Marshal.GetLastWin32Error(), false);
         }
 
-        var access = ServiceQueryStatus |
-                     (desiredState == ManagedServiceDesiredState.Running ? ServiceStart : ServiceStop);
+        var access = (uint)entry.AccessPolicy.Resolve(desiredState);
         using var service = NativeMethods.OpenServiceW(scm, entry.WindowsServiceName, access);
         if (service.IsInvalid)
         {
