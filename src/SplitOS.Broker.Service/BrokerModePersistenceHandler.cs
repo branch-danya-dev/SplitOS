@@ -163,7 +163,9 @@ public sealed class BrokerModePersistenceHandler(
                     var payload = Read<ModeTransitionActionPlanPersistActionPlanRequest>(request);
                     if (payload.OwnerOperationId != request.OperationId)
                         throw new ArgumentException("Payload operation does not match envelope.");
-                    ValidateActions(payload.Actions);
+                    // Persistence is action-domain agnostic. The durable store validates the generic
+                    // envelope (ids, semantic bounds, schema, JSON and SHA-256 digest); RuntimeHost
+                    // owns semantic admission and executable-handler selection for each action type.
                     var value = await modeTransitionActionPlanStore.PersistActionPlanAsync(payload.TransitionId, payload.ExpectedTransitionRevision, payload.LeaseId, payload.FenceToken, payload.OwnerOperationId, payload.Actions, cancellationToken).ConfigureAwait(false);
                     return ModePersistenceProtocol.Respond(request, value);
                 }
@@ -185,11 +187,8 @@ public sealed class BrokerModePersistenceHandler(
                     var payload = Read<ModeTransitionActionJournalBeginApplyRequest>(request);
                     if (payload.OwnerOperationId != request.OperationId)
                         throw new ArgumentException("Payload operation does not match envelope.");
-                    if (string.IsNullOrWhiteSpace(payload.PreStateJson) || string.IsNullOrWhiteSpace(payload.PreStateDigest))
-                        throw new ArgumentException("Managed-service pre-state evidence is required.");
-                    var preState = ManagedServicePolicyActionContract.DeserializePreState(payload.PreStateJson);
-                    if (!string.Equals(ManagedServicePolicyActionContract.ComputePreStateDigest(preState), payload.PreStateDigest, StringComparison.OrdinalIgnoreCase))
-                        throw new ArgumentException("Managed-service pre-state digest mismatch.");
+                    // Pre-state evidence is likewise an opaque durable envelope here. The journal
+                    // validates JSON shape/size and its SHA-256 digest without assuming an action domain.
                     var value = await modeTransitionActionJournalStore.BeginApplyAsync(payload.TransitionId, payload.ActionId, payload.ExpectedActionRevision, payload.LeaseId, payload.FenceToken, payload.OwnerOperationId, payload.PreStateJson, payload.PreStateDigest, cancellationToken).ConfigureAwait(false);
                     return ModePersistenceProtocol.Respond(request, value);
                 }
