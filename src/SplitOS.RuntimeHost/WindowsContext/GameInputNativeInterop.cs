@@ -207,6 +207,18 @@ public sealed class GameInputRuntimeUnavailableException : Exception
     }
 }
 
+public sealed class GameInputNativeOperationException : Exception
+{
+    public GameInputNativeOperationException(string operation, int nativeHResult)
+        : base($"{operation} failed with HRESULT 0x{unchecked((uint)nativeHResult):X8}.")
+    {
+        NativeHResult = nativeHResult;
+        HResult = nativeHResult;
+    }
+
+    public int NativeHResult { get; }
+}
+
 public sealed class WindowsGameInputSessionFactory : IGameInputSessionFactory
 {
     public IGameInputSession Create()
@@ -299,8 +311,8 @@ internal sealed class WindowsGameInputSession(
             if (hresult < 0)
             {
                 _changeSink = null;
-                throw new ExternalException(
-                    $"IGameInput.RegisterDeviceCallback failed with HRESULT 0x{unchecked((uint)hresult):X8}.",
+                throw new GameInputNativeOperationException(
+                    "IGameInput.RegisterDeviceCallback",
                     hresult);
             }
 
@@ -309,7 +321,7 @@ internal sealed class WindowsGameInputSession(
         }
     }
 
-    public void Stop()
+    public void StopObservation()
     {
         lock (_gate)
         {
@@ -317,16 +329,19 @@ internal sealed class WindowsGameInputSession(
                 return;
 
             var token = _callbackToken;
-            _callbackToken = 0;
-            _started = false;
 
-            var unregistered = gameInput.UnregisterCallback(token);
-            _changeSink = null;
-            if (!unregistered)
+            // StopCallback prevents new callback delivery before the registration token is removed.
+            // Do not clear the managed callback context until UnregisterCallback confirms removal.
+            gameInput.StopCallback(token);
+            if (!gameInput.UnregisterCallback(token))
             {
                 throw new InvalidOperationException(
                     $"IGameInput.UnregisterCallback did not unregister token {token}.");
             }
+
+            _callbackToken = 0;
+            _started = false;
+            _changeSink = null;
         }
     }
 
@@ -338,24 +353,22 @@ internal sealed class WindowsGameInputSession(
                 return;
         }
 
-        try
-        {
-            Stop();
-        }
-        finally
-        {
-            lock (_gate)
-            {
-                if (_disposed)
-                    return;
+        // If callback unregistration fails, keep the callback target/COM object alive and propagate
+        // the failure rather than freeing native callback state that may still be referenced.
+        StopObservation();
 
-                _disposed = true;
-                _changeSink = null;
-                ((SessionCallbackTarget)_selfHandle.Target!).Detach();
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _changeSink = null;
+            ((SessionCallbackTarget)_selfHandle.Target!).Detach();
+            if (_selfHandle.IsAllocated)
                 _selfHandle.Free();
-                if (Marshal.IsComObject(gameInput))
-                    _ = Marshal.FinalReleaseComObject(gameInput);
-            }
+            if (Marshal.IsComObject(gameInput))
+                _ = Marshal.FinalReleaseComObject(gameInput);
         }
     }
 
