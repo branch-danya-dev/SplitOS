@@ -40,10 +40,12 @@ public sealed class CoreAudioEvidenceTests
     {
         var observed = new DateTimeOffset(2026, 9, 13, 0, 5, 0, TimeSpan.Zero);
         var tracker = new AudioGenerationTracker();
+        var invalidateFirstRead = true;
         var query = new FakeSnapshotQuery(() =>
         {
-            if (queryCallCount++ == 0)
+            if (invalidateFirstRead)
             {
+                invalidateFirstRead = false;
                 tracker.Invalidate(new AudioNotificationChange(
                     AudioInvalidationKind.PropertyChanged,
                     "endpoint-render",
@@ -55,7 +57,6 @@ public sealed class CoreAudioEvidenceTests
             return CompleteObservedState(observed);
         });
         var reader = new AudioSnapshotReader(query, tracker, new FixedTimeProvider(observed.AddSeconds(2)));
-        var queryCallCount = 0;
 
         var snapshot = reader.Read();
 
