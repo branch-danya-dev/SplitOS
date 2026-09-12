@@ -60,6 +60,8 @@ public sealed class PowerSchemeSnapshotTests
     private sealed class FakeInterop(PowerActiveSchemeQueryAttempt result) : IWindowsPowerSchemeInterop
     {
         public PowerActiveSchemeQueryAttempt GetActiveScheme() => result;
+
+        public PowerSetSchemeAttempt SetActiveScheme(Guid schemeId) => new(0);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

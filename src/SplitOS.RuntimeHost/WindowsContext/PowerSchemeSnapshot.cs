@@ -11,14 +11,22 @@ public sealed record PowerActiveSchemeQueryAttempt(
     int ErrorCode,
     Guid? ActiveSchemeId);
 
+public sealed record PowerSetSchemeAttempt(int ErrorCode);
+
 public interface IWindowsPowerSchemeInterop
 {
     PowerActiveSchemeQueryAttempt GetActiveScheme();
+    PowerSetSchemeAttempt SetActiveScheme(Guid schemeId);
 }
 
 public interface IPowerSchemeQuery
 {
     Guid QueryActiveScheme();
+}
+
+public interface IPowerSchemeSetter
+{
+    PowerSetSchemeAttempt SetActiveScheme(Guid schemeId);
 }
 
 public interface IPowerSchemeSnapshotReader
@@ -47,6 +55,18 @@ public sealed class WindowsPowerSchemeQuery(
     }
 }
 
+public sealed class WindowsPowerSchemeSetter(
+    IWindowsPowerSchemeInterop interop) : IPowerSchemeSetter
+{
+    public PowerSetSchemeAttempt SetActiveScheme(Guid schemeId)
+    {
+        if (schemeId == Guid.Empty)
+            throw new ArgumentException("Power scheme GUID must not be empty.", nameof(schemeId));
+
+        return interop.SetActiveScheme(schemeId);
+    }
+}
+
 public sealed class PowerSchemeSnapshotReader(
     IPowerSchemeQuery query,
     TimeProvider? timeProvider = null) : IPowerSchemeSnapshotReader
@@ -58,7 +78,7 @@ public sealed class PowerSchemeSnapshotReader(
 }
 
 /// <summary>
-/// Thin native wrapper for the documented PowrProf current-user active-scheme API.
+/// Thin native wrapper for the documented PowrProf current-user active-scheme APIs.
 /// PowerGetActiveScheme allocates the GUID with LocalAlloc; ownership is released with LocalFree.
 /// </summary>
 public sealed class PowrProfPowerSchemeInterop : IWindowsPowerSchemeInterop
@@ -88,10 +108,25 @@ public sealed class PowrProfPowerSchemeInterop : IWindowsPowerSchemeInterop
         }
     }
 
+    public PowerSetSchemeAttempt SetActiveScheme(Guid schemeId)
+    {
+        if (schemeId == Guid.Empty)
+            throw new ArgumentException("Power scheme GUID must not be empty.", nameof(schemeId));
+
+        var nativeScheme = schemeId;
+        return new PowerSetSchemeAttempt(
+            checked((int)PowerSetActiveScheme(IntPtr.Zero, ref nativeScheme)));
+    }
+
     [DllImport("powrprof.dll", SetLastError = false)]
     private static extern uint PowerGetActiveScheme(
         IntPtr userRootPowerKey,
         out IntPtr activePolicyGuid);
+
+    [DllImport("powrprof.dll", SetLastError = false)]
+    private static extern uint PowerSetActiveScheme(
+        IntPtr userRootPowerKey,
+        ref Guid schemeGuid);
 
     [DllImport("kernel32.dll", SetLastError = false)]
     private static extern IntPtr LocalFree(IntPtr memory);
