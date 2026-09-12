@@ -3,13 +3,65 @@ using SplitOS.RuntimeHost.WindowsContext;
 
 namespace SplitOS.RuntimeHost.ModeRuntime;
 
+public interface IDisplayModeActionJournal
+{
+    Task<ModeActionAdvanceOutcome> BeginApplyAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, string? preStateJson, string? preStateDigest,
+        CancellationToken cancellationToken = default);
+
+    Task<ModeActionAdvanceOutcome> RecordApplyResultAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, PersistedModeApplyResult result,
+        CancellationToken cancellationToken = default);
+
+    Task<ModeActionAdvanceOutcome> BeginVerifyAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, CancellationToken cancellationToken = default);
+
+    Task<ModeActionAdvanceOutcome> RecordVerifyResultAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, PersistedModeVerifyResult result,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class DisplayModeActionJournal(IModeTransitionActionJournalStore inner) : IDisplayModeActionJournal
+{
+    public Task<ModeActionAdvanceOutcome> BeginApplyAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, string? preStateJson, string? preStateDigest,
+        CancellationToken cancellationToken = default)
+        => inner.BeginApplyAsync(transitionId, actionId, expectedActionRevision, leaseId, fenceToken,
+            ownerOperationId, preStateJson, preStateDigest, cancellationToken);
+
+    public Task<ModeActionAdvanceOutcome> RecordApplyResultAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, PersistedModeApplyResult result,
+        CancellationToken cancellationToken = default)
+        => inner.RecordApplyResultAsync(transitionId, actionId, expectedActionRevision, leaseId, fenceToken,
+            ownerOperationId, result, cancellationToken);
+
+    public Task<ModeActionAdvanceOutcome> BeginVerifyAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, CancellationToken cancellationToken = default)
+        => inner.BeginVerifyAsync(transitionId, actionId, expectedActionRevision, leaseId, fenceToken,
+            ownerOperationId, cancellationToken);
+
+    public Task<ModeActionAdvanceOutcome> RecordVerifyResultAsync(
+        Guid transitionId, Guid actionId, int expectedActionRevision, Guid leaseId, long fenceToken,
+        Guid ownerOperationId, PersistedModeVerifyResult result,
+        CancellationToken cancellationToken = default)
+        => inner.RecordVerifyResultAsync(transitionId, actionId, expectedActionRevision, leaseId, fenceToken,
+            ownerOperationId, result, cancellationToken);
+}
+
 /// <summary>
 /// First crash-safe display action owner for SPEC-05. It journals immutable desired state and bounded
 /// pre-state before mutation, uses persistent selector re-resolution on every phase, and delegates the
 /// actual CCD validate/apply/read-back boundary to DisplayTargetApplyCoordinator.
 /// </summary>
 public sealed class DisplayModeActionHandler(
-    IModeTransitionActionJournalStore journal,
+    IDisplayModeActionJournal journal,
     IDisplaySnapshotReader snapshots,
     PersistentDisplaySelectorResolver selectorResolver,
     DisplayTargetApplyCoordinator display)
@@ -207,11 +259,10 @@ public sealed class DisplayModeActionHandler(
                 "RECONCILIATION_REQUIRED",
                 "MODE_DISPLAY_ROLLBACK_PRE_STATE_MISSING"));
 
-        DurableDisplayModeState source;
         try
         {
             DisplayModeActionContract.ValidateDigest(action.PreStateJson, action.PreStateDigest);
-            source = DisplayModeActionContract.Deserialize(action.PreStateJson);
+            var source = DisplayModeActionContract.Deserialize(action.PreStateJson);
             var snapshot = snapshots.Read();
             var resolution = selectorResolver.Resolve(source.Selector, snapshot);
             if (!resolution.IsResolved || resolution.Path is null)
@@ -261,8 +312,6 @@ public sealed class DisplayModeActionHandler(
             DisplayTargetApplyDisposition.TargetUnavailable or
             DisplayTargetApplyDisposition.UnsupportedCapability or
             DisplayTargetApplyDisposition.OperationRejected => PersistedModeApplyResult.Failed,
-
-            // These dispositions can occur after native apply or otherwise cannot prove no mutation.
             DisplayTargetApplyDisposition.StaleSnapshot when outcome.After is not null => PersistedModeApplyResult.Unknown,
             DisplayTargetApplyDisposition.TechnicalFailure or
             DisplayTargetApplyDisposition.VerificationFailed => PersistedModeApplyResult.Unknown,
