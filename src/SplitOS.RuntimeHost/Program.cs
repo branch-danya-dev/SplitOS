@@ -74,6 +74,7 @@ builder.Services.AddSingleton<RuntimeModeRecoveryCoordinator>();
 builder.Services.AddSingleton<IManagedServiceRollbackClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeActionRollbackHandler, ManagedServiceModeActionRollbackHandler>();
 builder.Services.AddSingleton<IModeActionRollbackHandler, DisplayModeActionRollbackHandler>();
+builder.Services.AddSingleton<IModeActionRollbackHandler, PowerModeActionRollbackHandler>();
 builder.Services.AddSingleton<IModeActionRollbackExecutor, ModeActionRollbackDispatcher>();
 builder.Services.AddSingleton<ManagedServiceActionRollbackCoordinator>();
 builder.Services.AddSingleton<IControlSessionIdentity, WindowsControlSessionIdentity>();
@@ -82,6 +83,7 @@ builder.Services.AddSingleton<IModeSourceAuthority, RuntimeModeSourceAuthority>(
 builder.Services.AddSingleton<IManagedServiceSourceVerificationClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeSourceVerificationHandler, ManagedServiceModeSourceVerificationHandler>();
 builder.Services.AddSingleton<IModeSourceVerificationHandler, DisplayModeSourceVerificationHandler>();
+builder.Services.AddSingleton<IModeSourceVerificationHandler, PowerModeSourceVerificationHandler>();
 builder.Services.AddSingleton<IModeSourceVerificationCoordinator, ModeSourceVerificationDispatcher>();
 builder.Services.AddSingleton<RuntimeModeRollbackCompletionCoordinator>(services => new RuntimeModeRollbackCompletionCoordinator(
     services.GetRequiredService<IModeTransitionStore>(),
