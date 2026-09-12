@@ -121,6 +121,7 @@ public sealed class ProcessProofSetCorrelationEngine
 {
     private readonly ProcessCorrelationRules _rules;
     private readonly HashSet<ProcessInstanceIdentity> _baselineIdentities;
+    private readonly HashSet<int> _baselineUnprotectedProcessIds;
     private readonly HashSet<string> _expectedExecutableNames;
     private readonly HashSet<string> _helperExecutableNames;
     private readonly string? _validatedInstallRoot;
@@ -153,6 +154,10 @@ public sealed class ProcessProofSetCorrelationEngine
         _baselineIdentities = baseline.Processes
             .Where(static process => process.ReuseProtectedIdentity is not null)
             .Select(static process => process.ReuseProtectedIdentity!)
+            .ToHashSet();
+        _baselineUnprotectedProcessIds = baseline.Processes
+            .Where(static process => process.ProcessId > 0 && process.ReuseProtectedIdentity is null)
+            .Select(static process => process.ProcessId)
             .ToHashSet();
     }
 
@@ -190,6 +195,27 @@ public sealed class ProcessProofSetCorrelationEngine
                         process,
                         imagePath,
                         CorrelatedExecutableRole.GamePrimary,
+                        ProcessCorrelationEvidenceLevel.Weak,
+                        ProofSetId: null,
+                        current.ObservedUtc));
+                }
+
+                continue;
+            }
+
+            // If this PID was present in the baseline but Windows did not expose its creation time,
+            // the later complete identity cannot safely be declared new. A true PID reuse is only
+            // distinguishable when both sides have a creation-time identity.
+            if (_baselineUnprotectedProcessIds.Contains(process.ProcessId))
+            {
+                if (insideInstallRoot && !helperExecutable)
+                {
+                    incomplete.Add(new Candidate(
+                        process,
+                        imagePath,
+                        expectedExecutable
+                            ? CorrelatedExecutableRole.GamePrimary
+                            : CorrelatedExecutableRole.UnknownCandidate,
                         ProcessCorrelationEvidenceLevel.Weak,
                         ProofSetId: null,
                         current.ObservedUtc));
