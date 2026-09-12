@@ -55,6 +55,7 @@ builder.Services.AddSingleton<IMachineMutationLeaseStore>(services => services.G
 builder.Services.AddSingleton<IModeTransitionStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeTransitionPolicyStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeTransitionActionPlanStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
+builder.Services.AddSingleton<IModeActionPlanReader, ModeActionPlanReader>();
 builder.Services.AddSingleton<IModeTransitionActionJournalStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeActionRecordReader, ModeActionJournalRecordReader>();
 builder.Services.AddSingleton<IModeTransitionRollbackStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
@@ -68,7 +69,13 @@ builder.Services.AddSingleton<IControlSessionIdentity, WindowsControlSessionIden
 builder.Services.AddSingleton<ICurrentModeAccess, CurrentModeAccess>();
 builder.Services.AddSingleton<IModeSourceAuthority, RuntimeModeSourceAuthority>();
 builder.Services.AddSingleton<IManagedServiceSourceVerificationClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
-builder.Services.AddSingleton<RuntimeModeRollbackCompletionCoordinator>();
+builder.Services.AddSingleton<IModeSourceVerificationHandler, ManagedServiceModeSourceVerificationHandler>();
+builder.Services.AddSingleton<IModeSourceVerificationCoordinator, ModeSourceVerificationDispatcher>();
+builder.Services.AddSingleton<RuntimeModeRollbackCompletionCoordinator>(services => new RuntimeModeRollbackCompletionCoordinator(
+    services.GetRequiredService<IModeTransitionStore>(),
+    services.GetRequiredService<IModeTransitionReconciliationStore>(),
+    services.GetRequiredService<IModeSourceAuthority>(),
+    services.GetRequiredService<IModeSourceVerificationCoordinator>()));
 builder.Services.AddSingleton<RuntimeModeAutomaticRecoveryCoordinator>();
 builder.Services.AddSingleton<IModeBaseRecoveryClient>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IModeTransitionCommitStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
