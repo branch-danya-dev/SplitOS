@@ -52,7 +52,7 @@ internal static class GameInputDllImportResolver
             return appLocal;
 
         var system32 = Path.Combine(Environment.SystemDirectory, RedistLibrary);
-        if (File.Exists(system32)
+        if (File.Exists(system32))
             return system32;
 
         // Microsoft's GameInput loader reads RedistDir from the 32-bit HKLM view even for x64.
