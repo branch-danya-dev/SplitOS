@@ -11,8 +11,8 @@ public readonly struct CoreAudioPropertyKey : IEquatable<CoreAudioPropertyKey>
         PropertyId = propertyId;
     }
 
-    public Guid FormatId { get; }
-    public uint PropertyId { get; }
+    public readonly Guid FormatId;
+    public readonly uint PropertyId;
 
     public bool Equals(CoreAudioPropertyKey other)
         => FormatId == other.FormatId && PropertyId == other.PropertyId;
