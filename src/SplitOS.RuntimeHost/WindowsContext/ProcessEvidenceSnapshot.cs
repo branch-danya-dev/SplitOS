@@ -47,10 +47,9 @@ public interface IProcessEvidenceSnapshotReader
 }
 
 /// <summary>
-/// Produces one bounded observation of the Windows process table. The process list itself is
-/// authoritative for this instant; fields that require opening/querying an individual process are
-/// intentionally nullable because a process may exit or deny query access between enumeration and
-/// inspection. No missing image/session/creation evidence is fabricated.
+/// Produces one bounded best-effort observation of the Windows process table. Individual process
+/// fields are intentionally nullable because processes may exit or deny query access between table
+/// enumeration and inspection. No missing image/session/creation evidence is fabricated.
 /// </summary>
 public sealed class ProcessEvidenceSnapshotReader(
     IWindowsProcessEvidenceInterop interop,
@@ -162,19 +161,29 @@ public sealed class WindowsProcessEvidenceInterop : IWindowsProcessEvidenceInter
         if (processId <= 0)
             throw new ArgumentOutOfRangeException(nameof(processId), "Process ID must be positive.");
 
-        int? sessionId = null;
-        if (ProcessIdToSessionId(checked((uint)processId), out var nativeSessionId))
-            sessionId = checked((int)nativeSessionId);
-
+        var nativeProcessId = checked((uint)processId);
         var processHandle = OpenProcess(
             ProcessQueryLimitedInformation,
             inheritHandle: false,
-            checked((uint)processId));
+            nativeProcessId);
         if (processHandle == IntPtr.Zero)
-            return new WindowsProcessProbeAttempt(processId, sessionId, null, null);
+        {
+            int? unprotectedSessionId = null;
+            if (ProcessIdToSessionId(nativeProcessId, out var nativeSessionId))
+                unprotectedSessionId = checked((int)nativeSessionId);
+
+            return new WindowsProcessProbeAttempt(processId, unprotectedSessionId, null, null);
+        }
 
         try
         {
+            // Keep the process handle open while collecting PID-addressed and handle-addressed fields.
+            // That prevents this successful probe from silently combining evidence from different PID
+            // lifetimes if the observed process exits while it is being inspected.
+            int? sessionId = null;
+            if (ProcessIdToSessionId(nativeProcessId, out var nativeSessionId))
+                sessionId = checked((int)nativeSessionId);
+
             string? imagePath = null;
             var pathCapacity = (uint)MaxPathChars;
             var pathBuilder = new StringBuilder(MaxPathChars);
