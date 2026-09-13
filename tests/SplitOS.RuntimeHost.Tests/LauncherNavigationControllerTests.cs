@@ -104,14 +104,14 @@ public sealed class LauncherNavigationControllerTests
     }
 
     [TestMethod]
-    public void ValidBookmarkRestoresExactRouteAndFocusWithoutInventingHistory()
+    public void AvailableBookmarkRestoresExactRouteAndFocusWithoutInventingHistory()
     {
         var controller = Initialized();
         _ = controller.GoLibrary();
 
         var result = controller.RestoreBookmark(
             new LauncherPresentationBookmark("GAME_DETAILS:game-42", "action.launch"),
-            gameDetailsStillAvailable: true);
+            LauncherRouteAvailability.Available);
 
         Assert.AreEqual(LauncherNavigationTransitionKind.BookmarkRestored, result.TransitionKind);
         Assert.AreEqual(LauncherRouteKind.GameDetails, result.Snapshot.CurrentRoute.Kind);
@@ -121,12 +121,27 @@ public sealed class LauncherNavigationControllerTests
     }
 
     [TestMethod]
-    public void MissingBookmarkedGameFallsBackLibraryThenHome()
+    public void UnknownGameAvailabilityRestoresStructuralDetailsWithoutClaimingAvailability()
+    {
+        var controller = Initialized();
+
+        var result = controller.RestoreBookmark(
+            new LauncherPresentationBookmark("GAME_DETAILS:unknown-game", "details.back"),
+            LauncherRouteAvailability.Unknown);
+
+        Assert.AreEqual(LauncherNavigationTransitionKind.BookmarkRestored, result.TransitionKind);
+        Assert.AreEqual(LauncherRouteKind.GameDetails, result.Snapshot.CurrentRoute.Kind);
+        Assert.AreEqual("unknown-game", result.Snapshot.CurrentRoute.GameId);
+        Assert.AreEqual("details.back", result.Snapshot.PreferredFocusKey);
+    }
+
+    [TestMethod]
+    public void ExplicitlyUnavailableBookmarkedGameFallsBackLibraryThenHome()
     {
         var libraryFallback = Initialized();
         var library = libraryFallback.RestoreBookmark(
             new LauncherPresentationBookmark("GAME_DETAILS:missing", "action.launch"),
-            gameDetailsStillAvailable: false,
+            LauncherRouteAvailability.Unavailable,
             libraryAvailable: true);
         Assert.AreEqual(LauncherNavigationTransitionKind.FallbackApplied, library.TransitionKind);
         Assert.AreEqual(LauncherRouteKind.Library, library.Snapshot.CurrentRoute.Kind);
@@ -134,7 +149,7 @@ public sealed class LauncherNavigationControllerTests
         var homeFallback = Initialized();
         var home = homeFallback.RestoreBookmark(
             new LauncherPresentationBookmark("GAME_DETAILS:missing", "action.launch"),
-            gameDetailsStillAvailable: false,
+            LauncherRouteAvailability.Unavailable,
             libraryAvailable: false);
         Assert.AreEqual(LauncherRouteKind.Home, home.Snapshot.CurrentRoute.Kind);
     }
@@ -147,8 +162,7 @@ public sealed class LauncherNavigationControllerTests
         var revision = controller.Snapshot.Revision;
 
         var result = controller.RestoreBookmark(
-            new LauncherPresentationBookmark("UNKNOWN", "anything"),
-            gameDetailsStillAvailable: true);
+            new LauncherPresentationBookmark("UNKNOWN", "anything"));
 
         Assert.AreEqual(LauncherNavigationDisposition.Rejected, result.Disposition);
         Assert.AreEqual(LauncherNavigationReasonCodes.InvalidBookmark, result.ReasonCode);
