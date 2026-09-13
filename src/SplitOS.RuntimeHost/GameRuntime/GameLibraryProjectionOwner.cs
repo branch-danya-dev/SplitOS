@@ -210,13 +210,15 @@ public sealed record GameLibraryBindingProjection(
 
             if (Installation.Freshness != GameEvidenceFreshness.Fresh
                 || Installation.State is GameInstallState.StaleLastKnown or GameInstallState.Unknown
-                || Installation.Confidence == GameEvidenceConfidence.Low
-                || LaunchIdentityAvailability == GameLaunchIdentityAvailability.Unknown
-                || LaunchMechanismStatus == GameMechanismStatus.Open)
+                || Installation.Confidence == GameEvidenceConfidence.Low)
                 return GameLibraryCardState.StaleOrUnknown;
 
             if (Installation.State == GameInstallState.NotInstalledVerifiedEvidence)
                 return GameLibraryCardState.NotInstalledVerified;
+
+            if (LaunchIdentityAvailability == GameLaunchIdentityAvailability.Unknown
+                || LaunchMechanismStatus == GameMechanismStatus.Open)
+                return GameLibraryCardState.StaleOrUnknown;
 
             if (Installation.State == GameInstallState.InstalledVerifiedEvidence
                 && LaunchIdentityAvailability == GameLaunchIdentityAvailability.Available
@@ -496,7 +498,7 @@ public sealed class GameLibraryProjectionOwner
         var preferredDisplayName = records
             .Where(record => record.DisplayNameEvidence is not null)
             .OrderByDescending(record => record.Installation.Freshness == GameEvidenceFreshness.Fresh)
-            .ThenByDescending(record => record.Installation.Confidence)
+            .ThenBy(record => record.Installation.Confidence)
             .ThenBy(record => record.ExternalIdentity.ClientType)
             .Select(record => record.DisplayNameEvidence)
             .FirstOrDefault();
@@ -530,6 +532,7 @@ public sealed class GameLibraryProjectionOwner
                 game.PreferredDisplayNameEvidence ?? string.Empty,
                 game.CardState,
                 binding.ExternalIdentity.StableKey,
+                string.Join(",", binding.ExternalIdentity.SecondaryIds ?? Array.Empty<string>()),
                 binding.Installation.State,
                 binding.Installation.ValidatedInstallRoot ?? string.Empty,
                 binding.Installation.ObservedAtUtc.ToUniversalTime().ToString("O"),
@@ -537,6 +540,7 @@ public sealed class GameLibraryProjectionOwner
                 binding.Installation.Freshness,
                 binding.Installation.Confidence,
                 binding.Installation.MechanismStatus,
+                binding.Installation.SourceRecordIdentity ?? string.Empty,
                 binding.LaunchIdentityAvailability,
                 binding.LaunchMechanismStatus,
                 binding.SupportStatus,
