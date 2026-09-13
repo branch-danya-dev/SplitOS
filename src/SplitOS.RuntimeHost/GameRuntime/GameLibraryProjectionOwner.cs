@@ -122,6 +122,30 @@ public sealed record ExternalGameIdentity(
     }
 }
 
+public sealed record GameLibrarySourceProvenance(
+    string SourceMechanism,
+    string AdapterVersion,
+    string? EvidenceSchemaVersion = null,
+    string? ClientVersionObserved = null)
+{
+    public GameLibrarySourceProvenance Normalize()
+        => new(
+            NormalizeRequired(SourceMechanism, nameof(SourceMechanism)),
+            NormalizeRequired(AdapterVersion, nameof(AdapterVersion)),
+            NormalizeOptional(EvidenceSchemaVersion),
+            NormalizeOptional(ClientVersionObserved));
+
+    private static string NormalizeRequired(string value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("A non-empty provenance value is required.", parameterName);
+        return value.Trim();
+    }
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
 public sealed record GameInstallationEvidence(
     GameInstallState State,
     string? ValidatedInstallRoot,
@@ -173,7 +197,8 @@ public sealed record GameLibraryBindingProjection(
     GameLaunchIdentityAvailability LaunchIdentityAvailability,
     GameMechanismStatus LaunchMechanismStatus,
     GameClientSupportStatus SupportStatus,
-    string? DisplayNameEvidence = null)
+    string? DisplayNameEvidence = null,
+    GameLibrarySourceProvenance? SourceProvenance = null)
 {
     public GameLibraryBindingProjection Normalize(GameClientType expectedClientType)
     {
@@ -183,12 +208,14 @@ public sealed record GameLibraryBindingProjection(
             throw new InvalidDataException("External identity client type does not match the refresh owner.");
 
         var installation = (Installation ?? throw new InvalidDataException("Installation evidence is required.")).Normalize();
+        var provenance = (SourceProvenance ?? throw new InvalidDataException("Game Library source provenance is required.")).Normalize();
         return this with
         {
             GameId = gameId,
             ExternalIdentity = identity,
             Installation = installation,
-            DisplayNameEvidence = NormalizeOptional(DisplayNameEvidence)
+            DisplayNameEvidence = NormalizeOptional(DisplayNameEvidence),
+            SourceProvenance = provenance
         };
     }
 
@@ -252,7 +279,11 @@ public sealed record GameLibraryBindingProjection(
             LaunchIdentityAvailability,
             LaunchMechanismStatus,
             SupportStatus,
-            Escape(DisplayNameEvidence));
+            Escape(DisplayNameEvidence),
+            Escape(SourceProvenance?.SourceMechanism),
+            Escape(SourceProvenance?.AdapterVersion),
+            Escape(SourceProvenance?.EvidenceSchemaVersion),
+            Escape(SourceProvenance?.ClientVersionObserved));
 
     private static string NormalizeRequired(string value, string parameterName)
     {
@@ -313,7 +344,8 @@ public sealed record NormalizedGameClientBinding(
     GameMechanismStatus LaunchMechanismStatus,
     GameClientSupportStatus SupportStatus,
     GameLibraryCardState CardState,
-    string? DisplayNameEvidence);
+    string? DisplayNameEvidence,
+    GameLibrarySourceProvenance SourceProvenance);
 
 public sealed record NormalizedGameLibraryEntry(
     string GameId,
@@ -490,7 +522,8 @@ public sealed class GameLibraryProjectionOwner
                 record.LaunchMechanismStatus,
                 record.SupportStatus,
                 record.CardState,
-                record.DisplayNameEvidence))
+                record.DisplayNameEvidence,
+                record.SourceProvenance!))
             .OrderBy(binding => binding.ClientType)
             .ThenBy(binding => binding.ExternalIdentity.StableKey, StringComparer.Ordinal)
             .ToArray();
@@ -545,7 +578,11 @@ public sealed class GameLibraryProjectionOwner
                 binding.LaunchMechanismStatus,
                 binding.SupportStatus,
                 binding.CardState,
-                binding.DisplayNameEvidence ?? string.Empty))));
+                binding.DisplayNameEvidence ?? string.Empty,
+                binding.SourceProvenance.SourceMechanism,
+                binding.SourceProvenance.AdapterVersion,
+                binding.SourceProvenance.EvidenceSchemaVersion ?? string.Empty,
+                binding.SourceProvenance.ClientVersionObserved ?? string.Empty))));
 
     private GameLibraryRefreshDecision Decision(
         GameLibraryRefreshDisposition disposition,
