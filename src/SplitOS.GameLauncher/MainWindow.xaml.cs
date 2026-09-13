@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
     private readonly LauncherRuntimeBindingClient _runtimeBindingClient;
     private readonly LauncherPresentationWindowAdapter _presentationWindow;
     private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow;
+    private long _renderedNavigationRevision = -1;
 
     public MainWindow()
     {
@@ -162,8 +163,13 @@ public sealed partial class MainWindow : Window
         try
         {
             var decision = await RefreshRuntimeBindingAsync();
-            if (!InitializePrecommitSemanticFocus())
+            if (decision.State is not (LauncherLifecycleState.Active
+                    or LauncherLifecycleState.BackgroundGameRunning
+                    or LauncherLifecycleState.Restoring)
+                && !EnsurePrecommitSemanticFocus())
+            {
                 throw new InvalidOperationException("SEMANTIC_FOCUS_NOT_READY");
+            }
 
             decision = await ReportPresentationSubsystemReadyAsync();
             UpdateLifecycleSurface(decision.State);
@@ -175,10 +181,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private bool InitializePrecommitSemanticFocus()
+    private bool EnsurePrecommitSemanticFocus()
     {
-        if (_semanticFocusController.IsReady)
+        if (string.Equals(
+                _semanticFocusController.CurrentScopeKey,
+                PrecommitScopeKey,
+                StringComparison.Ordinal))
+        {
             return _semanticFocusWindow.FocusCurrent();
+        }
+
+        _semanticFocusWindow.ClearTargets();
+        _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
+        _renderedNavigationRevision = -1;
 
         var decision = _semanticFocusController.LoadRootScope(
             new LauncherFocusScopeDefinition(
@@ -205,8 +220,21 @@ public sealed partial class MainWindow : Window
         PrecommitSurface.Visibility = committedGameSurface ? Visibility.Collapsed : Visibility.Visible;
         LauncherSurface.Visibility = committedGameSurface ? Visibility.Visible : Visibility.Collapsed;
 
+        if (!committedGameSurface)
+        {
+            _ = EnsurePrecommitSemanticFocus();
+            return;
+        }
+
         if (state == LauncherLifecycleState.Active)
-            RenderNavigation(_navigationController.Snapshot);
+        {
+            var navigation = _navigationController.Snapshot;
+            var routeScopeActive = _semanticFocusController.CurrentScopeKey?.StartsWith(
+                "ROUTE:",
+                StringComparison.Ordinal) == true;
+            if (_renderedNavigationRevision != navigation.Revision || !routeScopeActive)
+                RenderNavigation(navigation);
+        }
     }
 
     private void RenderNavigation(LauncherNavigationSnapshot snapshot)
@@ -300,7 +328,9 @@ public sealed partial class MainWindow : Window
         var focusDecision = _semanticFocusController.LoadRootScope(
             focusScope,
             snapshot.PreferredFocusKey);
-        if (!_semanticFocusWindow.Apply(focusDecision))
+        if (_semanticFocusWindow.Apply(focusDecision))
+            _renderedNavigationRevision = snapshot.Revision;
+        else
             StatusText.Text = $"Focus unavailable: {focusDecision.FocusKey}";
     }
 
