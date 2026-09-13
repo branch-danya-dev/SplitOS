@@ -43,6 +43,13 @@ public sealed record LauncherRoute(
     }
 }
 
+public enum LauncherRouteAvailability
+{
+    Unknown,
+    Available,
+    Unavailable
+}
+
 public enum LauncherNavigationDisposition
 {
     Applied,
@@ -91,7 +98,9 @@ public sealed record LauncherNavigationDecision(
 /// <summary>
 /// Presentation-only route owner for the v1 HOME/LIBRARY/GAME_DETAILS skeleton. Root switches do not
 /// create history. Nested GAME_DETAILS transitions capture the exact source route and semantic focus
-/// key, so BACK restores the meaningful parent target. No route state is treated as game/library truth.
+/// key, so BACK restores the meaningful parent target. Unknown game availability is not promoted to
+/// truth: a structurally valid details route may render a loading/unknown surface until IMP-073 supplies
+/// authoritative library projection. Only an explicit Unavailable result triggers fallback.
 /// </summary>
 public sealed class LauncherNavigationController
 {
@@ -179,7 +188,7 @@ public sealed class LauncherNavigationController
 
     public LauncherNavigationDecision RestoreBookmark(
         LauncherPresentationBookmark bookmark,
-        bool gameDetailsStillAvailable,
+        LauncherRouteAvailability gameDetailsAvailability = LauncherRouteAvailability.Unknown,
         bool libraryAvailable = true)
     {
         EnsureInitialized();
@@ -199,7 +208,8 @@ public sealed class LauncherNavigationController
         if (route is null)
             return Rejected(LauncherNavigationReasonCodes.InvalidBookmark);
 
-        if (route.Kind == LauncherRouteKind.GameDetails && !gameDetailsStillAvailable)
+        if (route.Kind == LauncherRouteKind.GameDetails
+            && gameDetailsAvailability == LauncherRouteAvailability.Unavailable)
         {
             _returns.Clear();
             _currentRoute = libraryAvailable ? LauncherRoute.Library : LauncherRoute.Home;
