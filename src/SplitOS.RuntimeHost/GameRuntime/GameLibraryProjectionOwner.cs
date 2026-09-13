@@ -108,7 +108,7 @@ public sealed record ExternalGameIdentity(
             .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
 
-        return new ExternalGameIdentity(ClientType, idKind, externalId, secondary);
+        return new ExternalGameIdentity(ClientType, idKind, externalId, Array.AsReadOnly(secondary));
     }
 
     internal string StableKey
@@ -227,17 +227,20 @@ public sealed record GameLibraryBindingProjection(
         get
         {
             if (SupportStatus == GameClientSupportStatus.NotSupported
-                || LaunchMechanismStatus == GameMechanismStatus.Unsupported)
+                || LaunchMechanismStatus == GameMechanismStatus.Unsupported
+                || Installation.MechanismStatus == GameMechanismStatus.Unsupported)
                 return GameLibraryCardState.UnsupportedClientCapability;
 
             if (Installation.State == GameInstallState.UpdateRequiredEvidence
                 || Installation.State == GameInstallState.Installing
-                || LaunchMechanismStatus == GameMechanismStatus.UserMediated)
+                || LaunchMechanismStatus == GameMechanismStatus.UserMediated
+                || Installation.MechanismStatus == GameMechanismStatus.UserMediated)
                 return GameLibraryCardState.ClientActionRequired;
 
             if (Installation.Freshness != GameEvidenceFreshness.Fresh
                 || Installation.State is GameInstallState.StaleLastKnown or GameInstallState.Unknown
-                || Installation.Confidence == GameEvidenceConfidence.Low)
+                || Installation.Confidence == GameEvidenceConfidence.Low
+                || Installation.MechanismStatus == GameMechanismStatus.Open)
                 return GameLibraryCardState.StaleOrUnknown;
 
             if (Installation.State == GameInstallState.NotInstalledVerifiedEvidence)
@@ -323,13 +326,23 @@ public sealed record GameLibraryClientRefresh(
             .OrderBy(record => record.StableKey, StringComparer.Ordinal)
             .ToArray();
 
+        foreach (var record in normalized)
+        {
+            if (record.Installation.ObservedAtUtc > ObservedAtUtc)
+                throw new InvalidDataException("Installation evidence cannot be observed after its enclosing refresh.");
+            if (record.Installation.Freshness == GameEvidenceFreshness.Fresh
+                && record.Installation.ExpiresAtUtc is not null
+                && record.Installation.ExpiresAtUtc <= ObservedAtUtc)
+                throw new InvalidDataException("Expired installation evidence cannot be marked fresh.");
+        }
+
         var duplicate = normalized
             .GroupBy(record => record.StableKey, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicate is not null)
             throw new InvalidDataException($"Duplicate external identity '{duplicate.Key}' in one client refresh.");
 
-        return this with { Records = normalized };
+        return this with { Records = Array.AsReadOnly(normalized) };
     }
 
     internal string SubmissionFingerprint()
@@ -374,121 +387,135 @@ public sealed record GameLibraryRefreshDecision(
 /// </summary>
 public sealed class GameLibraryProjectionOwner
 {
+    private readonly object _gate = new();
     private readonly Dictionary<GameClientType, ClientProjectionState> _clients = [];
     private readonly Dictionary<string, string> _canonicalAssignments = new(StringComparer.Ordinal);
     private GameLibrarySnapshot _snapshot = GameLibrarySnapshot.Empty;
     private string _semanticFingerprint = string.Empty;
 
-    public GameLibrarySnapshot Snapshot => _snapshot;
+    public GameLibrarySnapshot Snapshot
+    {
+        get
+        {
+            lock (_gate)
+                return _snapshot;
+        }
+    }
 
     public GameLibraryRefreshDecision ApplyClientRefresh(GameLibraryClientRefresh refresh)
     {
         ArgumentNullException.ThrowIfNull(refresh);
 
-        GameLibraryClientRefresh normalized;
-        try
+        lock (_gate)
         {
-            normalized = refresh.Normalize();
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidDataException)
-        {
-            return Decision(
-                GameLibraryRefreshDisposition.Rejected,
-                GameLibraryRefreshReasonCodes.InvalidProjection,
-                refresh.ClientType,
-                refresh.Generation);
-        }
-
-        var submissionFingerprint = normalized.SubmissionFingerprint();
-        if (_clients.TryGetValue(normalized.ClientType, out var existingClient))
-        {
-            if (normalized.Generation < existingClient.Generation)
+            GameLibraryClientRefresh normalized;
+            try
+            {
+                normalized = refresh.Normalize();
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidDataException)
             {
                 return Decision(
-                    GameLibraryRefreshDisposition.NoOp,
-                    GameLibraryRefreshReasonCodes.StaleGeneration,
-                    normalized.ClientType,
-                    normalized.Generation);
+                    GameLibraryRefreshDisposition.Rejected,
+                    GameLibraryRefreshReasonCodes.InvalidProjection,
+                    refresh.ClientType,
+                    refresh.Generation);
             }
 
-            if (normalized.Generation == existingClient.Generation)
+            var submissionFingerprint = normalized.SubmissionFingerprint();
+            if (_clients.TryGetValue(normalized.ClientType, out var existingClient))
             {
-                if (string.Equals(existingClient.LastSubmissionFingerprint, submissionFingerprint, StringComparison.Ordinal))
+                if (normalized.Generation < existingClient.Generation)
                 {
                     return Decision(
                         GameLibraryRefreshDisposition.NoOp,
-                        GameLibraryRefreshReasonCodes.IdempotentGeneration,
+                        GameLibraryRefreshReasonCodes.StaleGeneration,
                         normalized.ClientType,
                         normalized.Generation);
                 }
 
+                if (normalized.Generation == existingClient.Generation)
+                {
+                    if (string.Equals(existingClient.LastSubmissionFingerprint, submissionFingerprint, StringComparison.Ordinal))
+                    {
+                        return Decision(
+                            GameLibraryRefreshDisposition.NoOp,
+                            GameLibraryRefreshReasonCodes.IdempotentGeneration,
+                            normalized.ClientType,
+                            normalized.Generation);
+                    }
+
+                    return Decision(
+                        GameLibraryRefreshDisposition.Rejected,
+                        GameLibraryRefreshReasonCodes.GenerationConflict,
+                        normalized.ClientType,
+                        normalized.Generation);
+                }
+            }
+
+            foreach (var record in normalized.Records)
+            {
+                if (_canonicalAssignments.TryGetValue(record.StableKey, out var assignedGameId)
+                    && !string.Equals(assignedGameId, record.GameId, StringComparison.Ordinal))
+                {
+                    return Decision(
+                        GameLibraryRefreshDisposition.Rejected,
+                        GameLibraryRefreshReasonCodes.ExternalIdentityConflict,
+                        normalized.ClientType,
+                        normalized.Generation);
+                }
+            }
+
+            var effectiveRecords = normalized.Records.ToDictionary(
+                record => record.StableKey,
+                record => record,
+                StringComparer.Ordinal);
+
+            if (normalized.Completeness == GameLibraryRefreshCompleteness.Partial && existingClient is not null)
+            {
+                foreach (var previous in existingClient.EffectiveRecords.Values)
+                {
+                    if (!effectiveRecords.ContainsKey(previous.StableKey))
+                        effectiveRecords.Add(previous.StableKey, previous.MarkStale());
+                }
+            }
+
+            foreach (var record in normalized.Records)
+                _canonicalAssignments.TryAdd(record.StableKey, record.GameId);
+
+            _clients[normalized.ClientType] = new ClientProjectionState(
+                normalized.Generation,
+                submissionFingerprint,
+                effectiveRecords);
+
+            var nextSnapshot = BuildSnapshot(_snapshot.Revision);
+            var nextFingerprint = SnapshotFingerprint(nextSnapshot);
+            if (string.Equals(_semanticFingerprint, nextFingerprint, StringComparison.Ordinal))
+            {
                 return Decision(
-                    GameLibraryRefreshDisposition.Rejected,
-                    GameLibraryRefreshReasonCodes.GenerationConflict,
+                    GameLibraryRefreshDisposition.NoOp,
+                    GameLibraryRefreshReasonCodes.SemanticNoChange,
                     normalized.ClientType,
                     normalized.Generation);
             }
-        }
 
-        foreach (var record in normalized.Records)
-        {
-            if (_canonicalAssignments.TryGetValue(record.StableKey, out var assignedGameId)
-                && !string.Equals(assignedGameId, record.GameId, StringComparison.Ordinal))
-            {
-                return Decision(
-                    GameLibraryRefreshDisposition.Rejected,
-                    GameLibraryRefreshReasonCodes.ExternalIdentityConflict,
-                    normalized.ClientType,
-                    normalized.Generation);
-            }
-        }
-
-        var effectiveRecords = normalized.Records.ToDictionary(
-            record => record.StableKey,
-            record => record,
-            StringComparer.Ordinal);
-
-        if (normalized.Completeness == GameLibraryRefreshCompleteness.Partial && existingClient is not null)
-        {
-            foreach (var previous in existingClient.EffectiveRecords.Values)
-            {
-                if (!effectiveRecords.ContainsKey(previous.StableKey))
-                    effectiveRecords.Add(previous.StableKey, previous.MarkStale());
-            }
-        }
-
-        foreach (var record in normalized.Records)
-            _canonicalAssignments.TryAdd(record.StableKey, record.GameId);
-
-        _clients[normalized.ClientType] = new ClientProjectionState(
-            normalized.Generation,
-            submissionFingerprint,
-            effectiveRecords);
-
-        var nextSnapshot = BuildSnapshot(_snapshot.Revision);
-        var nextFingerprint = SnapshotFingerprint(nextSnapshot);
-        if (string.Equals(_semanticFingerprint, nextFingerprint, StringComparison.Ordinal))
-        {
+            _snapshot = nextSnapshot with { Revision = checked(_snapshot.Revision + 1) };
+            _semanticFingerprint = nextFingerprint;
             return Decision(
-                GameLibraryRefreshDisposition.NoOp,
-                GameLibraryRefreshReasonCodes.SemanticNoChange,
+                GameLibraryRefreshDisposition.Applied,
+                GameLibraryRefreshReasonCodes.Applied,
                 normalized.ClientType,
                 normalized.Generation);
         }
-
-        _snapshot = nextSnapshot with { Revision = checked(_snapshot.Revision + 1) };
-        _semanticFingerprint = nextFingerprint;
-        return Decision(
-            GameLibraryRefreshDisposition.Applied,
-            GameLibraryRefreshReasonCodes.Applied,
-            normalized.ClientType,
-            normalized.Generation);
     }
 
     public bool TryGetGame(string gameId, out NormalizedGameLibraryEntry? game)
     {
-        game = _snapshot.Games.FirstOrDefault(entry => string.Equals(entry.GameId, gameId, StringComparison.Ordinal));
-        return game is not null;
+        lock (_gate)
+        {
+            game = _snapshot.Games.FirstOrDefault(entry => string.Equals(entry.GameId, gameId, StringComparison.Ordinal));
+            return game is not null;
+        }
     }
 
     private GameLibrarySnapshot BuildSnapshot(long revision)
@@ -506,7 +533,7 @@ public sealed class GameLibraryProjectionOwner
             .OrderBy(entry => entry.GameId, StringComparer.Ordinal)
             .ToArray();
 
-        return new GameLibrarySnapshot(revision, games);
+        return new GameLibrarySnapshot(revision, Array.AsReadOnly(games));
     }
 
     private static NormalizedGameLibraryEntry BuildEntry(
@@ -540,7 +567,7 @@ public sealed class GameLibraryProjectionOwner
             gameId,
             preferredDisplayName,
             AggregateCardState(bindings),
-            bindings);
+            Array.AsReadOnly(bindings));
     }
 
     private static GameLibraryCardState AggregateCardState(IReadOnlyList<NormalizedGameClientBinding> bindings)
