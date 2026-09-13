@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="SplitOS Game Launcher">
-    <Grid x:Name="RootGrid" Padding="48" Loaded="OnLoaded" KeyDown="OnRootKeyDown">
+    <Grid x:Name="RootGrid" Padding="48" Loaded="OnLoaded">
         <StackPanel Spacing="16">
             <TextBlock Text="SplitOS" FontSize="44" FontWeight="SemiBold" />
             <TextBlock Text="Game Launcher · SLICE-00 shell" FontSize="20" Opacity="0.7" />
