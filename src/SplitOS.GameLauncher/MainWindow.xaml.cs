@@ -14,12 +14,13 @@ public sealed partial class MainWindow : Window
     private readonly LauncherSemanticFocusController _semanticFocusController = new();
     private readonly LauncherRuntimeBindingClient _runtimeBindingClient;
     private readonly LauncherPresentationWindowAdapter _presentationWindow;
-    private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow = new();
+    private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow;
 
     public MainWindow()
     {
         InitializeComponent();
         _presentationWindow = new LauncherPresentationWindowAdapter(this);
+        _semanticFocusWindow = new LauncherSemanticFocusWindowAdapter(_semanticFocusController);
         _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
         RootGrid.AddHandler(
             UIElement.KeyDownEvent,
@@ -128,7 +129,7 @@ public sealed partial class MainWindow : Window
     private bool InitializeSemanticFocus()
     {
         if (_semanticFocusController.IsReady)
-            return _semanticFocusWindow.FocusCurrent(_semanticFocusController);
+            return _semanticFocusWindow.FocusCurrent();
 
         var decision = _semanticFocusController.LoadRootScope(
             new LauncherFocusScopeDefinition(
@@ -146,8 +147,8 @@ public sealed partial class MainWindow : Window
             return;
 
         // Once semantic navigation is active, mapped input is owned here even when it reaches a
-        // boundary. This prevents WinUI's implicit geometry/tab heuristics from creating a second,
-        // contradictory focus model underneath the explicit SplitOS graph.
+        // boundary. This prevents WinUI control defaults from creating a second navigation action
+        // underneath the SplitOS explicit/geometric/route-fallback focus policy.
         e.Handled = true;
         var decision = _semanticFocusController.Dispatch(action);
 
