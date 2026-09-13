@@ -5,6 +5,7 @@ using SplitOS.Contracts.Protocol;
 using SplitOS.Ipc;
 using SplitOS.Ipc.Windows;
 using SplitOS.RuntimeHost.Authentication;
+using SplitOS.RuntimeHost.GameRuntime;
 using SplitOS.RuntimeHost.ProductIdentity;
 
 namespace SplitOS.RuntimeHost;
@@ -14,6 +15,8 @@ public sealed partial class RuntimeUiPipeService(
     RuntimeUiCallerValidator callerValidator,
     BrokerHealthState brokerHealthState,
     RuntimeStateState runtimeState,
+    LauncherRuntimeSnapshotProvider launcherSnapshotProvider,
+    LauncherReadinessState launcherReadinessState,
     IRuntimeAuthStartCommand authStartCommand,
     IRuntimeSignOutCommand signOutCommand) : BackgroundService
 {
@@ -45,10 +48,14 @@ public sealed partial class RuntimeUiPipeService(
         }
     }
 
-    private async Task HandleConnectionAsync(System.IO.Pipes.NamedPipeServerStream server, uint expectedSessionId, CancellationToken cancellationToken)
+    private async Task HandleConnectionAsync(
+        System.IO.Pipes.NamedPipeServerStream server,
+        uint expectedSessionId,
+        CancellationToken cancellationToken)
     {
         await using (server.ConfigureAwait(false))
         {
+            PipeClientIdentity? acceptedIdentity = null;
             await NamedPipeRpcServer.HandleConnectionAsync(
                 server,
                 ComponentIdentity.Name,
@@ -63,15 +70,19 @@ public sealed partial class RuntimeUiPipeService(
                         return ValueTask.FromResult(HandshakeDecision.Deny(authorization.Reason ?? ErrorCodes.CallerNotAuthorized));
                     }
 
+                    acceptedIdentity = identity;
                     LogCallerAccepted(logger, identity.ProcessId, identity.SessionId, identity.ImagePath, hello.Component);
                     return ValueTask.FromResult(HandshakeDecision.Allow());
                 },
-                HandleMessageAsync,
+                (request, token) => HandleMessageAsync(request, acceptedIdentity, token),
                 cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private async ValueTask<WireMessage> HandleMessageAsync(WireMessage request, CancellationToken cancellationToken)
+    private async ValueTask<WireMessage> HandleMessageAsync(
+        WireMessage request,
+        PipeClientIdentity? callerIdentity,
+        CancellationToken cancellationToken)
     {
         if (string.Equals(request.Capability, Capabilities.RuntimeHealthRead, StringComparison.Ordinal))
         {
@@ -86,6 +97,38 @@ public sealed partial class RuntimeUiPipeService(
         {
             if (!string.Equals(request.MessageType, MessageTypes.RuntimeStateReadRequest, StringComparison.Ordinal)) return Unsupported(request);
             return WireMessage.Respond(request, MessageTypes.RuntimeStateReadResult, runtimeState.Snapshot);
+        }
+
+        if (string.Equals(request.Capability, Capabilities.LauncherRuntimeSnapshotRead, StringComparison.Ordinal))
+        {
+            if (!IsTrustedLauncherCaller(callerIdentity)) return LauncherOnly(request);
+            if (!string.Equals(request.MessageType, MessageTypes.LauncherRuntimeSnapshotRequest, StringComparison.Ordinal)) return Unsupported(request);
+            _ = request.ReadPayload<LauncherRuntimeSnapshotRequest>();
+            return WireMessage.Respond(
+                request,
+                MessageTypes.LauncherRuntimeSnapshotResult,
+                launcherSnapshotProvider.Read());
+        }
+
+        if (string.Equals(request.Capability, Capabilities.LauncherReadyForGameMode, StringComparison.Ordinal))
+        {
+            if (!IsTrustedLauncherCaller(callerIdentity)) return LauncherOnly(request);
+            if (!string.Equals(request.MessageType, MessageTypes.LauncherReadyForGameModeRequest, StringComparison.Ordinal)) return Unsupported(request);
+
+            LauncherReadyForGameModeRequest payload;
+            try
+            {
+                payload = request.ReadPayload<LauncherReadyForGameModeRequest>();
+                var result = launcherReadinessState.ReportReady(payload.OperationId, payload.CorrelationId);
+                return WireMessage.Respond(request, MessageTypes.LauncherReadyForGameModeResult, result);
+            }
+            catch (InvalidDataException ex)
+            {
+                return WireMessage.Respond(
+                    request,
+                    MessageTypes.ErrorResponse,
+                    new ErrorResponse(ErrorCodes.InvalidMessage, ex.Message));
+            }
         }
 
         if (string.Equals(request.Capability, Capabilities.RuntimeAuthStart, StringComparison.Ordinal))
@@ -116,6 +159,18 @@ public sealed partial class RuntimeUiPipeService(
         return WireMessage.Respond(request, MessageTypes.ErrorResponse,
             new ErrorResponse(ErrorCodes.UnknownCapability, "Runtime capability is not allowlisted."));
     }
+
+    private static bool IsTrustedLauncherCaller(PipeClientIdentity? identity)
+        => identity is not null
+            && string.Equals(
+                Path.GetFileName(identity.ImagePath),
+                "SplitOS.GameLauncher.exe",
+                StringComparison.OrdinalIgnoreCase);
+
+    private static WireMessage LauncherOnly(WireMessage request) => WireMessage.Respond(
+        request,
+        MessageTypes.ErrorResponse,
+        new ErrorResponse(ErrorCodes.CallerNotAuthorized, "Capability is restricted to the trusted Game Launcher."));
 
     private static WireMessage Unsupported(WireMessage request) => WireMessage.Respond(
         request, MessageTypes.ErrorResponse, new ErrorResponse(ErrorCodes.UnsupportedMessage, "Capability does not support this message type."));
