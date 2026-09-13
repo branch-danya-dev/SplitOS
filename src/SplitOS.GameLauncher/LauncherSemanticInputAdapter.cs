@@ -12,24 +12,28 @@ internal static class LauncherSemanticInputMapper
         switch (key)
         {
             case VirtualKey.Up:
+            case VirtualKey.W:
             case VirtualKey.GamepadDPadUp:
             case VirtualKey.GamepadLeftThumbstickUp:
                 action = LauncherSemanticAction.NavUp;
                 return true;
 
             case VirtualKey.Down:
+            case VirtualKey.S:
             case VirtualKey.GamepadDPadDown:
             case VirtualKey.GamepadLeftThumbstickDown:
                 action = LauncherSemanticAction.NavDown;
                 return true;
 
             case VirtualKey.Left:
+            case VirtualKey.A:
             case VirtualKey.GamepadDPadLeft:
             case VirtualKey.GamepadLeftThumbstickLeft:
                 action = LauncherSemanticAction.NavLeft;
                 return true;
 
             case VirtualKey.Right:
+            case VirtualKey.D:
             case VirtualKey.GamepadDPadRight:
             case VirtualKey.GamepadLeftThumbstickRight:
                 action = LauncherSemanticAction.NavRight;
@@ -68,6 +72,10 @@ internal static class LauncherSemanticInputMapper
                 action = LauncherSemanticAction.PagePrevious;
                 return true;
 
+            case VirtualKey.Home:
+                action = LauncherSemanticAction.FocusHome;
+                return true;
+
             default:
                 action = default;
                 return false;
@@ -76,13 +84,15 @@ internal static class LauncherSemanticInputMapper
 }
 
 /// <summary>
-/// Bridges the semantic focus owner to concrete WinUI controls. The semantic controller decides
-/// which focus key is authoritative; this adapter only resolves that key to a trusted control
-/// registered by the Launcher surface and asks WinUI to apply programmatic focus.
+/// Bridges the semantic focus owner to concrete WinUI controls. Programmatic semantic focus is
+/// projected into WinUI, while pointer/keyboard focus changes are reflected back into the stable
+/// semantic focus bookmark. The adapter never derives product state from the visual tree.
 /// </summary>
-internal sealed class LauncherSemanticFocusWindowAdapter
+internal sealed class LauncherSemanticFocusWindowAdapter(
+    LauncherSemanticFocusController controller)
 {
     private readonly Dictionary<string, Control> _targets = new(StringComparer.Ordinal);
+    private readonly Dictionary<Control, string> _keysByTarget = [];
 
     public void RegisterTarget(string focusKey, Control target)
     {
@@ -90,8 +100,33 @@ internal sealed class LauncherSemanticFocusWindowAdapter
             throw new ArgumentException("Focus key is required.", nameof(focusKey));
         ArgumentNullException.ThrowIfNull(target);
 
-        if (!_targets.TryAdd(focusKey, target))
+        if (_targets.ContainsKey(focusKey))
             throw new InvalidOperationException($"Focus target '{focusKey}' is already registered.");
+        if (_keysByTarget.ContainsKey(target))
+            throw new InvalidOperationException("A WinUI focus target cannot own multiple semantic focus keys.");
+
+        _targets.Add(focusKey, target);
+        _keysByTarget.Add(target, focusKey);
+        target.GotFocus += OnTargetGotFocus;
+    }
+
+    public bool UnregisterTarget(string focusKey)
+    {
+        if (!_targets.Remove(focusKey, out var target))
+            return false;
+
+        _keysByTarget.Remove(target);
+        target.GotFocus -= OnTargetGotFocus;
+        return true;
+    }
+
+    public void ClearTargets()
+    {
+        foreach (var target in _keysByTarget.Keys.ToArray())
+            target.GotFocus -= OnTargetGotFocus;
+
+        _targets.Clear();
+        _keysByTarget.Clear();
     }
 
     public bool Apply(LauncherSemanticFocusDecision decision)
@@ -103,15 +138,19 @@ internal sealed class LauncherSemanticFocusWindowAdapter
         return Focus(decision.FocusKey);
     }
 
-    public bool FocusCurrent(LauncherSemanticFocusController controller)
-    {
-        ArgumentNullException.ThrowIfNull(controller);
-        return controller.CurrentFocusKey is not null && Focus(controller.CurrentFocusKey);
-    }
+    public bool FocusCurrent()
+        => controller.CurrentFocusKey is not null && Focus(controller.CurrentFocusKey);
 
     private bool Focus(string focusKey)
         => _targets.TryGetValue(focusKey, out var target)
            && target.IsEnabled
            && target.Visibility == Visibility.Visible
            && target.Focus(FocusState.Programmatic);
+
+    private void OnTargetGotFocus(object sender, RoutedEventArgs e)
+    {
+        _ = e;
+        if (sender is Control target && _keysByTarget.TryGetValue(target, out var focusKey))
+            _ = controller.SetLogicalFocus(focusKey);
+    }
 }
