@@ -8,13 +8,21 @@ public sealed partial class MainWindow : Window
 {
     private const string PrecommitScopeKey = "PRECOMMIT";
     private const string PrecommitFocusKey = "PRECOMMIT_STATUS";
+    private const string HomeFocusKey = "nav.home";
+    private const string LibraryFocusKey = "nav.library";
+    private const string DetailsBackFocusKey = "details.back";
+    private const string NavigateHomeInvocation = "NAV_HOME";
+    private const string NavigateLibraryInvocation = "NAV_LIBRARY";
+    private const string NavigateBackInvocation = "NAV_BACK";
 
     private readonly LauncherPresentationController _presentationController = new();
     private readonly LauncherRuntimeBindingController _runtimeBindingController = new();
     private readonly LauncherSemanticFocusController _semanticFocusController = new();
+    private readonly LauncherNavigationController _navigationController = new();
     private readonly LauncherRuntimeBindingClient _runtimeBindingClient;
     private readonly LauncherPresentationWindowAdapter _presentationWindow;
     private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow;
+    private long _renderedNavigationRevision = -1;
 
     public MainWindow()
     {
@@ -22,6 +30,8 @@ public sealed partial class MainWindow : Window
         _presentationWindow = new LauncherPresentationWindowAdapter(this);
         _semanticFocusWindow = new LauncherSemanticFocusWindowAdapter(_semanticFocusController);
         _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
+        _ = _navigationController.Initialize();
+
         RootGrid.AddHandler(
             UIElement.KeyDownEvent,
             new KeyEventHandler(OnRootKeyDown),
@@ -35,6 +45,7 @@ public sealed partial class MainWindow : Window
     internal LauncherLifecycleState LifecycleState => _runtimeBindingController.State;
     internal bool IsSemanticFocusReady => _semanticFocusController.IsReady;
     internal string? CurrentSemanticFocusKey => _semanticFocusController.CurrentFocusKey;
+    internal LauncherNavigationSnapshot NavigationSnapshot => _navigationController.Snapshot;
 
     internal event Action<LauncherSemanticFocusDecision>? SemanticActionIssued;
 
@@ -45,11 +56,50 @@ public sealed partial class MainWindow : Window
         var decision = _presentationController.Observe(projection, updateKind);
         if (decision.Disposition == LauncherPresentationDisposition.Applied)
             _presentationWindow.Apply(decision);
+
+        if (decision.BookmarkToRestore is not null)
+        {
+            // IMP-073 does not exist yet, so Game Details availability is intentionally UNKNOWN.
+            // Structural route restoration is safe because the surface renders no installed/
+            // launchable/profile truth until Runtime supplies the normalized library projection.
+            _ = _navigationController.RestoreBookmark(
+                decision.BookmarkToRestore,
+                LauncherRouteAvailability.Unknown);
+        }
+
         return decision;
     }
 
     internal LauncherPresentationDecision CapturePresentationBookmark(LauncherPresentationBookmark bookmark)
         => _presentationController.CaptureBookmark(bookmark);
+
+    internal LauncherPresentationDecision CaptureCurrentNavigationBookmark()
+        => _presentationController.CaptureBookmark(
+            _navigationController.CaptureBookmark(_semanticFocusController.CurrentFocusKey));
+
+    internal LauncherNavigationDecision NavigateToGameDetails(
+        string gameId,
+        string? returnFocusKey = null)
+    {
+        var decision = _navigationController.OpenGameDetails(
+            gameId,
+            returnFocusKey ?? _semanticFocusController.CurrentFocusKey);
+        ApplyNavigationDecision(decision);
+        return decision;
+    }
+
+    internal LauncherNavigationDecision RestoreNavigationBookmark(
+        LauncherPresentationBookmark bookmark,
+        LauncherRouteAvailability gameDetailsAvailability,
+        bool libraryAvailable = true)
+    {
+        var decision = _navigationController.RestoreBookmark(
+            bookmark,
+            gameDetailsAvailability,
+            libraryAvailable);
+        ApplyNavigationDecision(decision);
+        return decision;
+    }
 
     internal async Task<LauncherBindingDecision> RefreshRuntimeBindingAsync(CancellationToken cancellationToken = default)
     {
@@ -78,14 +128,14 @@ public sealed partial class MainWindow : Window
             var decision = _runtimeBindingController.ApplyFreshRuntimeSnapshot(
                 snapshot,
                 presentation.PresentationState);
-            UpdateFocusAnchorContent(decision.State);
+            UpdateLifecycleSurface(decision.State);
             return decision;
         }
         catch
         {
             if (_runtimeBindingController.State is not (LauncherLifecycleState.Stopped or LauncherLifecycleState.Stopping))
                 _ = _runtimeBindingController.ReportRuntimeDisconnected();
-            UpdateFocusAnchorContent(_runtimeBindingController.State);
+            UpdateLifecycleSurface(_runtimeBindingController.State);
             throw;
         }
     }
@@ -113,11 +163,16 @@ public sealed partial class MainWindow : Window
         try
         {
             var decision = await RefreshRuntimeBindingAsync();
-            if (!InitializeSemanticFocus())
+            if (decision.State is not (LauncherLifecycleState.Active
+                    or LauncherLifecycleState.BackgroundGameRunning
+                    or LauncherLifecycleState.Restoring)
+                && !EnsurePrecommitSemanticFocus())
+            {
                 throw new InvalidOperationException("SEMANTIC_FOCUS_NOT_READY");
+            }
 
             decision = await ReportPresentationSubsystemReadyAsync();
-            UpdateFocusAnchorContent(decision.State);
+            UpdateLifecycleSurface(decision.State);
             StatusText.Text = $"Runtime binding: {decision.State} · snapshot {decision.RuntimeSnapshotVersion}";
         }
         catch (Exception ex)
@@ -126,10 +181,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private bool InitializeSemanticFocus()
+    private bool EnsurePrecommitSemanticFocus()
     {
-        if (_semanticFocusController.IsReady)
+        if (string.Equals(
+                _semanticFocusController.CurrentScopeKey,
+                PrecommitScopeKey,
+                StringComparison.Ordinal))
+        {
             return _semanticFocusWindow.FocusCurrent();
+        }
+
+        _semanticFocusWindow.ClearTargets();
+        _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
+        _renderedNavigationRevision = -1;
 
         var decision = _semanticFocusController.LoadRootScope(
             new LauncherFocusScopeDefinition(
@@ -139,6 +203,152 @@ public sealed partial class MainWindow : Window
         return _semanticFocusWindow.Apply(decision);
     }
 
+    private void UpdateLifecycleSurface(LauncherLifecycleState state)
+    {
+        PreparingFocusAnchor.Content = state switch
+        {
+            LauncherLifecycleState.Active => "Game Mode",
+            LauncherLifecycleState.BackgroundGameRunning => "Game running",
+            LauncherLifecycleState.Restoring => "Returning to Game Mode…",
+            LauncherLifecycleState.DegradedDisconnected => "Reconnecting…",
+            _ => "Preparing Game Mode…"
+        };
+
+        var committedGameSurface = state is LauncherLifecycleState.Active
+            or LauncherLifecycleState.BackgroundGameRunning
+            or LauncherLifecycleState.Restoring;
+        PrecommitSurface.Visibility = committedGameSurface ? Visibility.Collapsed : Visibility.Visible;
+        LauncherSurface.Visibility = committedGameSurface ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!committedGameSurface)
+        {
+            _ = EnsurePrecommitSemanticFocus();
+            return;
+        }
+
+        if (state == LauncherLifecycleState.Active)
+        {
+            var navigation = _navigationController.Snapshot;
+            var routeScopeActive = _semanticFocusController.CurrentScopeKey?.StartsWith(
+                "ROUTE:",
+                StringComparison.Ordinal) == true;
+            if (_renderedNavigationRevision != navigation.Revision || !routeScopeActive)
+                RenderNavigation(navigation);
+        }
+    }
+
+    private void RenderNavigation(LauncherNavigationSnapshot snapshot)
+    {
+        HomeSurface.Visibility = snapshot.CurrentRoute.Kind == LauncherRouteKind.Home
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        LibrarySurface.Visibility = snapshot.CurrentRoute.Kind == LauncherRouteKind.Library
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        GameDetailsSurface.Visibility = snapshot.CurrentRoute.Kind == LauncherRouteKind.GameDetails
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        if (snapshot.CurrentRoute.Kind == LauncherRouteKind.GameDetails)
+        {
+            GameDetailsIdentityText.Text =
+                $"Game identity: {snapshot.CurrentRoute.GameId} · availability/readiness not inferred locally.";
+        }
+        else
+        {
+            GameDetailsIdentityText.Text = string.Empty;
+        }
+
+        _semanticFocusWindow.ClearTargets();
+        _semanticFocusWindow.RegisterTarget(HomeFocusKey, HomeNavButton);
+        _semanticFocusWindow.RegisterTarget(LibraryFocusKey, LibraryNavButton);
+
+        LauncherFocusScopeDefinition focusScope;
+        switch (snapshot.CurrentRoute.Kind)
+        {
+            case LauncherRouteKind.Home:
+                focusScope = new LauncherFocusScopeDefinition(
+                    "ROUTE:HOME",
+                    HomeFocusKey,
+                    [
+                        new LauncherFocusNode(
+                            HomeFocusKey,
+                            Right: LibraryFocusKey,
+                            ActivationId: NavigateHomeInvocation),
+                        new LauncherFocusNode(
+                            LibraryFocusKey,
+                            Left: HomeFocusKey,
+                            ActivationId: NavigateLibraryInvocation)
+                    ]);
+                break;
+
+            case LauncherRouteKind.Library:
+                focusScope = new LauncherFocusScopeDefinition(
+                    "ROUTE:LIBRARY",
+                    LibraryFocusKey,
+                    [
+                        new LauncherFocusNode(
+                            HomeFocusKey,
+                            Right: LibraryFocusKey,
+                            ActivationId: NavigateHomeInvocation),
+                        new LauncherFocusNode(
+                            LibraryFocusKey,
+                            Left: HomeFocusKey,
+                            ActivationId: NavigateLibraryInvocation)
+                    ]);
+                break;
+
+            case LauncherRouteKind.GameDetails:
+                _semanticFocusWindow.RegisterTarget(DetailsBackFocusKey, DetailsBackButton);
+                focusScope = new LauncherFocusScopeDefinition(
+                    $"ROUTE:{snapshot.CurrentRoute.RouteKey}",
+                    DetailsBackFocusKey,
+                    [
+                        new LauncherFocusNode(
+                            DetailsBackFocusKey,
+                            Right: HomeFocusKey,
+                            ActivationId: NavigateBackInvocation),
+                        new LauncherFocusNode(
+                            HomeFocusKey,
+                            Left: DetailsBackFocusKey,
+                            Right: LibraryFocusKey,
+                            ActivationId: NavigateHomeInvocation),
+                        new LauncherFocusNode(
+                            LibraryFocusKey,
+                            Left: HomeFocusKey,
+                            ActivationId: NavigateLibraryInvocation)
+                    ]);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported Launcher route {snapshot.CurrentRoute.Kind}.");
+        }
+
+        var focusDecision = _semanticFocusController.LoadRootScope(
+            focusScope,
+            snapshot.PreferredFocusKey);
+        if (_semanticFocusWindow.Apply(focusDecision))
+            _renderedNavigationRevision = snapshot.Revision;
+        else
+            StatusText.Text = $"Focus unavailable: {focusDecision.FocusKey}";
+    }
+
+    private void ApplyNavigationDecision(LauncherNavigationDecision decision)
+    {
+        if (decision.Disposition == LauncherNavigationDisposition.Rejected)
+        {
+            StatusText.Text = $"Navigation rejected: {decision.ReasonCode}";
+            return;
+        }
+
+        if (decision.Disposition == LauncherNavigationDisposition.Applied
+            && _runtimeBindingController.State == LauncherLifecycleState.Active)
+        {
+            RenderNavigation(decision.Snapshot);
+        }
+    }
+
     private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (!IsNavigationInputEnabled)
@@ -146,16 +356,24 @@ public sealed partial class MainWindow : Window
         if (!LauncherSemanticInputMapper.TryMap(e.Key, out var action))
             return;
 
-        // Once semantic navigation is active, mapped input is owned here even when it reaches a
-        // boundary. This prevents WinUI control defaults from creating a second navigation action
-        // underneath the SplitOS explicit/geometric/route-fallback focus policy.
         e.Handled = true;
         var decision = _semanticFocusController.Dispatch(action);
 
-        if (decision.Kind == LauncherSemanticDispatchKind.FocusMoved
-            && !_semanticFocusWindow.Apply(decision))
+        if (decision.Kind == LauncherSemanticDispatchKind.FocusMoved)
         {
-            StatusText.Text = $"Focus unavailable: {decision.FocusKey}";
+            if (!_semanticFocusWindow.Apply(decision))
+                StatusText.Text = $"Focus unavailable: {decision.FocusKey}";
+            return;
+        }
+
+        if (decision.Kind == LauncherSemanticDispatchKind.InvocationIssued
+            && HandleNavigationInvocation(decision.InvocationId))
+            return;
+
+        if (decision.Kind == LauncherSemanticDispatchKind.CommandIssued
+            && decision.Action == LauncherSemanticAction.Back)
+        {
+            ApplyNavigationDecision(_navigationController.Back());
             return;
         }
 
@@ -166,16 +384,43 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void UpdateFocusAnchorContent(LauncherLifecycleState state)
+    private bool HandleNavigationInvocation(string? invocationId)
     {
-        PreparingFocusAnchor.Content = state switch
+        switch (invocationId)
         {
-            LauncherLifecycleState.Active => "Game Mode",
-            LauncherLifecycleState.BackgroundGameRunning => "Game running",
-            LauncherLifecycleState.Restoring => "Returning to Game Mode…",
-            LauncherLifecycleState.DegradedDisconnected => "Reconnecting…",
-            _ => "Preparing Game Mode…"
-        };
+            case NavigateHomeInvocation:
+                ApplyNavigationDecision(_navigationController.GoHome(HomeFocusKey));
+                return true;
+            case NavigateLibraryInvocation:
+                ApplyNavigationDecision(_navigationController.GoLibrary(LibraryFocusKey));
+                return true;
+            case NavigateBackInvocation:
+                ApplyNavigationDecision(_navigationController.Back());
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void OnHomeNavigationClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        ApplyNavigationDecision(_navigationController.GoHome(HomeFocusKey));
+    }
+
+    private void OnLibraryNavigationClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        ApplyNavigationDecision(_navigationController.GoLibrary(LibraryFocusKey));
+    }
+
+    private void OnDetailsBackClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        ApplyNavigationDecision(_navigationController.Back());
     }
 
     private static LauncherRuntimeGameSessionState ParseSessionState(string value)
