@@ -90,7 +90,7 @@ public sealed class GameLibraryProjectionOwnerTests
                 GameInstallState.NotInstalledVerifiedEvidence,
                 GameEvidenceFreshness.Fresh,
                 GameEvidenceConfidence.High,
-                GameLaunchIdentityAvailability.Unavailable,
+                GameLaunchIdentityAvailability.Unknown,
                 GameMechanismStatus.SupportedPublic)));
         Assert.AreEqual(GameLibraryCardState.NotInstalledVerified, notInstalled.Snapshot.Games[0].CardState);
 
@@ -192,14 +192,14 @@ public sealed class GameLibraryProjectionOwnerTests
             "APP_ID",
             "100",
             displayName: "Same Title",
-            installRoot: @"C:\\Games\\Same");
+            installRoot: @"C:\Games\Same");
         var second = Binding(
             "canonical.b",
             GameClientType.Steam,
             "APP_ID",
             "200",
             displayName: "Same Title",
-            installRoot: @"C:\\Games\\Same");
+            installRoot: @"C:\Games\Same");
 
         var decision = owner.ApplyClientRefresh(Refresh(
             GameClientType.Steam,
@@ -291,13 +291,14 @@ public sealed class GameLibraryProjectionOwnerTests
             "APP_ID",
             "2",
             state: GameInstallState.NotInstalledVerifiedEvidence,
-            installRoot: @"C:\\Games\\ShouldNotExist");
+            installRoot: @"C:\Games\ShouldNotExist");
         var invalid = owner.ApplyClientRefresh(Refresh(
             GameClientType.Steam,
             2,
             GameLibraryRefreshCompleteness.Full,
             invalidInstall));
         Assert.AreEqual(GameLibraryRefreshDisposition.Rejected, invalid.Disposition);
+        Assert.AreEqual(GameLibraryRefreshReasonCodes.InvalidProjection, invalid.ReasonCode);
         Assert.AreEqual(0L, owner.Snapshot.Revision);
     }
 
@@ -351,7 +352,7 @@ public sealed class GameLibraryProjectionOwnerTests
     }
 
     [TestMethod]
-    public void PreferredDisplayNameIsEvidenceAndUsesFreshHigherConfidenceSource()
+    public void PreferredDisplayNameIsEvidenceAndUsesFreshThenHigherConfidenceSource()
     {
         var owner = new GameLibraryProjectionOwner();
         _ = owner.ApplyClientRefresh(Refresh(
@@ -368,7 +369,7 @@ public sealed class GameLibraryProjectionOwnerTests
                 confidence: GameEvidenceConfidence.High,
                 displayName: "Old Title")));
 
-        var decision = owner.ApplyClientRefresh(Refresh(
+        _ = owner.ApplyClientRefresh(Refresh(
             GameClientType.Epic,
             1,
             GameLibraryRefreshCompleteness.Full,
@@ -379,9 +380,48 @@ public sealed class GameLibraryProjectionOwnerTests
                 "e1",
                 freshness: GameEvidenceFreshness.Fresh,
                 confidence: GameEvidenceConfidence.Medium,
-                displayName: "Fresh Title")));
+                displayName: "Fresh Medium")));
 
-        Assert.AreEqual("Fresh Title", decision.Snapshot.Games[0].PreferredDisplayNameEvidence);
+        var decision = owner.ApplyClientRefresh(Refresh(
+            GameClientType.MicrosoftGaming,
+            1,
+            GameLibraryRefreshCompleteness.Full,
+            Binding(
+                "game.title",
+                GameClientType.MicrosoftGaming,
+                "AUMID",
+                "pkg!app",
+                freshness: GameEvidenceFreshness.Fresh,
+                confidence: GameEvidenceConfidence.High,
+                displayName: "Fresh High")));
+
+        Assert.AreEqual("Fresh High", decision.Snapshot.Games[0].PreferredDisplayNameEvidence);
+    }
+
+    [TestMethod]
+    public void SecondaryIdentityEvidenceParticipatesInSemanticRevision()
+    {
+        var owner = new GameLibraryProjectionOwner();
+        var first = owner.ApplyClientRefresh(new GameLibraryClientRefresh(
+            GameClientType.Steam,
+            1,
+            ObservedAt,
+            GameLibraryRefreshCompleteness.Full,
+            [BindingWithSecondaryIds("game.one", "1", ["legacy-a"])]));
+        var revision = first.Snapshot.Revision;
+
+        var second = owner.ApplyClientRefresh(new GameLibraryClientRefresh(
+            GameClientType.Steam,
+            2,
+            ObservedAt.AddMinutes(1),
+            GameLibraryRefreshCompleteness.Full,
+            [BindingWithSecondaryIds("game.one", "1", ["legacy-b"])]));
+
+        Assert.AreEqual(GameLibraryRefreshDisposition.Applied, second.Disposition);
+        Assert.IsTrue(second.Snapshot.Revision > revision);
+        CollectionAssert.AreEqual(
+            new[] { "legacy-b" },
+            second.Snapshot.Games[0].ClientBindings[0].ExternalIdentity.SecondaryIds!.ToArray());
     }
 
     [TestMethod]
@@ -408,6 +448,19 @@ public sealed class GameLibraryProjectionOwnerTests
         params GameLibraryBindingProjection[] records)
         => new(clientType, generation, ObservedAt, completeness, records);
 
+    private static GameLibraryBindingProjection BindingWithSecondaryIds(
+        string gameId,
+        string externalId,
+        IReadOnlyList<string> secondaryIds)
+        => new(
+            gameId,
+            new ExternalGameIdentity(GameClientType.Steam, "APP_ID", externalId, secondaryIds),
+            Evidence(GameInstallState.InstalledVerifiedEvidence, null, GameEvidenceFreshness.Fresh, GameEvidenceConfidence.High, externalId),
+            GameLaunchIdentityAvailability.Available,
+            GameMechanismStatus.SupportedPublic,
+            GameClientSupportStatus.TargetSupportedV1,
+            null);
+
     private static GameLibraryBindingProjection Binding(
         string gameId,
         GameClientType clientType,
@@ -420,26 +473,29 @@ public sealed class GameLibraryProjectionOwnerTests
         GameMechanismStatus launchMechanism = GameMechanismStatus.SupportedPublic,
         GameClientSupportStatus supportStatus = GameClientSupportStatus.TargetSupportedV1,
         string? displayName = null,
-        string? installRoot = @"C:\\Games\\Example")
-    {
-        if (state == GameInstallState.NotInstalledVerifiedEvidence)
-            installRoot = null;
-
-        return new GameLibraryBindingProjection(
+        string? installRoot = null)
+        => new(
             gameId,
             new ExternalGameIdentity(clientType, externalIdKind, externalId),
-            new GameInstallationEvidence(
-                state,
-                installRoot,
-                ObservedAt,
-                ObservedAt.AddMinutes(15),
-                freshness,
-                confidence,
-                GameMechanismStatus.BestEffortLocalEvidence,
-                $"source:{externalId}"),
+            Evidence(state, installRoot, freshness, confidence, externalId),
             launchIdentity,
             launchMechanism,
             supportStatus,
             displayName);
-    }
+
+    private static GameInstallationEvidence Evidence(
+        GameInstallState state,
+        string? installRoot,
+        GameEvidenceFreshness freshness,
+        GameEvidenceConfidence confidence,
+        string sourceId)
+        => new(
+            state,
+            installRoot,
+            ObservedAt,
+            ObservedAt.AddMinutes(15),
+            freshness,
+            confidence,
+            GameMechanismStatus.BestEffortLocalEvidence,
+            $"source:{sourceId}");
 }
