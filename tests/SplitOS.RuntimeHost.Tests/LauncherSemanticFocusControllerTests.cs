@@ -20,23 +20,112 @@ public sealed class LauncherSemanticFocusControllerTests
     }
 
     [TestMethod]
-    public void DirectionalNavigationUsesOnlyExplicitGraphEdges()
+    public void DirectionalNavigationPrefersExplicitGraphEdge()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(new LauncherFocusScopeDefinition(
+            "ROOT",
+            "FIRST",
+            [
+                new LauncherFocusNode(
+                    "FIRST",
+                    Right: "EXPLICIT",
+                    Bounds: new LauncherFocusRect(0, 0, 10, 10)),
+                new LauncherFocusNode(
+                    "NEARER",
+                    Bounds: new LauncherFocusRect(15, 0, 10, 10)),
+                new LauncherFocusNode(
+                    "EXPLICIT",
+                    Bounds: new LauncherFocusRect(100, 0, 10, 10))
+            ]));
+
+        var result = controller.Dispatch(LauncherSemanticAction.NavRight);
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, result.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.FocusMoved, result.ReasonCode);
+        Assert.AreEqual("EXPLICIT", result.FocusKey);
+    }
+
+    [TestMethod]
+    public void DirectionalNavigationUsesGeometricNearestWhenNoUsableExplicitEdgeExists()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(new LauncherFocusScopeDefinition(
+            "ROOT",
+            "A",
+            [
+                new LauncherFocusNode(
+                    "A",
+                    Right: "UNAVAILABLE",
+                    Bounds: new LauncherFocusRect(0, 0, 10, 10)),
+                new LauncherFocusNode(
+                    "UNAVAILABLE",
+                    IsAvailable: false,
+                    Bounds: new LauncherFocusRect(12, 0, 10, 10)),
+                new LauncherFocusNode(
+                    "NEAREST",
+                    Bounds: new LauncherFocusRect(24, 0, 10, 10)),
+                new LauncherFocusNode(
+                    "FAR",
+                    Bounds: new LauncherFocusRect(80, 0, 10, 10))
+            ]));
+
+        var result = controller.Dispatch(LauncherSemanticAction.NavRight);
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, result.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.GeometricFallback, result.ReasonCode);
+        Assert.AreEqual("NEAREST", result.FocusKey);
+    }
+
+    [TestMethod]
+    public void DirectionalNavigationUsesRouteFallbackAfterExplicitAndGeometryFail()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(new LauncherFocusScopeDefinition(
+            "ROOT",
+            "A",
+            [
+                new LauncherFocusNode("A", Right: "UNAVAILABLE"),
+                new LauncherFocusNode("UNAVAILABLE", IsAvailable: false),
+                new LauncherFocusNode("ROUTE-FALLBACK")
+            ],
+            new LauncherDirectionalFocusFallbacks(Right: "ROUTE-FALLBACK")));
+
+        var result = controller.Dispatch(LauncherSemanticAction.NavRight);
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, result.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.RouteFallback, result.ReasonCode);
+        Assert.AreEqual("ROUTE-FALLBACK", result.FocusKey);
+    }
+
+    [TestMethod]
+    public void NavigationBoundaryDoesNotMoveFocusOrBumpRevision()
     {
         var controller = new LauncherSemanticFocusController();
         _ = controller.LoadRootScope(RowScope());
-        var initialRevision = controller.Revision;
+        _ = controller.Dispatch(LauncherSemanticAction.NavRight);
+        var revision = controller.Revision;
 
-        var right = controller.Dispatch(LauncherSemanticAction.NavRight);
-        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, right.Kind);
-        Assert.AreEqual("SECOND", right.FocusKey);
-        Assert.IsTrue(right.Revision > initialRevision);
+        var result = controller.Dispatch(LauncherSemanticAction.NavDown);
 
-        var boundaryRevision = right.Revision;
-        var down = controller.Dispatch(LauncherSemanticAction.NavDown);
-        Assert.AreEqual(LauncherSemanticDispatchKind.NoOp, down.Kind);
-        Assert.AreEqual(LauncherSemanticFocusReasonCodes.NavigationBoundary, down.ReasonCode);
-        Assert.AreEqual("SECOND", down.FocusKey);
-        Assert.AreEqual(boundaryRevision, down.Revision);
+        Assert.AreEqual(LauncherSemanticDispatchKind.NoOp, result.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.NavigationBoundary, result.ReasonCode);
+        Assert.AreEqual("SECOND", result.FocusKey);
+        Assert.AreEqual(revision, result.Revision);
+    }
+
+    [TestMethod]
+    public void FocusHomeReturnsToDeclaredRouteDefault()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(RowScope());
+        _ = controller.Dispatch(LauncherSemanticAction.NavRight);
+
+        var result = controller.Dispatch(LauncherSemanticAction.FocusHome);
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, result.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.FocusHome, result.ReasonCode);
+        Assert.AreEqual("FIRST", result.FocusKey);
     }
 
     [TestMethod]
@@ -113,7 +202,60 @@ public sealed class LauncherSemanticFocusControllerTests
     }
 
     [TestMethod]
-    public void UnavailableExplicitTargetDoesNotFallBackToGeometryOrAnotherNode()
+    public void AsyncRefreshPreservesSemanticFocusAcrossReorder()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(RowScope());
+        _ = controller.Dispatch(LauncherSemanticAction.NavRight);
+
+        var refreshed = controller.ReplaceCurrentScope(new LauncherFocusScopeDefinition(
+            "ROOT",
+            "FIRST",
+            [
+                new LauncherFocusNode("THIRD"),
+                new LauncherFocusNode("SECOND", Left: "FIRST", ActivationId: "OPEN_SECOND"),
+                new LauncherFocusNode("FIRST", Right: "SECOND")
+            ]));
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.NoOp, refreshed.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.ScopeRefreshedFocusPreserved, refreshed.ReasonCode);
+        Assert.AreEqual("SECOND", refreshed.FocusKey);
+    }
+
+    [TestMethod]
+    public void AsyncRefreshUsesExplicitFallbackWhenFocusedItemDisappears()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(RowScope());
+        _ = controller.Dispatch(LauncherSemanticAction.NavRight);
+
+        var refreshed = controller.ReplaceCurrentScope(
+            new LauncherFocusScopeDefinition(
+                "ROOT",
+                "FIRST",
+                [new LauncherFocusNode("FIRST"), new LauncherFocusNode("THIRD")]),
+            fallbackFocusKey: "THIRD");
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, refreshed.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.ScopeRefreshedFocusFallback, refreshed.ReasonCode);
+        Assert.AreEqual("THIRD", refreshed.FocusKey);
+    }
+
+    [TestMethod]
+    public void PointerOrKeyboardFocusCanUpdateLogicalSemanticBookmark()
+    {
+        var controller = new LauncherSemanticFocusController();
+        _ = controller.LoadRootScope(RowScope());
+
+        var result = controller.SetLogicalFocus("SECOND");
+
+        Assert.AreEqual(LauncherSemanticDispatchKind.FocusMoved, result.Kind);
+        Assert.AreEqual(LauncherSemanticFocusReasonCodes.LogicalFocusSet, result.ReasonCode);
+        Assert.AreEqual("SECOND", controller.CurrentFocusKey);
+    }
+
+    [TestMethod]
+    public void UnavailableExplicitTargetWithoutOtherFallbackFailsClosed()
     {
         var controller = new LauncherSemanticFocusController();
         _ = controller.LoadRootScope(new LauncherFocusScopeDefinition(
@@ -121,7 +263,7 @@ public sealed class LauncherSemanticFocusControllerTests
             "A",
             [
                 new LauncherFocusNode("A", Right: "B"),
-                new LauncherFocusNode("B", Right: "C", IsAvailable: false),
+                new LauncherFocusNode("B", IsAvailable: false),
                 new LauncherFocusNode("C")
             ]));
         var revision = controller.Revision;
@@ -174,6 +316,12 @@ public sealed class LauncherSemanticFocusControllerTests
                 "SELF",
                 "A",
                 [new LauncherFocusNode("A", Right: "A")])));
+
+        Assert.Throws<InvalidDataException>(() => controller.LoadRootScope(
+            new LauncherFocusScopeDefinition(
+                "BAD-BOUNDS",
+                "A",
+                [new LauncherFocusNode("A", Bounds: new LauncherFocusRect(0, 0, 0, 10))])));
     }
 
     [TestMethod]
