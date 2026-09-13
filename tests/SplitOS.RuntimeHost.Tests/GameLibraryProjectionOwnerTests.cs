@@ -34,6 +34,8 @@ public sealed class GameLibraryProjectionOwnerTests
         Assert.AreEqual(1, decision.Snapshot.Games.Count);
         Assert.AreEqual(GameLibraryCardState.Ready, decision.Snapshot.Games[0].CardState);
         Assert.AreEqual("Cyberpunk 2077", decision.Snapshot.Games[0].PreferredDisplayNameEvidence);
+        Assert.AreEqual("LOCAL_METADATA", decision.Snapshot.Games[0].ClientBindings[0].SourceProvenance.SourceMechanism);
+        Assert.AreEqual("adapter/1.0", decision.Snapshot.Games[0].ClientBindings[0].SourceProvenance.AdapterVersion);
     }
 
     [TestMethod]
@@ -273,7 +275,7 @@ public sealed class GameLibraryProjectionOwnerTests
     }
 
     [TestMethod]
-    public void InvalidClientMismatchAndContradictoryInstallEvidenceAreRejectedWithoutMutation()
+    public void InvalidClientMismatchContradictoryInstallAndMissingProvenanceAreRejectedWithoutMutation()
     {
         var owner = new GameLibraryProjectionOwner();
         var mismatch = owner.ApplyClientRefresh(Refresh(
@@ -299,6 +301,22 @@ public sealed class GameLibraryProjectionOwnerTests
             invalidInstall));
         Assert.AreEqual(GameLibraryRefreshDisposition.Rejected, invalid.Disposition);
         Assert.AreEqual(GameLibraryRefreshReasonCodes.InvalidProjection, invalid.ReasonCode);
+        Assert.AreEqual(0L, owner.Snapshot.Revision);
+
+        var missingProvenance = new GameLibraryBindingProjection(
+            "game.three",
+            new ExternalGameIdentity(GameClientType.Steam, "APP_ID", "3"),
+            Evidence(GameInstallState.InstalledVerifiedEvidence, null, GameEvidenceFreshness.Fresh, GameEvidenceConfidence.High, "3"),
+            GameLaunchIdentityAvailability.Available,
+            GameMechanismStatus.SupportedPublic,
+            GameClientSupportStatus.TargetSupportedV1);
+        var missing = owner.ApplyClientRefresh(Refresh(
+            GameClientType.Steam,
+            3,
+            GameLibraryRefreshCompleteness.Full,
+            missingProvenance));
+        Assert.AreEqual(GameLibraryRefreshDisposition.Rejected, missing.Disposition);
+        Assert.AreEqual(GameLibraryRefreshReasonCodes.InvalidProjection, missing.ReasonCode);
         Assert.AreEqual(0L, owner.Snapshot.Revision);
     }
 
@@ -399,7 +417,7 @@ public sealed class GameLibraryProjectionOwnerTests
     }
 
     [TestMethod]
-    public void SecondaryIdentityEvidenceParticipatesInSemanticRevision()
+    public void SecondaryIdentityAndProvenanceChangesParticipateInSemanticRevision()
     {
         var owner = new GameLibraryProjectionOwner();
         var first = owner.ApplyClientRefresh(new GameLibraryClientRefresh(
@@ -407,7 +425,7 @@ public sealed class GameLibraryProjectionOwnerTests
             1,
             ObservedAt,
             GameLibraryRefreshCompleteness.Full,
-            [BindingWithSecondaryIds("game.one", "1", ["legacy-a"])]));
+            [BindingWithSecondaryIds("game.one", "1", ["legacy-a"], clientVersion: "client/1.0")]));
         var revision = first.Snapshot.Revision;
 
         var second = owner.ApplyClientRefresh(new GameLibraryClientRefresh(
@@ -415,13 +433,14 @@ public sealed class GameLibraryProjectionOwnerTests
             2,
             ObservedAt.AddMinutes(1),
             GameLibraryRefreshCompleteness.Full,
-            [BindingWithSecondaryIds("game.one", "1", ["legacy-b"])]));
+            [BindingWithSecondaryIds("game.one", "1", ["legacy-b"], clientVersion: "client/2.0")]));
 
         Assert.AreEqual(GameLibraryRefreshDisposition.Applied, second.Disposition);
         Assert.IsTrue(second.Snapshot.Revision > revision);
         CollectionAssert.AreEqual(
             new[] { "legacy-b" },
             second.Snapshot.Games[0].ClientBindings[0].ExternalIdentity.SecondaryIds!.ToArray());
+        Assert.AreEqual("client/2.0", second.Snapshot.Games[0].ClientBindings[0].SourceProvenance.ClientVersionObserved);
     }
 
     [TestMethod]
@@ -451,7 +470,8 @@ public sealed class GameLibraryProjectionOwnerTests
     private static GameLibraryBindingProjection BindingWithSecondaryIds(
         string gameId,
         string externalId,
-        IReadOnlyList<string> secondaryIds)
+        IReadOnlyList<string> secondaryIds,
+        string clientVersion)
         => new(
             gameId,
             new ExternalGameIdentity(GameClientType.Steam, "APP_ID", externalId, secondaryIds),
@@ -459,7 +479,8 @@ public sealed class GameLibraryProjectionOwnerTests
             GameLaunchIdentityAvailability.Available,
             GameMechanismStatus.SupportedPublic,
             GameClientSupportStatus.TargetSupportedV1,
-            null);
+            null,
+            Provenance(clientVersion));
 
     private static GameLibraryBindingProjection Binding(
         string gameId,
@@ -481,7 +502,11 @@ public sealed class GameLibraryProjectionOwnerTests
             launchIdentity,
             launchMechanism,
             supportStatus,
-            displayName);
+            displayName,
+            Provenance("client/1.0"));
+
+    private static GameLibrarySourceProvenance Provenance(string clientVersion)
+        => new("LOCAL_METADATA", "adapter/1.0", "schema/1", clientVersion);
 
     private static GameInstallationEvidence Evidence(
         GameInstallState state,
