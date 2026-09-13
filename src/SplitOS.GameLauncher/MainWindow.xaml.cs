@@ -1,25 +1,41 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using SplitOS.Runtime.Client;
 
 namespace SplitOS.GameLauncher;
 
 public sealed partial class MainWindow : Window
 {
+    private const string PrecommitScopeKey = "PRECOMMIT";
+    private const string PrecommitFocusKey = "PRECOMMIT_STATUS";
+
     private readonly LauncherPresentationController _presentationController = new();
     private readonly LauncherRuntimeBindingController _runtimeBindingController = new();
+    private readonly LauncherSemanticFocusController _semanticFocusController = new();
     private readonly LauncherRuntimeBindingClient _runtimeBindingClient;
     private readonly LauncherPresentationWindowAdapter _presentationWindow;
+    private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow = new();
 
     public MainWindow()
     {
         InitializeComponent();
         _presentationWindow = new LauncherPresentationWindowAdapter(this);
+        _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
+        RootGrid.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(OnRootKeyDown),
+            handledEventsToo: true);
+
         var version = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "0.0.0";
         _runtimeBindingClient = new LauncherRuntimeBindingClient("SplitOS.GameLauncher", version);
     }
 
     internal bool IsNavigationInputEnabled => _presentationWindow.NavigationInputEnabled;
     internal LauncherLifecycleState LifecycleState => _runtimeBindingController.State;
+    internal bool IsSemanticFocusReady => _semanticFocusController.IsReady;
+    internal string? CurrentSemanticFocusKey => _semanticFocusController.CurrentFocusKey;
+
+    internal event Action<LauncherSemanticFocusDecision>? SemanticActionIssued;
 
     internal LauncherPresentationDecision ObserveGameSession(
         LauncherGameSessionProjection projection,
@@ -58,12 +74,17 @@ public sealed partial class MainWindow : Window
             if (presentation.Disposition == LauncherPresentationDisposition.Rejected)
                 throw new InvalidDataException(presentation.ReasonCode);
 
-            return _runtimeBindingController.ApplyFreshRuntimeSnapshot(snapshot, presentation.PresentationState);
+            var decision = _runtimeBindingController.ApplyFreshRuntimeSnapshot(
+                snapshot,
+                presentation.PresentationState);
+            UpdateFocusAnchorContent(decision.State);
+            return decision;
         }
         catch
         {
             if (_runtimeBindingController.State is not (LauncherLifecycleState.Stopped or LauncherLifecycleState.Stopping))
                 _ = _runtimeBindingController.ReportRuntimeDisconnected();
+            UpdateFocusAnchorContent(_runtimeBindingController.State);
             throw;
         }
     }
@@ -91,12 +112,69 @@ public sealed partial class MainWindow : Window
         try
         {
             var decision = await RefreshRuntimeBindingAsync();
+            if (!InitializeSemanticFocus())
+                throw new InvalidOperationException("SEMANTIC_FOCUS_NOT_READY");
+
+            decision = await ReportPresentationSubsystemReadyAsync();
+            UpdateFocusAnchorContent(decision.State);
             StatusText.Text = $"Runtime binding: {decision.State} · snapshot {decision.RuntimeSnapshotVersion}";
         }
         catch (Exception ex)
         {
             StatusText.Text = $"Runtime unavailable: {ex.Message}";
         }
+    }
+
+    private bool InitializeSemanticFocus()
+    {
+        if (_semanticFocusController.IsReady)
+            return _semanticFocusWindow.FocusCurrent(_semanticFocusController);
+
+        var decision = _semanticFocusController.LoadRootScope(
+            new LauncherFocusScopeDefinition(
+                PrecommitScopeKey,
+                PrecommitFocusKey,
+                [new LauncherFocusNode(PrecommitFocusKey)]));
+        return _semanticFocusWindow.Apply(decision);
+    }
+
+    private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!IsNavigationInputEnabled)
+            return;
+        if (!LauncherSemanticInputMapper.TryMap(e.Key, out var action))
+            return;
+
+        // Once semantic navigation is active, mapped input is owned here even when it reaches a
+        // boundary. This prevents WinUI's implicit geometry/tab heuristics from creating a second,
+        // contradictory focus model underneath the explicit SplitOS graph.
+        e.Handled = true;
+        var decision = _semanticFocusController.Dispatch(action);
+
+        if (decision.Kind == LauncherSemanticDispatchKind.FocusMoved
+            && !_semanticFocusWindow.Apply(decision))
+        {
+            StatusText.Text = $"Focus unavailable: {decision.FocusKey}";
+            return;
+        }
+
+        if (decision.Kind is LauncherSemanticDispatchKind.InvocationIssued
+            or LauncherSemanticDispatchKind.CommandIssued)
+        {
+            SemanticActionIssued?.Invoke(decision);
+        }
+    }
+
+    private void UpdateFocusAnchorContent(LauncherLifecycleState state)
+    {
+        PreparingFocusAnchor.Content = state switch
+        {
+            LauncherLifecycleState.Active => "Game Mode",
+            LauncherLifecycleState.BackgroundGameRunning => "Game running",
+            LauncherLifecycleState.Restoring => "Returning to Game Mode…",
+            LauncherLifecycleState.DegradedDisconnected => "Reconnecting…",
+            _ => "Preparing Game Mode…"
+        };
     }
 
     private static LauncherRuntimeGameSessionState ParseSessionState(string value)
