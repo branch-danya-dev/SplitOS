@@ -6,6 +6,22 @@ namespace SplitOS.Contracts.Protocol;
 /// </summary>
 public sealed record LauncherRuntimeSnapshotRequest;
 
+/// <summary>
+/// Runtime-owned launch-operation presentation projected from canonical GameSession truth plus explicit
+/// Runtime subsystem outcomes. AllowedActions is authoritative: Launcher must never infer a retry,
+/// cancellation, client-open, or keep-waiting action that is not present here.
+/// </summary>
+public sealed record LauncherLaunchPresentationResult(
+    string LaunchOperationId,
+    string CorrelationId,
+    string GameId,
+    string? Phase,
+    string? FailureClass,
+    string? ExternalClientOutcome,
+    IReadOnlyList<string> AllowedActions,
+    long RuntimePresentationRevision,
+    DateTimeOffset ObservedAtUtc);
+
 public sealed record LauncherRuntimeSnapshotResult(
     string RuntimeStatus,
     string ManagedRuntimeAccess,
@@ -19,7 +35,8 @@ public sealed record LauncherRuntimeSnapshotResult(
     Guid? ExpectedGameModeCorrelationId,
     long ReadinessRevision,
     long SnapshotVersion,
-    DateTimeOffset ObservedAtUtc);
+    DateTimeOffset ObservedAtUtc,
+    LauncherLaunchPresentationResult? LaunchPresentation = null);
 
 /// <summary>
 /// Semantic readiness acknowledgement for the exact GAME mode operation currently expected by Runtime.
