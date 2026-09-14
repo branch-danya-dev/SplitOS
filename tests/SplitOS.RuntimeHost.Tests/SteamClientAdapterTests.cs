@@ -38,7 +38,7 @@ public sealed class SteamClientAdapterTests
         var fileReader = new RecordingExecutableReader(
             new SteamExecutableEvidence(true, "10.20.30.40", true));
         var adapter = Adapter(
-            Registration(@"\"D:\Portable Clients\Steam\steam.exe\" \"%1\""),
+            Registration("\"D:\\Portable Clients\\Steam\\steam.exe\" \"%1\""),
             fileReader);
 
         var evidence = await adapter.DiscoverClientAsync(
@@ -87,7 +87,7 @@ public sealed class SteamClientAdapterTests
                 true,
                 true,
                 false,
-                @"\"D:\Steam\steam.exe\" \"%1\""),
+                "\"D:\\Steam\\steam.exe\" \"%1\""),
             fileReader);
 
         var evidence = await adapter.DiscoverClientAsync(
@@ -105,7 +105,7 @@ public sealed class SteamClientAdapterTests
     {
         var fileReader = new RecordingExecutableReader(
             new SteamExecutableEvidence(false, null, true, "STEAM_HANDLER_FILE_NOT_FOUND"));
-        var adapter = Adapter(Registration(@"\"E:\OldSteam\steam.exe\" \"%1\""), fileReader);
+        var adapter = Adapter(Registration("\"E:\\OldSteam\\steam.exe\" \"%1\""), fileReader);
 
         var evidence = await adapter.DiscoverClientAsync(
             2,
@@ -123,7 +123,7 @@ public sealed class SteamClientAdapterTests
     {
         var fileReader = new RecordingExecutableReader(
             new SteamExecutableEvidence(true, null, false, "STEAM_CLIENT_VERSION_READ_FAILED"));
-        var adapter = Adapter(Registration(@"\"C:\Steam\steam.exe\" \"%1\""), fileReader);
+        var adapter = Adapter(Registration("\"C:\\Steam\\steam.exe\" \"%1\""), fileReader);
 
         var evidence = await adapter.DiscoverClientAsync(
             5,
@@ -141,12 +141,12 @@ public sealed class SteamClientAdapterTests
     {
         var commands = new[]
         {
-            @"\"D:\Steam\steam.exe\" -silent \"%1\"",
-            @"\"D:\Steam\steam.exe\" \"%1\" --extra",
-            @"\"D:\Steam\steam.exe \"%1\"",
-            @"steam.exe \"%1\"",
-            @"\"D:\Steam\not-steam.exe\" \"%1\"",
-            @"\"%ProgramFiles(x86)%\Steam\steam.exe\" \"%1\""
+            "\"D:\\Steam\\steam.exe\" -silent \"%1\"",
+            "\"D:\\Steam\\steam.exe\" \"%1\" --extra",
+            "\"D:\\Steam\\steam.exe",
+            "steam.exe \"%1\"",
+            "\"D:\\Steam\\not-steam.exe\" \"%1\"",
+            "\"%ProgramFiles(x86)%\\Steam\\steam.exe\" \"%1\""
         };
 
         foreach (var command in commands)
@@ -172,7 +172,7 @@ public sealed class SteamClientAdapterTests
     public void StrictHandlerParserAcceptsOnlyCanonicalSteamExecutablePlusUriPlaceholder()
     {
         Assert.IsTrue(SteamProtocolHandlerCommandParser.TryParse(
-            @"\"F:\Games\Steam Client\steam.exe\" \"%1\"",
+            "\"F:\\Games\\Steam Client\\steam.exe\" \"%1\"",
             out var quoted,
             out var quotedDiagnostic));
         Assert.AreEqual(@"F:\Games\Steam Client\steam.exe", quoted);
@@ -185,7 +185,7 @@ public sealed class SteamClientAdapterTests
         Assert.AreEqual(@"F:\Steam\steam.exe", unquoted);
 
         Assert.IsFalse(SteamProtocolHandlerCommandParser.TryParse(
-            @"\"F:\Steam\steam.exe\" -applaunch 1091500",
+            "\"F:\\Steam\\steam.exe\" -applaunch 1091500",
             out _,
             out var unsafeDiagnostic));
         Assert.AreEqual("STEAM_PROTOCOL_HANDLER_TEMPLATE_UNTRUSTED", unsafeDiagnostic);
@@ -195,7 +195,7 @@ public sealed class SteamClientAdapterTests
     public async Task EveryDiscoveryCallReadsFreshEvidenceAndAdvancesGeneration()
     {
         var registrationReader = new SequenceRegistrationReader(
-            Registration(@"\"D:\Steam\steam.exe\" \"%1\""),
+            Registration("\"D:\\Steam\\steam.exe\" \"%1\""),
             RegistrationMissing());
         var fileReader = new RecordingExecutableReader(
             new SteamExecutableEvidence(true, "1.2.3", true));
