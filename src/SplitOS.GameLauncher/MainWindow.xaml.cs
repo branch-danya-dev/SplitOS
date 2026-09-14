@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     private readonly LauncherPresentationWindowAdapter _presentationWindow;
     private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow;
     private long _renderedNavigationRevision = -1;
+    private LaunchRenderStamp? _renderedLaunchStamp;
 
     public MainWindow()
     {
@@ -217,6 +218,7 @@ public sealed partial class MainWindow : Window
         _semanticFocusWindow.ClearTargets();
         _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
         _renderedNavigationRevision = -1;
+        _renderedLaunchStamp = null;
 
         var decision = _semanticFocusController.LoadRootScope(
             new LauncherFocusScopeDefinition(
@@ -246,6 +248,7 @@ public sealed partial class MainWindow : Window
         if (!committedGameSurface)
         {
             LaunchPresentationSurface.Visibility = Visibility.Collapsed;
+            _renderedLaunchStamp = null;
             _ = EnsurePrecommitSemanticFocus();
             return;
         }
@@ -253,16 +256,23 @@ public sealed partial class MainWindow : Window
         if (state != LauncherLifecycleState.Active)
         {
             LaunchPresentationSurface.Visibility = Visibility.Collapsed;
+            _renderedLaunchStamp = null;
             return;
         }
 
         var launchView = _launchPresentationController.View;
         if (IsInteractiveLaunchView(launchView))
         {
-            RenderLaunchPresentation(launchView);
+            var stamp = LaunchRenderStamp.From(launchView);
+            var launchScopeActive = _semanticFocusController.CurrentScopeKey?.StartsWith(
+                "LAUNCH:",
+                StringComparison.Ordinal) == true;
+            if (_renderedLaunchStamp != stamp || !launchScopeActive)
+                RenderLaunchPresentation(launchView, stamp);
             return;
         }
 
+        _renderedLaunchStamp = null;
         NavigationSurface.Visibility = Visibility.Visible;
         LaunchPresentationSurface.Visibility = Visibility.Collapsed;
         var navigation = _navigationController.Snapshot;
@@ -278,7 +288,9 @@ public sealed partial class MainWindow : Window
             or LauncherLaunchPresentationMode.ExternalActionRequired
             or LauncherLaunchPresentationMode.Failure;
 
-    private void RenderLaunchPresentation(LauncherLaunchPresentationView view)
+    private void RenderLaunchPresentation(
+        LauncherLaunchPresentationView view,
+        LaunchRenderStamp stamp)
     {
         NavigationSurface.Visibility = Visibility.Collapsed;
         LaunchPresentationSurface.Visibility = Visibility.Visible;
@@ -369,6 +381,7 @@ public sealed partial class MainWindow : Window
             StatusText.Text = $"Launch focus unavailable: {focusDecision.FocusKey}";
 
         _renderedNavigationRevision = -1;
+        _renderedLaunchStamp = stamp;
     }
 
     private void ConfigureLaunchAction(
@@ -390,6 +403,7 @@ public sealed partial class MainWindow : Window
 
     private void RenderNavigation(LauncherNavigationSnapshot snapshot)
     {
+        _renderedLaunchStamp = null;
         NavigationSurface.Visibility = Visibility.Visible;
         LaunchPresentationSurface.Visibility = Visibility.Collapsed;
         HomeSurface.Visibility = snapshot.CurrentRoute.Kind == LauncherRouteKind.Home
@@ -679,4 +693,24 @@ public sealed partial class MainWindow : Window
             "FAILED" => LauncherRuntimeGameSessionState.Failed,
             _ => throw new InvalidDataException($"Unknown Runtime GameSession state '{value}'.")
         };
+
+    private sealed record LaunchRenderStamp(
+        LauncherLaunchPresentationMode Mode,
+        string? LaunchOperationId,
+        string? Phase,
+        string? FailureClass,
+        string? ExternalClientOutcome,
+        long RuntimePresentationRevision,
+        string AllowedActions)
+    {
+        public static LaunchRenderStamp From(LauncherLaunchPresentationView view)
+            => new(
+                view.Mode,
+                view.LaunchOperationId,
+                view.Phase,
+                view.FailureClass,
+                view.ExternalClientOutcome,
+                view.RuntimePresentationRevision,
+                string.Join(",", view.AllowedActions));
+    }
 }
