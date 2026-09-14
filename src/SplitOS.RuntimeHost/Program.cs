@@ -120,7 +120,7 @@ builder.Services.AddSingleton<IModeBaseRecoveryClient>(services => services.GetR
 builder.Services.AddSingleton<IModeTransitionCommitStore>(services => services.GetRequiredService<NamedPipeModePersistenceClient>());
 builder.Services.AddSingleton<IManagedServiceActionBrokerClient, NamedPipeManagedServiceActionBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionApplyCoordinator>();
-builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, NamedPipeManagedServiceActionBrokerClient>();
+builder.Services.AddSingleton<IManagedServiceActionVerificationBrokerClient, NamedPipeManagedServiceActionVerificationBrokerClient>();
 builder.Services.AddSingleton<ManagedServiceActionVerifyCoordinator>();
 builder.Services.AddSingleton<IModeActionApplyHandler, ManagedServiceModeActionApplyHandler>();
 builder.Services.AddSingleton<IModeActionVerifyHandler, ManagedServiceModeActionVerifyHandler>();
