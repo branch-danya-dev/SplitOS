@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using SplitOS.Runtime.Client;
 
@@ -11,18 +12,35 @@ public sealed partial class MainWindow : Window
     private const string HomeFocusKey = "nav.home";
     private const string LibraryFocusKey = "nav.library";
     private const string DetailsBackFocusKey = "details.back";
+    private const string LaunchStatusFocusKey = "launch.status";
+    private const string LaunchRetryFocusKey = "launch.retry";
+    private const string LaunchCancelFocusKey = "launch.cancel";
+    private const string LaunchOpenClientFocusKey = "launch.openClient";
+    private const string LaunchKeepWaitingFocusKey = "launch.keepWaiting";
+    private const string LaunchReconnectDeviceFocusKey = "launch.reconnectDevice";
+    private const string LaunchChooseProfileFocusKey = "launch.chooseProfile";
+    private const string LaunchEditProfileFocusKey = "launch.editProfile";
     private const string NavigateHomeInvocation = "NAV_HOME";
     private const string NavigateLibraryInvocation = "NAV_LIBRARY";
     private const string NavigateBackInvocation = "NAV_BACK";
+    private const string LaunchRetryInvocation = "LAUNCH_ACTION:RETRY";
+    private const string LaunchCancelInvocation = "LAUNCH_ACTION:CANCEL";
+    private const string LaunchOpenClientInvocation = "LAUNCH_ACTION:OPEN_CLIENT";
+    private const string LaunchKeepWaitingInvocation = "LAUNCH_ACTION:KEEP_WAITING";
+    private const string LaunchReconnectDeviceInvocation = "LAUNCH_ACTION:RECONNECT_DEVICE";
+    private const string LaunchChooseProfileInvocation = "LAUNCH_ACTION:CHOOSE_ANOTHER_PROFILE";
+    private const string LaunchEditProfileInvocation = "LAUNCH_ACTION:EDIT_PROFILE";
 
     private readonly LauncherPresentationController _presentationController = new();
     private readonly LauncherRuntimeBindingController _runtimeBindingController = new();
+    private readonly LauncherLaunchPresentationController _launchPresentationController = new();
     private readonly LauncherSemanticFocusController _semanticFocusController = new();
     private readonly LauncherNavigationController _navigationController = new();
     private readonly LauncherRuntimeBindingClient _runtimeBindingClient;
     private readonly LauncherPresentationWindowAdapter _presentationWindow;
     private readonly LauncherSemanticFocusWindowAdapter _semanticFocusWindow;
     private long _renderedNavigationRevision = -1;
+    private LaunchRenderStamp? _renderedLaunchStamp;
 
     public MainWindow()
     {
@@ -46,8 +64,10 @@ public sealed partial class MainWindow : Window
     internal bool IsSemanticFocusReady => _semanticFocusController.IsReady;
     internal string? CurrentSemanticFocusKey => _semanticFocusController.CurrentFocusKey;
     internal LauncherNavigationSnapshot NavigationSnapshot => _navigationController.Snapshot;
+    internal LauncherLaunchPresentationView LaunchPresentationView => _launchPresentationController.View;
 
     internal event Action<LauncherSemanticFocusDecision>? SemanticActionIssued;
+    internal event Action<LauncherLaunchAction>? LaunchActionRequested;
 
     internal LauncherPresentationDecision ObserveGameSession(
         LauncherGameSessionProjection projection,
@@ -59,9 +79,9 @@ public sealed partial class MainWindow : Window
 
         if (decision.BookmarkToRestore is not null)
         {
-            // IMP-073 does not exist yet, so Game Details availability is intentionally UNKNOWN.
-            // Structural route restoration is safe because the surface renders no installed/
-            // launchable/profile truth until Runtime supplies the normalized library projection.
+            // IMP-073 now owns the normalized library model, but Launcher IPC does not yet publish
+            // per-game availability in this slice. Keep route availability UNKNOWN rather than
+            // inventing installed/missing truth locally during bookmark restoration.
             _ = _navigationController.RestoreBookmark(
                 decision.BookmarkToRestore,
                 LauncherRouteAvailability.Unknown);
@@ -124,6 +144,10 @@ public sealed partial class MainWindow : Window
 
             if (presentation.Disposition == LauncherPresentationDisposition.Rejected)
                 throw new InvalidDataException(presentation.ReasonCode);
+
+            var launchPresentation = _launchPresentationController.Observe(snapshot);
+            if (launchPresentation.Disposition == LauncherLaunchPresentationDisposition.Rejected)
+                throw new InvalidDataException(launchPresentation.ReasonCode);
 
             var decision = _runtimeBindingController.ApplyFreshRuntimeSnapshot(
                 snapshot,
@@ -194,6 +218,7 @@ public sealed partial class MainWindow : Window
         _semanticFocusWindow.ClearTargets();
         _semanticFocusWindow.RegisterTarget(PrecommitFocusKey, PreparingFocusAnchor);
         _renderedNavigationRevision = -1;
+        _renderedLaunchStamp = null;
 
         var decision = _semanticFocusController.LoadRootScope(
             new LauncherFocusScopeDefinition(
@@ -222,23 +247,165 @@ public sealed partial class MainWindow : Window
 
         if (!committedGameSurface)
         {
+            LaunchPresentationSurface.Visibility = Visibility.Collapsed;
+            _renderedLaunchStamp = null;
             _ = EnsurePrecommitSemanticFocus();
             return;
         }
 
-        if (state == LauncherLifecycleState.Active)
+        if (state != LauncherLifecycleState.Active)
         {
-            var navigation = _navigationController.Snapshot;
-            var routeScopeActive = _semanticFocusController.CurrentScopeKey?.StartsWith(
-                "ROUTE:",
-                StringComparison.Ordinal) == true;
-            if (_renderedNavigationRevision != navigation.Revision || !routeScopeActive)
-                RenderNavigation(navigation);
+            LaunchPresentationSurface.Visibility = Visibility.Collapsed;
+            _renderedLaunchStamp = null;
+            return;
         }
+
+        var launchView = _launchPresentationController.View;
+        if (IsInteractiveLaunchView(launchView))
+        {
+            var stamp = LaunchRenderStamp.From(launchView);
+            var launchScopeActive = _semanticFocusController.CurrentScopeKey?.StartsWith(
+                "LAUNCH:",
+                StringComparison.Ordinal) == true;
+            if (_renderedLaunchStamp != stamp || !launchScopeActive)
+                RenderLaunchPresentation(launchView, stamp);
+            return;
+        }
+
+        _renderedLaunchStamp = null;
+        NavigationSurface.Visibility = Visibility.Visible;
+        LaunchPresentationSurface.Visibility = Visibility.Collapsed;
+        var navigation = _navigationController.Snapshot;
+        var routeScopeActive = _semanticFocusController.CurrentScopeKey?.StartsWith(
+            "ROUTE:",
+            StringComparison.Ordinal) == true;
+        if (_renderedNavigationRevision != navigation.Revision || !routeScopeActive)
+            RenderNavigation(navigation);
+    }
+
+    private static bool IsInteractiveLaunchView(LauncherLaunchPresentationView view)
+        => view.Mode is LauncherLaunchPresentationMode.Progress
+            or LauncherLaunchPresentationMode.ExternalActionRequired
+            or LauncherLaunchPresentationMode.Failure;
+
+    private void RenderLaunchPresentation(
+        LauncherLaunchPresentationView view,
+        LaunchRenderStamp stamp)
+    {
+        NavigationSurface.Visibility = Visibility.Collapsed;
+        LaunchPresentationSurface.Visibility = Visibility.Visible;
+        LaunchTitleText.Text = view.Title;
+        LaunchMessageText.Text = view.Message;
+        LaunchTechnicalReferenceText.Text = view.TechnicalReference ?? string.Empty;
+        LaunchStatusFocusAnchor.Content = view.Mode switch
+        {
+            LauncherLaunchPresentationMode.ExternalActionRequired => "External client action required",
+            LauncherLaunchPresentationMode.Failure => "Launch issue",
+            _ => "Launch in progress"
+        };
+
+        _semanticFocusWindow.ClearTargets();
+        _semanticFocusWindow.RegisterTarget(LaunchStatusFocusKey, LaunchStatusFocusAnchor);
+        var focusTargets = new List<(string FocusKey, string? InvocationId)>
+        {
+            (LaunchStatusFocusKey, null)
+        };
+
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.Retry,
+            LaunchRetryButton,
+            LaunchRetryFocusKey,
+            LaunchRetryInvocation,
+            focusTargets);
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.Cancel,
+            LaunchCancelButton,
+            LaunchCancelFocusKey,
+            LaunchCancelInvocation,
+            focusTargets);
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.OpenClient,
+            LaunchOpenClientButton,
+            LaunchOpenClientFocusKey,
+            LaunchOpenClientInvocation,
+            focusTargets);
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.KeepWaiting,
+            LaunchKeepWaitingButton,
+            LaunchKeepWaitingFocusKey,
+            LaunchKeepWaitingInvocation,
+            focusTargets);
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.ReconnectDevice,
+            LaunchReconnectDeviceButton,
+            LaunchReconnectDeviceFocusKey,
+            LaunchReconnectDeviceInvocation,
+            focusTargets);
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.ChooseAnotherProfile,
+            LaunchChooseProfileButton,
+            LaunchChooseProfileFocusKey,
+            LaunchChooseProfileInvocation,
+            focusTargets);
+        ConfigureLaunchAction(
+            view,
+            LauncherLaunchAction.EditProfile,
+            LaunchEditProfileButton,
+            LaunchEditProfileFocusKey,
+            LaunchEditProfileInvocation,
+            focusTargets);
+
+        var nodes = new List<LauncherFocusNode>(focusTargets.Count);
+        for (var index = 0; index < focusTargets.Count; index++)
+        {
+            var target = focusTargets[index];
+            nodes.Add(new LauncherFocusNode(
+                target.FocusKey,
+                Left: index > 0 ? focusTargets[index - 1].FocusKey : null,
+                Right: index + 1 < focusTargets.Count ? focusTargets[index + 1].FocusKey : null,
+                ActivationId: target.InvocationId));
+        }
+
+        var scope = new LauncherFocusScopeDefinition(
+            $"LAUNCH:{view.LaunchOperationId}",
+            LaunchStatusFocusKey,
+            nodes);
+        var focusDecision = _semanticFocusController.LoadRootScope(scope, LaunchStatusFocusKey);
+        if (!_semanticFocusWindow.Apply(focusDecision))
+            StatusText.Text = $"Launch focus unavailable: {focusDecision.FocusKey}";
+
+        _renderedNavigationRevision = -1;
+        _renderedLaunchStamp = stamp;
+    }
+
+    private void ConfigureLaunchAction(
+        LauncherLaunchPresentationView view,
+        LauncherLaunchAction action,
+        Button button,
+        string focusKey,
+        string invocationId,
+        ICollection<(string FocusKey, string? InvocationId)> focusTargets)
+    {
+        var allowed = view.Allows(action);
+        button.Visibility = allowed ? Visibility.Visible : Visibility.Collapsed;
+        if (!allowed)
+            return;
+
+        _semanticFocusWindow.RegisterTarget(focusKey, button);
+        focusTargets.Add((focusKey, invocationId));
     }
 
     private void RenderNavigation(LauncherNavigationSnapshot snapshot)
     {
+        _renderedLaunchStamp = null;
+        NavigationSurface.Visibility = Visibility.Visible;
+        LaunchPresentationSurface.Visibility = Visibility.Collapsed;
         HomeSurface.Visibility = snapshot.CurrentRoute.Kind == LauncherRouteKind.Home
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -343,7 +510,8 @@ public sealed partial class MainWindow : Window
         }
 
         if (decision.Disposition == LauncherNavigationDisposition.Applied
-            && _runtimeBindingController.State == LauncherLifecycleState.Active)
+            && _runtimeBindingController.State == LauncherLifecycleState.Active
+            && !IsInteractiveLaunchView(_launchPresentationController.View))
         {
             RenderNavigation(decision.Snapshot);
         }
@@ -373,6 +541,11 @@ public sealed partial class MainWindow : Window
         if (decision.Kind == LauncherSemanticDispatchKind.CommandIssued
             && decision.Action == LauncherSemanticAction.Back)
         {
+            // Back is never reinterpreted as cancellation during an active launch. Cancellation is
+            // exposed only when Runtime explicitly includes CANCEL in the allowed-action set.
+            if (IsInteractiveLaunchView(_launchPresentationController.View))
+                return;
+
             ApplyNavigationDecision(_navigationController.Back());
             return;
         }
@@ -386,6 +559,9 @@ public sealed partial class MainWindow : Window
 
     private bool HandleNavigationInvocation(string? invocationId)
     {
+        if (TryHandleLaunchActionInvocation(invocationId))
+            return true;
+
         switch (invocationId)
         {
             case NavigateHomeInvocation:
@@ -400,6 +576,37 @@ public sealed partial class MainWindow : Window
             default:
                 return false;
         }
+    }
+
+    private bool TryHandleLaunchActionInvocation(string? invocationId)
+    {
+        var action = invocationId switch
+        {
+            LaunchRetryInvocation => LauncherLaunchAction.Retry,
+            LaunchCancelInvocation => LauncherLaunchAction.Cancel,
+            LaunchOpenClientInvocation => LauncherLaunchAction.OpenClient,
+            LaunchKeepWaitingInvocation => LauncherLaunchAction.KeepWaiting,
+            LaunchReconnectDeviceInvocation => LauncherLaunchAction.ReconnectDevice,
+            LaunchChooseProfileInvocation => LauncherLaunchAction.ChooseAnotherProfile,
+            LaunchEditProfileInvocation => LauncherLaunchAction.EditProfile,
+            _ => (LauncherLaunchAction?)null
+        };
+        if (action is null)
+            return false;
+
+        IssueLaunchAction(action.Value);
+        return true;
+    }
+
+    private void IssueLaunchAction(LauncherLaunchAction action)
+    {
+        if (!_launchPresentationController.View.Allows(action))
+        {
+            StatusText.Text = "Launch action is no longer authorized by the current Runtime snapshot.";
+            return;
+        }
+
+        LaunchActionRequested?.Invoke(action);
     }
 
     private void OnHomeNavigationClick(object sender, RoutedEventArgs e)
@@ -423,6 +630,55 @@ public sealed partial class MainWindow : Window
         ApplyNavigationDecision(_navigationController.Back());
     }
 
+    private void OnLaunchRetryClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.Retry);
+    }
+
+    private void OnLaunchCancelClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.Cancel);
+    }
+
+    private void OnLaunchOpenClientClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.OpenClient);
+    }
+
+    private void OnLaunchKeepWaitingClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.KeepWaiting);
+    }
+
+    private void OnLaunchReconnectDeviceClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.ReconnectDevice);
+    }
+
+    private void OnLaunchChooseProfileClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.ChooseAnotherProfile);
+    }
+
+    private void OnLaunchEditProfileClick(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        IssueLaunchAction(LauncherLaunchAction.EditProfile);
+    }
+
     private static LauncherRuntimeGameSessionState ParseSessionState(string value)
         => value switch
         {
@@ -437,4 +693,24 @@ public sealed partial class MainWindow : Window
             "FAILED" => LauncherRuntimeGameSessionState.Failed,
             _ => throw new InvalidDataException($"Unknown Runtime GameSession state '{value}'.")
         };
+
+    private sealed record LaunchRenderStamp(
+        LauncherLaunchPresentationMode Mode,
+        string? LaunchOperationId,
+        string? Phase,
+        string? FailureClass,
+        string? ExternalClientOutcome,
+        long RuntimePresentationRevision,
+        string AllowedActions)
+    {
+        public static LaunchRenderStamp From(LauncherLaunchPresentationView view)
+            => new(
+                view.Mode,
+                view.LaunchOperationId,
+                view.Phase,
+                view.FailureClass,
+                view.ExternalClientOutcome,
+                view.RuntimePresentationRevision,
+                string.Join(",", view.AllowedActions));
+    }
 }
