@@ -235,7 +235,7 @@ public sealed class LaunchOperationPresentationState(GameSessionStateMachine gam
             phase = overridePhase;
         }
 
-        var failure = session.State == GameSessionState.Failed
+        LaunchPresentationFailureClass? failure = session.State == GameSessionState.Failed
             ? MapFailureCode(session.FailureCode)
             : null;
         if (failure is not null && overrideCurrent?.FailureClass is LaunchPresentationFailureClass overrideFailure)
