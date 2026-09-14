@@ -165,14 +165,14 @@ public sealed class LauncherLaunchPresentationController
         if (projection.FailureClass is not null)
         {
             if (!string.Equals(gameSessionState, "FAILED", StringComparison.Ordinal)
-                || !TryFailureCopy(projection.FailureClass, out var title, out var message))
+                || !TryFailureCopy(projection.FailureClass, out var failureTitle, out var failureMessage))
                 return false;
 
             view = Build(
                 LauncherLaunchPresentationMode.Failure,
                 projection,
-                title!,
-                message!,
+                failureTitle!,
+                failureMessage!,
                 actions);
             return true;
         }
@@ -180,20 +180,20 @@ public sealed class LauncherLaunchPresentationController
         if (projection.ExternalClientOutcome is not null)
         {
             if (gameSessionState is not ("PREPARING" or "CLIENT_HANDOFF" or "GAME_STARTING")
-                || !TryExternalOutcomeCopy(projection.ExternalClientOutcome, out var title, out var message))
+                || !TryExternalOutcomeCopy(projection.ExternalClientOutcome, out var externalTitle, out var externalMessage))
                 return false;
 
             view = Build(
                 LauncherLaunchPresentationMode.ExternalActionRequired,
                 projection,
-                title!,
-                message!,
+                externalTitle!,
+                externalMessage!,
                 actions);
             return true;
         }
 
         if (projection.Phase is null
-            || !TryPhaseCopy(projection.Phase, out var expectedSessionStates, out var title, out var message))
+            || !TryPhaseCopy(projection.Phase, out var expectedSessionStates, out var phaseTitle, out var phaseMessage))
         {
             return false;
         }
@@ -204,7 +204,7 @@ public sealed class LauncherLaunchPresentationController
         var mode = string.Equals(projection.Phase, "GAME_RUNNING_CONFIRMED", StringComparison.Ordinal)
             ? LauncherLaunchPresentationMode.RunningConfirmed
             : LauncherLaunchPresentationMode.Progress;
-        view = Build(mode, projection, title!, message!, actions);
+        view = Build(mode, projection, phaseTitle!, phaseMessage!, actions);
         return true;
     }
 
