@@ -501,7 +501,7 @@ public sealed record PreparedClientLaunch(
         if (LaunchOperationId != request.LaunchOperationId || ClientType != request.ClientType)
             throw new InvalidDataException("Prepared launch identity does not match its request.");
         var identity = (NormalizedExternalGameIdentity ?? throw new InvalidDataException("Prepared external identity is required.")).Normalize();
-        if (identity != request.ExternalGameIdentity)
+        if (!AdapterContractNormalization.ExternalIdentityEquals(identity, request.ExternalGameIdentity))
             throw new InvalidDataException("Prepared launch external identity does not match its request.");
         if (ProjectionGeneration < 0)
             throw new InvalidDataException("Prepared launch projection generation cannot be negative.");
@@ -674,5 +674,19 @@ internal static class AdapterContractNormalization
             .OrderBy(value => value, comparer)
             .ToArray();
         return Array.AsReadOnly(normalized);
+    }
+
+    public static bool ExternalIdentityEquals(ExternalGameIdentity left, ExternalGameIdentity right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        var normalizedLeft = left.Normalize();
+        var normalizedRight = right.Normalize();
+        return normalizedLeft.ClientType == normalizedRight.ClientType
+            && string.Equals(normalizedLeft.ExternalIdKind, normalizedRight.ExternalIdKind, StringComparison.Ordinal)
+            && string.Equals(normalizedLeft.ExternalId, normalizedRight.ExternalId, StringComparison.Ordinal)
+            && (normalizedLeft.SecondaryIds ?? Array.Empty<string>())
+                .SequenceEqual(normalizedRight.SecondaryIds ?? Array.Empty<string>(), StringComparer.Ordinal);
     }
 }
