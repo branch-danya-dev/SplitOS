@@ -14,7 +14,7 @@ public sealed class GameClientAdapterRegistryTests
         var first = new FakeAdapter(Descriptor(GameClientType.Steam, "adapter/1"));
         var second = new FakeAdapter(Descriptor(GameClientType.Steam, "adapter/2"));
 
-        Assert.ThrowsException<InvalidDataException>(() =>
+        AssertThrows<InvalidDataException>(() =>
             new GameClientAdapterRegistry(new IGameClientAdapter[] { first, second }));
     }
 
@@ -32,7 +32,7 @@ public sealed class GameClientAdapterRegistryTests
             "steam/v1",
             GameClientSupportStatus.TargetSupportedV1);
 
-        Assert.ThrowsException<InvalidDataException>(() => descriptor.Normalize());
+        AssertThrows<InvalidDataException>(() => descriptor.Normalize());
     }
 
     [TestMethod]
@@ -102,7 +102,7 @@ public sealed class GameClientAdapterRegistryTests
             new FakeAdapter(descriptor, _ => incomplete)
         });
 
-        Assert.ThrowsException<InvalidDataException>(() =>
+        AssertThrows<InvalidDataException>(() =>
             registry.GetCompatibilityStatus(
                 GameClientType.Epic,
                 new GameClientCompatibilityContext(26100, "1.0")));
@@ -122,7 +122,7 @@ public sealed class GameClientAdapterRegistryTests
             new FakeAdapter(descriptor, _ => Compatibility(descriptor) with { Capabilities = statuses })
         });
 
-        Assert.ThrowsException<InvalidDataException>(() =>
+        AssertThrows<InvalidDataException>(() =>
             registry.GetCompatibilityStatus(
                 GameClientType.MicrosoftGaming,
                 new GameClientCompatibilityContext(26100, null)));
@@ -138,7 +138,7 @@ public sealed class GameClientAdapterRegistryTests
 
         Assert.IsFalse(registry.TryGetAdapter(GameClientType.Epic, out var adapter));
         Assert.IsNull(adapter);
-        Assert.ThrowsException<KeyNotFoundException>(() => registry.GetRequiredAdapter(GameClientType.Epic));
+        AssertThrows<KeyNotFoundException>(() => registry.GetRequiredAdapter(GameClientType.Epic));
     }
 
     [TestMethod]
@@ -179,7 +179,7 @@ public sealed class GameClientAdapterRegistryTests
             false,
             ObservedAt);
 
-        Assert.ThrowsException<InvalidDataException>(() => observation.Normalize());
+        AssertThrows<InvalidDataException>(() => observation.Normalize());
     }
 
     [TestMethod]
@@ -200,7 +200,7 @@ public sealed class GameClientAdapterRegistryTests
             ObservedAt,
             Array.Empty<AdapterGameProjection>());
 
-        Assert.ThrowsException<InvalidDataException>(() => result.Normalize(request));
+        AssertThrows<InvalidDataException>(() => result.Normalize(request));
     }
 
     [TestMethod]
@@ -344,6 +344,26 @@ public sealed class GameClientAdapterRegistryTests
             "1091500",
             ObservedAt,
             GameMechanismStatus.SupportedPublic);
+
+    private static T AssertThrows<T>(Action action) where T : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (T exception)
+        {
+            return exception;
+        }
+        catch (Exception exception)
+        {
+            Assert.Fail($"Expected {typeof(T).Name}, got {exception.GetType().Name}: {exception.Message}");
+            throw;
+        }
+
+        Assert.Fail($"Expected {typeof(T).Name}.");
+        throw new InvalidOperationException();
+    }
 
     private sealed class FakeAdapter : IGameClientAdapter
     {
