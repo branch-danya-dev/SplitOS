@@ -90,7 +90,11 @@ public sealed class LauncherLaunchPresentationController
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (snapshot.LaunchPresentation is null)
+        {
+            if (RequiresLaunchProjection(snapshot.GameSessionState))
+                return Reject(LauncherLaunchPresentationReasonCodes.SessionContradiction);
             return Apply(LauncherLaunchPresentationView.Hidden);
+        }
 
         var projection = snapshot.LaunchPresentation;
         if (!ValidateIdentity(snapshot, projection))
@@ -135,6 +139,13 @@ public sealed class LauncherLaunchPresentationController
             LauncherLaunchPresentationDisposition.Rejected,
             reasonCode,
             _view);
+
+    private static bool RequiresLaunchProjection(string gameSessionState)
+        => gameSessionState is "PREPARING"
+            or "CLIENT_HANDOFF"
+            or "GAME_STARTING"
+            or "GAME_RUNNING"
+            or "FAILED";
 
     private static bool ValidateIdentity(
         LauncherRuntimeSnapshotResult snapshot,
