@@ -112,28 +112,65 @@ public sealed class LauncherReadinessState
     }
 }
 
-public sealed class LauncherRuntimeSnapshotProvider(
-    RuntimeStateState runtimeState,
-    GameSessionStateMachine gameSession,
-    LauncherReadinessState readinessState)
+public sealed class LauncherRuntimeSnapshotProvider
 {
+    private readonly RuntimeStateState _runtimeState;
+    private readonly GameSessionStateMachine _gameSession;
+    private readonly LauncherReadinessState _readinessState;
+    private readonly LaunchOperationPresentationState _launchPresentationState;
     private readonly object _gate = new();
     private LauncherRuntimeSnapshotResult? _lastSnapshot;
     private long _snapshotVersion;
+
+    public LauncherRuntimeSnapshotProvider(
+        RuntimeStateState runtimeState,
+        GameSessionStateMachine gameSession,
+        LauncherReadinessState readinessState)
+        : this(
+            runtimeState,
+            gameSession,
+            readinessState,
+            new LaunchOperationPresentationState(gameSession))
+    {
+    }
+
+    public LauncherRuntimeSnapshotProvider(
+        RuntimeStateState runtimeState,
+        GameSessionStateMachine gameSession,
+        LauncherReadinessState readinessState,
+        LaunchOperationPresentationState launchPresentationState)
+    {
+        _runtimeState = runtimeState;
+        _gameSession = gameSession;
+        _readinessState = readinessState;
+        _launchPresentationState = launchPresentationState;
+    }
 
     public LauncherRuntimeSnapshotResult Read()
     {
         lock (_gate)
         {
-            var runtime = runtimeState.Snapshot;
-            var session = gameSession.Snapshot;
-            var readiness = readinessState.Snapshot;
+            var runtime = _runtimeState.Snapshot;
+            var session = _gameSession.Snapshot;
+            var readiness = _readinessState.Snapshot;
             var active = session.ActiveLaunch;
             var expected = readiness.ExpectedOperation;
             var sessionState = ToWireState(session.State);
+            var launchPresentation = _launchPresentationState.Project(
+                session,
+                string.Equals(runtime.OperationalMode, "GAME", StringComparison.Ordinal));
 
-            if (_lastSnapshot is null || SemanticStateChanged(_lastSnapshot, runtime, session, readiness, sessionState))
+            if (_lastSnapshot is null
+                || SemanticStateChanged(
+                    _lastSnapshot,
+                    runtime,
+                    session,
+                    readiness,
+                    sessionState,
+                    launchPresentation))
+            {
                 _snapshotVersion = checked(_snapshotVersion + 1);
+            }
 
             var snapshot = new LauncherRuntimeSnapshotResult(
                 runtime.Status,
@@ -148,7 +185,8 @@ public sealed class LauncherRuntimeSnapshotProvider(
                 expected?.CorrelationId,
                 readiness.Revision,
                 _snapshotVersion,
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                launchPresentation);
 
             _lastSnapshot = snapshot;
             return snapshot;
@@ -160,7 +198,8 @@ public sealed class LauncherRuntimeSnapshotProvider(
         RuntimeStateReadResult runtime,
         GameSessionSnapshot session,
         LauncherReadinessSnapshot readiness,
-        string sessionState)
+        string sessionState,
+        LauncherLaunchPresentationResult? launchPresentation)
     {
         var active = session.ActiveLaunch;
         var expected = readiness.ExpectedOperation;
@@ -174,7 +213,27 @@ public sealed class LauncherRuntimeSnapshotProvider(
             || !string.Equals(previous.ActiveGameId, active?.GameId, StringComparison.Ordinal)
             || previous.ExpectedGameModeOperationId != expected?.OperationId
             || previous.ExpectedGameModeCorrelationId != expected?.CorrelationId
-            || previous.ReadinessRevision != readiness.Revision;
+            || previous.ReadinessRevision != readiness.Revision
+            || !LaunchPresentationSemanticallyEqual(previous.LaunchPresentation, launchPresentation);
+    }
+
+    private static bool LaunchPresentationSemanticallyEqual(
+        LauncherLaunchPresentationResult? left,
+        LauncherLaunchPresentationResult? right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+        if (left is null || right is null)
+            return false;
+
+        return string.Equals(left.LaunchOperationId, right.LaunchOperationId, StringComparison.Ordinal)
+            && string.Equals(left.CorrelationId, right.CorrelationId, StringComparison.Ordinal)
+            && string.Equals(left.GameId, right.GameId, StringComparison.Ordinal)
+            && string.Equals(left.Phase, right.Phase, StringComparison.Ordinal)
+            && string.Equals(left.FailureClass, right.FailureClass, StringComparison.Ordinal)
+            && string.Equals(left.ExternalClientOutcome, right.ExternalClientOutcome, StringComparison.Ordinal)
+            && left.RuntimePresentationRevision == right.RuntimePresentationRevision
+            && left.AllowedActions.SequenceEqual(right.AllowedActions, StringComparer.Ordinal);
     }
 
     internal static string ToWireState(GameSessionState state)
