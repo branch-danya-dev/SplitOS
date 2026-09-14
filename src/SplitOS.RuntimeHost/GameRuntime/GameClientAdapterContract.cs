@@ -542,7 +542,7 @@ public sealed record GameClientLaunchHandoffResult(
     }
 }
 
-public sealed record CorrelatedProcessEvidence(
+public sealed record GameClientCorrelatedProcessEvidence(
     int Pid,
     DateTimeOffset CreationTimeUtc,
     int SessionId,
@@ -552,7 +552,7 @@ public sealed record CorrelatedProcessEvidence(
     DateTimeOffset LastObservedUtc,
     string? NormalizedImagePath = null)
 {
-    public CorrelatedProcessEvidence Normalize()
+    public GameClientCorrelatedProcessEvidence Normalize()
     {
         if (Pid <= 0 || SessionId < 0)
             throw new InvalidDataException("Correlated process identity is invalid.");
@@ -565,7 +565,7 @@ public sealed record CorrelatedProcessEvidence(
 public sealed record GameClientObservationResult(
     GameClientObservationClassification Classification,
     GameClientEvidenceLevel EvidenceLevel,
-    IReadOnlyList<CorrelatedProcessEvidence> CorrelatedProcesses,
+    IReadOnlyList<GameClientCorrelatedProcessEvidence> CorrelatedProcesses,
     bool ReplacementDetected,
     DateTimeOffset ObservedAtUtc,
     string? DiagnosticsCode = null)
@@ -574,7 +574,7 @@ public sealed record GameClientObservationResult(
     {
         if (ObservedAtUtc == default)
             throw new InvalidDataException("Launch observation requires an observation timestamp.");
-        var processes = (CorrelatedProcesses ?? Array.Empty<CorrelatedProcessEvidence>())
+        var processes = (CorrelatedProcesses ?? Array.Empty<GameClientCorrelatedProcessEvidence>())
             .Select(process => (process ?? throw new InvalidDataException("Correlated process cannot be null.")).Normalize())
             .ToArray();
         if (Classification == GameClientObservationClassification.RunningConfirmed
@@ -590,7 +590,7 @@ public sealed record GameClientObservationResult(
 
 public sealed record GameClientExitObservationResult(
     GameClientExitObservationClassification Classification,
-    IReadOnlyList<CorrelatedProcessEvidence> CorrelatedProcesses,
+    IReadOnlyList<GameClientCorrelatedProcessEvidence> CorrelatedProcesses,
     DateTimeOffset ObservedAtUtc,
     string? DiagnosticsCode = null)
 {
@@ -598,7 +598,7 @@ public sealed record GameClientExitObservationResult(
     {
         if (ObservedAtUtc == default)
             throw new InvalidDataException("Exit observation requires an observation timestamp.");
-        var processes = (CorrelatedProcesses ?? Array.Empty<CorrelatedProcessEvidence>())
+        var processes = (CorrelatedProcesses ?? Array.Empty<GameClientCorrelatedProcessEvidence>())
             .Select(process => (process ?? throw new InvalidDataException("Correlated process cannot be null.")).Normalize())
             .ToArray();
         return this with
@@ -645,7 +645,7 @@ public interface IGameClientAdapter
 
     Task<GameClientExitObservationResult> ObserveExitAsync(
         PreparedClientLaunch preparedLaunch,
-        IReadOnlyList<CorrelatedProcessEvidence> currentCorrelation,
+        IReadOnlyList<GameClientCorrelatedProcessEvidence> currentCorrelation,
         CancellationToken cancellationToken);
 
     void Invalidate(GameClientLibraryRefreshReason reason);
