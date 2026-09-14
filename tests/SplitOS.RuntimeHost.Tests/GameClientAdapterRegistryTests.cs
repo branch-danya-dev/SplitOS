@@ -175,7 +175,7 @@ public sealed class GameClientAdapterRegistryTests
         var observation = new GameClientObservationResult(
             GameClientObservationClassification.RunningConfirmed,
             GameClientEvidenceLevel.Weak,
-            Array.Empty<CorrelatedProcessEvidence>(),
+            Array.Empty<GameClientCorrelatedProcessEvidence>(),
             false,
             ObservedAt);
 
@@ -398,7 +398,7 @@ public sealed class GameClientAdapterRegistryTests
 
         public Task<GameClientExitObservationResult> ObserveExitAsync(
             PreparedClientLaunch preparedLaunch,
-            IReadOnlyList<CorrelatedProcessEvidence> currentCorrelation,
+            IReadOnlyList<GameClientCorrelatedProcessEvidence> currentCorrelation,
             CancellationToken cancellationToken)
             => Task.FromException<GameClientExitObservationResult>(new NotSupportedException());
 
