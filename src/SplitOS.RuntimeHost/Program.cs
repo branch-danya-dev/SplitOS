@@ -19,6 +19,7 @@ builder.Services.AddSingleton<RuntimeStateRefreshSignal>();
 builder.Services.AddSingleton<GameSessionStateMachine>();
 builder.Services.AddSingleton<LaunchOperationPresentationState>();
 builder.Services.AddSingleton<GameLibraryProjectionOwner>();
+builder.Services.AddSingleton<GameClientAdapterRegistry>();
 builder.Services.AddSingleton<LauncherReadinessState>();
 builder.Services.AddSingleton<LauncherRuntimeSnapshotProvider>();
 builder.Services.AddSingleton<ILauncherProcessPlatform, WindowsLauncherProcessPlatform>();
