@@ -25,68 +25,141 @@
             </Grid>
 
             <Grid x:Name="LauncherSurface" Visibility="Collapsed">
-                <StackPanel Spacing="24">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button
-                            x:Name="HomeNavButton"
-                            Content="Home"
-                            Padding="18,10"
-                            Click="OnHomeNavigationClick" />
-                        <Button
-                            x:Name="LibraryNavButton"
-                            Content="Library"
-                            Padding="18,10"
-                            Click="OnLibraryNavigationClick" />
-                    </StackPanel>
-
-                    <Grid x:Name="HomeSurface">
-                        <StackPanel Spacing="12">
-                            <TextBlock Text="Home" FontSize="32" FontWeight="SemiBold" />
-                            <TextBlock
-                                Text="Game library content will appear here only after Runtime Host supplies an authoritative projection."
-                                FontSize="18"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                Text="No installed, launchable, recent, or entitlement state is inferred locally."
-                                Opacity="0.7"
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid x:Name="LibrarySurface" Visibility="Collapsed">
-                        <StackPanel Spacing="12">
-                            <TextBlock Text="Library" FontSize="32" FontWeight="SemiBold" />
-                            <TextBlock
-                                Text="Waiting for normalized Game Library projection from Runtime Host."
-                                FontSize="18"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                Text="Library availability and launch readiness are unknown until Runtime reports them."
-                                Opacity="0.7"
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Grid>
-
-                    <Grid x:Name="GameDetailsSurface" Visibility="Collapsed">
-                        <StackPanel Spacing="12">
+                <Grid x:Name="NavigationSurface">
+                    <StackPanel Spacing="24">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
                             <Button
-                                x:Name="DetailsBackButton"
-                                Content="Back"
-                                HorizontalAlignment="Left"
-                                Padding="16,8"
-                                Click="OnDetailsBackClick" />
-                            <TextBlock Text="Game Details" FontSize="32" FontWeight="SemiBold" />
-                            <TextBlock
-                                x:Name="GameDetailsIdentityText"
-                                FontSize="18"
-                                TextWrapping="Wrap" />
-                            <TextBlock
-                                Text="Awaiting authoritative game/profile/readiness projection from Runtime Host."
-                                Opacity="0.7"
-                                TextWrapping="Wrap" />
+                                x:Name="HomeNavButton"
+                                Content="Home"
+                                Padding="18,10"
+                                Click="OnHomeNavigationClick" />
+                            <Button
+                                x:Name="LibraryNavButton"
+                                Content="Library"
+                                Padding="18,10"
+                                Click="OnLibraryNavigationClick" />
                         </StackPanel>
-                    </Grid>
-                </StackPanel>
+
+                        <Grid x:Name="HomeSurface">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Home" FontSize="32" FontWeight="SemiBold" />
+                                <TextBlock
+                                    Text="Game library content will appear here only after Runtime Host supplies an authoritative projection."
+                                    FontSize="18"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    Text="No installed, launchable, recent, or entitlement state is inferred locally."
+                                    Opacity="0.7"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid x:Name="LibrarySurface" Visibility="Collapsed">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Library" FontSize="32" FontWeight="SemiBold" />
+                                <TextBlock
+                                    Text="Waiting for normalized Game Library projection from Runtime Host."
+                                    FontSize="18"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    Text="Library availability and launch readiness are unknown until Runtime reports them."
+                                    Opacity="0.7"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid x:Name="GameDetailsSurface" Visibility="Collapsed">
+                            <StackPanel Spacing="12">
+                                <Button
+                                    x:Name="DetailsBackButton"
+                                    Content="Back"
+                                    HorizontalAlignment="Left"
+                                    Padding="16,8"
+                                    Click="OnDetailsBackClick" />
+                                <TextBlock Text="Game Details" FontSize="32" FontWeight="SemiBold" />
+                                <TextBlock
+                                    x:Name="GameDetailsIdentityText"
+                                    FontSize="18"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    Text="Awaiting authoritative game/profile/readiness projection from Runtime Host."
+                                    Opacity="0.7"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="LaunchPresentationSurface" Visibility="Collapsed">
+                    <StackPanel Spacing="14">
+                        <Button
+                            x:Name="LaunchStatusFocusAnchor"
+                            Content="Launch status"
+                            HorizontalAlignment="Left"
+                            Padding="14,8"
+                            IsTabStop="True" />
+                        <TextBlock
+                            x:Name="LaunchTitleText"
+                            Text="Starting game…"
+                            FontSize="32"
+                            FontWeight="SemiBold"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            x:Name="LaunchMessageText"
+                            FontSize="18"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            x:Name="LaunchTechnicalReferenceText"
+                            Opacity="0.65"
+                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                x:Name="LaunchRetryButton"
+                                Content="Retry"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchRetryClick" />
+                            <Button
+                                x:Name="LaunchCancelButton"
+                                Content="Cancel"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchCancelClick" />
+                            <Button
+                                x:Name="LaunchOpenClientButton"
+                                Content="Open client"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchOpenClientClick" />
+                            <Button
+                                x:Name="LaunchKeepWaitingButton"
+                                Content="Keep waiting"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchKeepWaitingClick" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button
+                                x:Name="LaunchReconnectDeviceButton"
+                                Content="Reconnect device"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchReconnectDeviceClick" />
+                            <Button
+                                x:Name="LaunchChooseProfileButton"
+                                Content="Choose another profile"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchChooseProfileClick" />
+                            <Button
+                                x:Name="LaunchEditProfileButton"
+                                Content="Edit profile"
+                                Padding="16,9"
+                                Visibility="Collapsed"
+                                Click="OnLaunchEditProfileClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </StackPanel>
     </Grid>
