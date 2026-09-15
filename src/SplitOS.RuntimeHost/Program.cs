@@ -25,7 +25,12 @@ builder.Services.AddSingleton<SteamClientAdapter>(services => new SteamClientAda
     services.GetRequiredService<ISteamProtocolRegistrationReader>(),
     services.GetRequiredService<ISteamExecutableEvidenceReader>(),
     TimeProvider.System));
-builder.Services.AddSingleton<IGameClientAdapter>(services => services.GetRequiredService<SteamClientAdapter>());
+builder.Services.AddSingleton<ISteamUriLaunchDispatcher, WindowsSteamUriLaunchDispatcher>();
+builder.Services.AddSingleton<SteamProtocolLaunchAdapter>(services => new SteamProtocolLaunchAdapter(
+    services.GetRequiredService<SteamClientAdapter>(),
+    services.GetRequiredService<ISteamUriLaunchDispatcher>(),
+    TimeProvider.System));
+builder.Services.AddSingleton<IGameClientAdapter>(services => services.GetRequiredService<SteamProtocolLaunchAdapter>());
 builder.Services.AddSingleton<GameClientAdapterRegistry>();
 builder.Services.AddSingleton<LauncherReadinessState>();
 builder.Services.AddSingleton<LauncherRuntimeSnapshotProvider>();
