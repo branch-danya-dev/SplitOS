@@ -43,7 +43,7 @@ public static class SteamRunUri
     {
         appId = null;
         if (string.IsNullOrWhiteSpace(uri)
-            || !uri.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+            || !uri.StartsWith(Prefix, StringComparison.Ordinal))
             return false;
 
         var payload = uri[Prefix.Length..];
@@ -53,7 +53,7 @@ public static class SteamRunUri
             return false;
 
         var canonical = Prefix + canonicalAppId;
-        if (!string.Equals(uri, canonical, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(uri, canonical, StringComparison.Ordinal))
             return false;
 
         appId = canonicalAppId;
@@ -230,7 +230,7 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
             throw new InvalidDataException("Steam launch projection belongs to a different external game identity.");
 
         var appId = ValidateCanonicalSteamIdentity(projection.ExternalGameIdentity);
-        ValidateCurrentClientEvidence(clientEvidence);
+        ValidateCurrentClientEvidence(clientEvidence, now);
         ValidateInstallationEvidence(projection.Installation, now);
 
         var projectedLaunchIdentity = projection.LaunchIdentity?.Normalize()
@@ -302,7 +302,7 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
         try
         {
             appId = ValidateCanonicalSteamIdentity(preparedLaunch.NormalizedExternalGameIdentity);
-            ValidateLaunchIdentity(preparedLaunch.ResolvedLaunchIdentity.Normalize(), appId, submittedAt, allowPastEvidence: true);
+            ValidateLaunchIdentity(preparedLaunch.ResolvedLaunchIdentity.Normalize(), appId, submittedAt);
         }
         catch (InvalidDataException)
         {
@@ -401,7 +401,9 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
         return appId;
     }
 
-    private static void ValidateCurrentClientEvidence(GameClientDiscoveryEvidence evidence)
+    private static void ValidateCurrentClientEvidence(
+        GameClientDiscoveryEvidence evidence,
+        DateTimeOffset now)
     {
         if (evidence.AvailabilityState is not GameClientDiscoveryAvailability.AvailableVerified
             and not GameClientDiscoveryAvailability.AvailableUnverifiedVersion)
@@ -411,6 +413,8 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
             || !string.Equals(evidence.ProtocolRegistration, SteamClientAdapter.ProtocolRegistrationIdentity, StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(evidence.ExecutableIdentity))
             throw new InvalidDataException("Current Steam client evidence is not valid for protocol handoff.");
+        if (evidence.ObservedAtUtc > now)
+            throw new InvalidDataException("Steam client evidence is from the future.");
     }
 
     private static void ValidateInstallationEvidence(
@@ -420,10 +424,10 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
         var normalized = (installation ?? throw new InvalidDataException("Steam installation evidence is required.")).Normalize();
         if (normalized.State != GameInstallState.InstalledVerifiedEvidence
             || normalized.Freshness != GameEvidenceFreshness.Fresh
-            || normalized.Confidence == GameEvidenceConfidence.Low
+            || normalized.Confidence != GameEvidenceConfidence.High
             || normalized.MechanismStatus != GameMechanismStatus.BestEffortLocalEvidence
             || string.IsNullOrWhiteSpace(normalized.ValidatedInstallRoot))
-            throw new InvalidDataException("Steam launch requires fresh verified installation evidence.");
+            throw new InvalidDataException("Steam launch requires fresh high-confidence verified installation evidence.");
         if (normalized.ObservedAtUtc > now)
             throw new InvalidDataException("Steam installation evidence is from the future.");
         if (normalized.ExpiresAtUtc is DateTimeOffset expiresAt && expiresAt <= now)
@@ -433,8 +437,7 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
     private static void ValidateLaunchIdentity(
         AdapterLaunchIdentity identity,
         string expectedAppId,
-        DateTimeOffset now,
-        bool allowPastEvidence = false)
+        DateTimeOffset now)
     {
         var normalized = (identity ?? throw new InvalidDataException("Steam launch identity is required.")).Normalize();
         if (!string.Equals(normalized.Kind, SteamClientAdapter.ExternalIdKind, StringComparison.Ordinal)
@@ -445,8 +448,6 @@ public sealed class SteamProtocolLaunchAdapter : IGameClientAdapter
             throw new InvalidDataException("Steam launch identity is invalid.");
         if (normalized.ObservedAtUtc > now)
             throw new InvalidDataException("Steam launch identity evidence is from the future.");
-        if (!allowPastEvidence && normalized.ObservedAtUtc == default)
-            throw new InvalidDataException("Steam launch identity requires current evidence.");
     }
 
     private static bool LaunchIdentityEquals(AdapterLaunchIdentity left, AdapterLaunchIdentity right)
