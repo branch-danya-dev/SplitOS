@@ -270,7 +270,7 @@ public sealed class SteamProtocolLaunchAdapterTests
             Now.AddMinutes(1));
 
     private static AdapterGameProjection Projection()
-        => new(
+        => new AdapterGameProjection(
             Identity(),
             Installation(Now.AddMinutes(-1), Now.AddMinutes(4)),
             LaunchIdentity(AppId),
@@ -296,7 +296,7 @@ public sealed class SteamProtocolLaunchAdapterTests
     private static GameInstallationEvidence Installation(
         DateTimeOffset observedAt,
         DateTimeOffset expiresAt)
-        => new(
+        => new GameInstallationEvidence(
             GameInstallState.InstalledVerifiedEvidence,
             InstallRoot,
             observedAt,
@@ -309,7 +309,7 @@ public sealed class SteamProtocolLaunchAdapterTests
     private static GameClientDiscoveryEvidence ClientEvidence(
         GameClientDiscoveryAvailability availability,
         string? observedVersion = "10.20.30.40")
-        => new(
+        => new GameClientDiscoveryEvidence(
             GameClientType.Steam,
             availability,
             SteamClientAdapter.DiscoveryMechanismId,
