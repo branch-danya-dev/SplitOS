@@ -22,8 +22,14 @@ public sealed class SteamClientAdapterTests
             GameMechanismStatus.SupportedOsMechanism,
             adapter.Descriptor.Capability(GameClientCapabilityId.ClientVersionEvidence).MechanismStatus);
         Assert.AreEqual(
-            GameMechanismStatus.Open,
+            GameMechanismStatus.VersionSensitive,
             adapter.Descriptor.Capability(GameClientCapabilityId.LibraryDiscovery).MechanismStatus);
+        Assert.AreEqual(
+            GameMechanismStatus.BestEffortLocalEvidence,
+            adapter.Descriptor.Capability(GameClientCapabilityId.InstallationEvidence).MechanismStatus);
+        Assert.AreEqual(
+            GameMechanismStatus.SupportedPublic,
+            adapter.Descriptor.Capability(GameClientCapabilityId.LaunchIdentityResolution).MechanismStatus);
         Assert.AreEqual(
             GameMechanismStatus.Open,
             adapter.Descriptor.Capability(GameClientCapabilityId.GameLaunch).MechanismStatus);
@@ -239,6 +245,9 @@ public sealed class SteamClientAdapterTests
         Assert.AreEqual(
             "WINDOWS_BUILD_UNSUPPORTED",
             oldWindows.Capability(GameClientCapabilityId.ClientDiscovery).NotesCode);
+        Assert.AreEqual(
+            GameMechanismStatus.Unsupported,
+            oldWindows.Capability(GameClientCapabilityId.LibraryDiscovery).MechanismStatus);
         Assert.AreEqual(
             GameMechanismStatus.Open,
             oldWindows.Capability(GameClientCapabilityId.GameLaunch).MechanismStatus);
