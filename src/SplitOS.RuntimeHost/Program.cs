@@ -37,6 +37,24 @@ builder.Services.AddSingleton<SteamCorrelationAdapter>(services => new SteamCorr
     services.GetRequiredService<ISteamCorrelationPolicyProvider>(),
     TimeProvider.System));
 builder.Services.AddSingleton<IGameClientAdapter>(services => services.GetRequiredService<SteamCorrelationAdapter>());
+builder.Services.AddSingleton<IEpicProtocolRegistrationReader, WindowsEpicProtocolRegistrationReader>();
+builder.Services.AddSingleton<IEpicExecutableEvidenceReader, WindowsEpicExecutableEvidenceReader>();
+builder.Services.AddSingleton<IEpicUriLaunchDispatcher, WindowsEpicUriLaunchDispatcher>();
+builder.Services.AddSingleton<EpicProtocolActivationAdapter>(services => new EpicProtocolActivationAdapter(
+    services.GetRequiredService<IEpicProtocolRegistrationReader>(),
+    services.GetRequiredService<IEpicExecutableEvidenceReader>(),
+    services.GetRequiredService<IEpicUriLaunchDispatcher>(),
+    TimeProvider.System));
+builder.Services.AddSingleton<IGameClientAdapter>(services => services.GetRequiredService<EpicProtocolActivationAdapter>());
+builder.Services.AddSingleton<IMicrosoftPackageRegistrationReader, WindowsMicrosoftPackageRegistrationReader>();
+builder.Services.AddSingleton<IMicrosoftGamingTitleCatalog, EmptyMicrosoftGamingTitleCatalog>();
+builder.Services.AddSingleton<IMicrosoftApplicationActivationDispatcher, WindowsMicrosoftApplicationActivationDispatcher>();
+builder.Services.AddSingleton<MicrosoftGamingPackageAdapter>(services => new MicrosoftGamingPackageAdapter(
+    services.GetRequiredService<IMicrosoftPackageRegistrationReader>(),
+    services.GetRequiredService<IMicrosoftGamingTitleCatalog>(),
+    services.GetRequiredService<IMicrosoftApplicationActivationDispatcher>(),
+    TimeProvider.System));
+builder.Services.AddSingleton<IGameClientAdapter>(services => services.GetRequiredService<MicrosoftGamingPackageAdapter>());
 builder.Services.AddSingleton<GameClientAdapterRegistry>();
 builder.Services.AddSingleton<LauncherReadinessState>();
 builder.Services.AddSingleton<LauncherRuntimeSnapshotProvider>();
