@@ -250,7 +250,7 @@ public sealed class MicrosoftGamingPackageAdapterTests
         IMicrosoftGamingTitleCatalog catalog,
         IMicrosoftApplicationActivationDispatcher? dispatcher = null)
         => new(
-            new SequencePackageReader(snapshot),
+            new RepeatingPackageReader(snapshot),
             catalog,
             dispatcher ?? new RecordingActivationDispatcher(new MicrosoftApplicationActivationResult(
                 MicrosoftApplicationActivationDisposition.Accepted,
@@ -305,17 +305,20 @@ public sealed class MicrosoftGamingPackageAdapterTests
         public IReadOnlyList<MicrosoftGamingKnownTitle> Titles { get; } = titles;
     }
 
-    private sealed class SequencePackageReader(params MicrosoftPackageCatalogSnapshot[] snapshots)
+    private sealed class RepeatingPackageReader(params MicrosoftPackageCatalogSnapshot[] snapshots)
         : IMicrosoftPackageRegistrationReader
     {
-        private readonly Queue<MicrosoftPackageCatalogSnapshot> _snapshots = new(snapshots);
+        private readonly MicrosoftPackageCatalogSnapshot[] _snapshots = snapshots;
+        private int _index;
 
         public Task<MicrosoftPackageCatalogSnapshot> ReadCurrentUserPackagesAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_snapshots.Count == 0)
-                throw new AssertFailedException("Unexpected Microsoft package read.");
-            return Task.FromResult(_snapshots.Dequeue());
+            if (_snapshots.Length == 0)
+                throw new AssertFailedException("Microsoft package fixture requires at least one snapshot.");
+            var snapshot = _snapshots[Math.Min(_index, _snapshots.Length - 1)];
+            _index++;
+            return Task.FromResult(snapshot);
         }
     }
 
