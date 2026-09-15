@@ -472,7 +472,7 @@ public sealed class EpicProtocolActivationAdapter : IGameClientAdapter
             string? version = null,
             string? diagnostics = null,
             bool protocolRegistered = false)
-            => new(
+            => new GameClientDiscoveryEvidence(
                 GameClientType.Epic,
                 availability,
                 DiscoveryMechanismId,
@@ -756,7 +756,7 @@ public sealed class EpicProtocolActivationAdapter : IGameClientAdapter
         GameClientLaunchHandoffResultCode code,
         DateTimeOffset submittedAt,
         string diagnostics)
-        => new(
+        => new GameClientLaunchHandoffResult(
             prepared.LaunchOperationId,
             code,
             submittedAt,
