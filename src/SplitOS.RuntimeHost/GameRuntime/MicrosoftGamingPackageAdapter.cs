@@ -368,7 +368,7 @@ public sealed class WindowsMicrosoftApplicationActivationDispatcher : IMicrosoft
         IApplicationActivationManager? manager = null;
         try
         {
-            manager = (IApplicationActivationManager)new ApplicationActivationManager();
+            manager = (IApplicationActivationManager)(object)new ApplicationActivationManager();
             var hr = manager.ActivateApplication(aumid, null, ActivateOptions.None, out var processId);
             if (hr >= 0)
             {
@@ -597,7 +597,6 @@ public sealed class MicrosoftGamingPackageAdapter : IGameClientAdapter
             }
             records.Add(BuildProjection(title, snapshot.Packages, observedAt, missingEvidence));
         }
-
         var partial = missingEvidence.Count > 0;
         return Result(
             normalized,
