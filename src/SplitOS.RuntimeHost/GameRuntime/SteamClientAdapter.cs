@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.Win32;
 
 namespace SplitOS.RuntimeHost.GameRuntime;
@@ -142,7 +143,6 @@ public sealed class WindowsSteamExecutableEvidenceReader : ISteamExecutableEvide
             or IOException
             or System.ComponentModel.Win32Exception)
         {
-            // Existence is still current verified evidence. Version evidence degrades independently.
             return new SteamExecutableEvidence(true, null, false, "STEAM_CLIENT_VERSION_READ_FAILED");
         }
     }
@@ -258,31 +258,55 @@ public static class SteamProtocolHandlerCommandParser
 }
 
 /// <summary>
-/// First concrete game-client adapter slice. IMP-081 implements only Steam client discovery and
-/// client-version evidence. Remaining capabilities deliberately stay OPEN/UNSUPPORTED until their
-/// owning backlog slices land, so the registry never advertises behavior that does not exist yet.
+/// Steam adapter through IMP-082. Discovery/version evidence comes from the registered Steam URI
+/// handler; library/install evidence comes from bounded read-only VDF/ACF parsing. Launch submission
+/// and process correlation deliberately remain OPEN until IMP-083/084.
 /// </summary>
 public sealed class SteamClientAdapter : IGameClientAdapter
 {
-    public const string AdapterVersion = "steam-adapter/1";
+    public const string AdapterVersion = "steam-adapter/2";
     public const string CompatibilityPolicyId = "steam/v1";
     public const string DiscoveryMechanismId = "STEAM_PROTOCOL_REGISTRATION_V1";
     public const string VersionMechanismId = "STEAM_HANDLER_FILE_VERSION_V1";
+    public const string LibraryMechanismId = "STEAM_LIBRARY_VDF_V1";
+    public const string InstallationMechanismId = "STEAM_APPMANIFEST_INSTALL_EVIDENCE_V1";
+    public const string LaunchIdentityMechanismId = "STEAM_APP_ID_LAUNCH_IDENTITY_V1";
     public const string ProtocolRegistrationIdentity = "steam:";
+    public const string EvidenceSchemaVersion = "STEAM_KEYVALUES_V1";
+    public const string ExternalIdKind = "STEAM_APP_ID";
     public const int MinimumSupportedWindowsBuild = 19041;
+    public const int MaximumLibraryFoldersBytes = 4 * 1024 * 1024;
+    public const int MaximumAppManifestBytes = 1024 * 1024;
+    public const int MaximumAppManifestsPerLibrary = 10_000;
 
     private readonly ISteamProtocolRegistrationReader _registrationReader;
     private readonly ISteamExecutableEvidenceReader _executableEvidenceReader;
+    private readonly ISteamMetadataFileSystem _metadataFileSystem;
     private readonly TimeProvider _timeProvider;
     private long _snapshotGeneration;
+    private long _libraryGeneration;
 
     public SteamClientAdapter(
         ISteamProtocolRegistrationReader registrationReader,
         ISteamExecutableEvidenceReader executableEvidenceReader,
         TimeProvider? timeProvider = null)
+        : this(
+            registrationReader,
+            executableEvidenceReader,
+            new WindowsSteamMetadataFileSystem(),
+            timeProvider)
+    {
+    }
+
+    public SteamClientAdapter(
+        ISteamProtocolRegistrationReader registrationReader,
+        ISteamExecutableEvidenceReader executableEvidenceReader,
+        ISteamMetadataFileSystem metadataFileSystem,
+        TimeProvider? timeProvider = null)
     {
         _registrationReader = registrationReader ?? throw new ArgumentNullException(nameof(registrationReader));
         _executableEvidenceReader = executableEvidenceReader ?? throw new ArgumentNullException(nameof(executableEvidenceReader));
+        _metadataFileSystem = metadataFileSystem ?? throw new ArgumentNullException(nameof(metadataFileSystem));
         _timeProvider = timeProvider ?? TimeProvider.System;
         Descriptor = CreateDescriptor().Normalize();
     }
@@ -324,130 +348,48 @@ public sealed class SteamClientAdapter : IGameClientAdapter
         if (!Enum.IsDefined(freshnessRequirement))
             throw new ArgumentOutOfRangeException(nameof(freshnessRequirement));
 
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var observedAt = _timeProvider.GetUtcNow();
-        var generation = Interlocked.Increment(ref _snapshotGeneration);
-        SteamProtocolRegistrationSnapshot registration;
-        try
-        {
-            registration = _registrationReader.Read()
-                ?? throw new InvalidDataException("Steam registration reader returned no snapshot.");
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.Unknown,
-                observedAt,
-                generation,
-                diagnosticsCode: "STEAM_PROTOCOL_REGISTRY_READ_FAILED"));
-        }
-
-        if (!registration.ReadSucceeded)
-        {
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.Unknown,
-                observedAt,
-                generation,
-                diagnosticsCode: registration.DiagnosticsCode ?? "STEAM_PROTOCOL_REGISTRY_READ_FAILED"));
-        }
-
-        if (!registration.SchemeKeyPresent)
-        {
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.NotFoundVerified,
-                observedAt,
-                generation,
-                diagnosticsCode: "STEAM_PROTOCOL_NOT_REGISTERED"));
-        }
-
-        if (!registration.UrlProtocolMarkerPresent)
-        {
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.Unknown,
-                observedAt,
-                generation,
-                diagnosticsCode: "STEAM_URL_PROTOCOL_MARKER_MISSING"));
-        }
-
-        if (!SteamProtocolHandlerCommandParser.TryParse(
-                registration.CommandTemplate,
-                out var executablePath,
-                out var parseDiagnostics)
-            || executablePath is null)
-        {
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.Unknown,
-                observedAt,
-                generation,
-                diagnosticsCode: parseDiagnostics));
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        SteamExecutableEvidence executableEvidence;
-        try
-        {
-            executableEvidence = _executableEvidenceReader.Read(executablePath)
-                ?? throw new InvalidDataException("Steam executable reader returned no evidence.");
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.Unknown,
-                observedAt,
-                generation,
-                executablePath,
-                diagnosticsCode: "STEAM_HANDLER_FILE_QUERY_FAILED"));
-        }
-
-        if (!executableEvidence.Exists)
-        {
-            // A stale registration does not prove that Steam is not installed elsewhere; fail closed.
-            return Task.FromResult(Evidence(
-                GameClientDiscoveryAvailability.Unknown,
-                observedAt,
-                generation,
-                executablePath,
-                diagnosticsCode: executableEvidence.DiagnosticsCode ?? "STEAM_HANDLER_FILE_NOT_FOUND"));
-        }
-
-        var observedVersion = string.IsNullOrWhiteSpace(executableEvidence.ObservedFileVersion)
-            ? null
-            : executableEvidence.ObservedFileVersion.Trim();
-        var availability = observedVersion is null
-            ? GameClientDiscoveryAvailability.AvailableUnverifiedVersion
-            : GameClientDiscoveryAvailability.AvailableVerified;
-
-        return Task.FromResult(Evidence(
-            availability,
-            observedAt,
-            generation,
-            executablePath,
-            observedVersion,
-            observedVersion is null
-                ? executableEvidence.DiagnosticsCode ?? "STEAM_CLIENT_VERSION_UNAVAILABLE"
-                : null));
+        return Task.FromResult(DiscoverClientCore(cancellationToken));
     }
 
     public Task<GameClientLibraryRefreshResult> RefreshLibraryAsync(
         GameClientLibraryRefreshRequest request,
         CancellationToken cancellationToken)
-        => Unsupported<GameClientLibraryRefreshResult>("IMP-082 owns Steam library refresh.", cancellationToken);
+    {
+        var normalizedRequest = (request ?? throw new ArgumentNullException(nameof(request)))
+            .Normalize(GameClientType.Steam);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(BuildLibraryRefresh(normalizedRequest, cancellationToken));
+    }
 
     public Task<AdapterGameProjection?> ResolveInstallationAsync(
         ExternalGameIdentity externalGameIdentity,
         GameClientFreshnessRequirement freshnessRequirement,
         CancellationToken cancellationToken)
-        => Unsupported<AdapterGameProjection?>("IMP-082 owns Steam installation evidence.", cancellationToken);
+    {
+        if (!Enum.IsDefined(freshnessRequirement))
+            throw new ArgumentOutOfRangeException(nameof(freshnessRequirement));
+
+        var identity = (externalGameIdentity ?? throw new ArgumentNullException(nameof(externalGameIdentity))).Normalize();
+        if (identity.ClientType != GameClientType.Steam
+            || !string.Equals(identity.ExternalIdKind, ExternalIdKind, StringComparison.Ordinal)
+            || !uint.TryParse(identity.ExternalId, NumberStyles.None, CultureInfo.InvariantCulture, out var appId)
+            || appId == 0)
+            throw new InvalidDataException("Steam installation resolution requires a canonical STEAM_APP_ID identity.");
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var now = _timeProvider.GetUtcNow();
+        var request = new GameClientLibraryRefreshRequest(
+            Guid.NewGuid(),
+            GameClientType.Steam,
+            GameClientLibraryRefreshReason.GameLaunchRequest,
+            freshnessRequirement,
+            null,
+            now.AddSeconds(30));
+        var refresh = BuildLibraryRefresh(request, cancellationToken);
+        var projection = refresh.Records.FirstOrDefault(record =>
+            AdapterContractNormalization.ExternalIdentityEquals(record.ExternalGameIdentity, identity));
+        return Task.FromResult(projection);
+    }
 
     public Task<PreparedClientLaunch> PrepareLaunchAsync(
         GameClientLaunchRequest request,
@@ -474,7 +416,481 @@ public sealed class SteamClientAdapter : IGameClientAdapter
 
     public void Invalidate(GameClientLibraryRefreshReason reason)
     {
-        // IMP-081 has no cache. Explicit discovery always re-reads HKCR and executable evidence.
+        // IMP-082 intentionally keeps no authoritative cache inside the adapter. Every explicit
+        // discovery/refresh re-reads external evidence, so invalidation remains a no-op hint.
+    }
+
+    private GameClientDiscoveryEvidence DiscoverClientCore(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var observedAt = _timeProvider.GetUtcNow();
+        var generation = Interlocked.Increment(ref _snapshotGeneration);
+
+        SteamProtocolRegistrationSnapshot registration;
+        try
+        {
+            registration = _registrationReader.Read()
+                ?? throw new InvalidDataException("Steam registration reader returned no snapshot.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.Unknown,
+                observedAt,
+                generation,
+                diagnosticsCode: "STEAM_PROTOCOL_REGISTRY_READ_FAILED");
+        }
+
+        if (!registration.ReadSucceeded)
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.Unknown,
+                observedAt,
+                generation,
+                diagnosticsCode: registration.DiagnosticsCode ?? "STEAM_PROTOCOL_REGISTRY_READ_FAILED");
+        }
+
+        if (!registration.SchemeKeyPresent)
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.NotFoundVerified,
+                observedAt,
+                generation,
+                diagnosticsCode: "STEAM_PROTOCOL_NOT_REGISTERED");
+        }
+
+        if (!registration.UrlProtocolMarkerPresent)
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.Unknown,
+                observedAt,
+                generation,
+                diagnosticsCode: "STEAM_URL_PROTOCOL_MARKER_MISSING");
+        }
+
+        if (!SteamProtocolHandlerCommandParser.TryParse(
+                registration.CommandTemplate,
+                out var executablePath,
+                out var parseDiagnostics)
+            || executablePath is null)
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.Unknown,
+                observedAt,
+                generation,
+                diagnosticsCode: parseDiagnostics);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        SteamExecutableEvidence executableEvidence;
+        try
+        {
+            executableEvidence = _executableEvidenceReader.Read(executablePath)
+                ?? throw new InvalidDataException("Steam executable reader returned no evidence.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.Unknown,
+                observedAt,
+                generation,
+                executablePath,
+                diagnosticsCode: "STEAM_HANDLER_FILE_QUERY_FAILED");
+        }
+
+        if (!executableEvidence.Exists)
+        {
+            return Evidence(
+                GameClientDiscoveryAvailability.Unknown,
+                observedAt,
+                generation,
+                executablePath,
+                diagnosticsCode: executableEvidence.DiagnosticsCode ?? "STEAM_HANDLER_FILE_NOT_FOUND");
+        }
+
+        var observedVersion = string.IsNullOrWhiteSpace(executableEvidence.ObservedFileVersion)
+            ? null
+            : executableEvidence.ObservedFileVersion.Trim();
+        var availability = observedVersion is null
+            ? GameClientDiscoveryAvailability.AvailableUnverifiedVersion
+            : GameClientDiscoveryAvailability.AvailableVerified;
+
+        return Evidence(
+            availability,
+            observedAt,
+            generation,
+            executablePath,
+            observedVersion,
+            observedVersion is null
+                ? executableEvidence.DiagnosticsCode ?? "STEAM_CLIENT_VERSION_UNAVAILABLE"
+                : null);
+    }
+
+    private GameClientLibraryRefreshResult BuildLibraryRefresh(
+        GameClientLibraryRefreshRequest request,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var observedAt = _timeProvider.GetUtcNow();
+        var generation = Interlocked.Increment(ref _libraryGeneration);
+        if (request.DeadlineUtc <= observedAt)
+            return Result(request, GameClientLibraryRefreshResultCode.Timeout, generation, observedAt, [], "STEAM_LIBRARY_REFRESH_DEADLINE_EXPIRED");
+
+        var discovery = DiscoverClientCore(cancellationToken);
+        if (discovery.AvailabilityState == GameClientDiscoveryAvailability.NotFoundVerified)
+        {
+            return Result(
+                request,
+                GameClientLibraryRefreshResultCode.ClientUnavailable,
+                generation,
+                observedAt,
+                [],
+                discovery.DiagnosticsCode,
+                discovery.ObservedClientVersion);
+        }
+
+        if (discovery.AvailabilityState is GameClientDiscoveryAvailability.Unknown
+            or GameClientDiscoveryAvailability.StaleLastKnown
+            || string.IsNullOrWhiteSpace(discovery.ExecutableIdentity))
+        {
+            return Result(
+                request,
+                GameClientLibraryRefreshResultCode.SourceUnavailable,
+                generation,
+                observedAt,
+                [],
+                discovery.DiagnosticsCode ?? "STEAM_LIBRARY_CLIENT_EVIDENCE_UNAVAILABLE",
+                discovery.ObservedClientVersion);
+        }
+
+        string steamRoot;
+        try
+        {
+            steamRoot = Path.GetDirectoryName(discovery.ExecutableIdentity) is { Length: > 0 } directory
+                ? Path.GetFullPath(directory)
+                : throw new InvalidDataException("Steam handler has no parent directory.");
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException
+            or InvalidDataException)
+        {
+            return Result(
+                request,
+                GameClientLibraryRefreshResultCode.SourceUnavailable,
+                generation,
+                observedAt,
+                [],
+                "STEAM_ROOT_INVALID",
+                discovery.ObservedClientVersion);
+        }
+
+        var libraryFoldersPath = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
+        var libraryRead = _metadataFileSystem.ReadTextFile(libraryFoldersPath, MaximumLibraryFoldersBytes);
+        if (!libraryRead.Success)
+        {
+            return Result(
+                request,
+                GameClientLibraryRefreshResultCode.ParseFailed,
+                generation,
+                observedAt,
+                [],
+                libraryRead.DiagnosticsCode ?? "STEAM_LIBRARY_SOURCE_READ_FAILED",
+                discovery.ObservedClientVersion);
+        }
+
+        if (!libraryRead.Exists || libraryRead.Content is null)
+        {
+            return Result(
+                request,
+                GameClientLibraryRefreshResultCode.SourceUnavailable,
+                generation,
+                observedAt,
+                [],
+                "LIBRARY_SOURCE_NOT_FOUND",
+                discovery.ObservedClientVersion);
+        }
+
+        var libraryParse = SteamVdfMetadataParser.ParseLibraryFolders(libraryRead.Content);
+        if (!libraryParse.Success)
+        {
+            var resultCode = string.Equals(
+                    libraryParse.DiagnosticsCode,
+                    "STEAM_LIBRARY_SCHEMA_UNKNOWN",
+                    StringComparison.Ordinal)
+                ? GameClientLibraryRefreshResultCode.SourceSchemaUnknown
+                : GameClientLibraryRefreshResultCode.ParseFailed;
+            return Result(
+                request,
+                resultCode,
+                generation,
+                observedAt,
+                [],
+                libraryParse.DiagnosticsCode,
+                discovery.ObservedClientVersion);
+        }
+
+        var missingEvidence = new HashSet<string>(StringComparer.Ordinal);
+        var libraryRoots = NormalizeLibraryRoots(steamRoot, libraryParse.LibraryRoots, missingEvidence);
+        if (libraryRoots.Count == 0)
+        {
+            return Result(
+                request,
+                GameClientLibraryRefreshResultCode.SourceUnavailable,
+                generation,
+                observedAt,
+                [],
+                "STEAM_LIBRARY_ROOTS_UNAVAILABLE",
+                discovery.ObservedClientVersion);
+        }
+
+        var projections = new Dictionary<string, AdapterGameProjection>(StringComparer.Ordinal);
+        foreach (var libraryRoot in libraryRoots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.DeadlineUtc <= _timeProvider.GetUtcNow())
+            {
+                missingEvidence.Add("STEAM_LIBRARY_REFRESH_DEADLINE_EXPIRED");
+                break;
+            }
+
+            var steamAppsRoot = Path.Combine(libraryRoot, "steamapps");
+            var enumeration = _metadataFileSystem.EnumerateFiles(
+                steamAppsRoot,
+                "appmanifest_*.acf",
+                MaximumAppManifestsPerLibrary);
+            if (!enumeration.Success)
+            {
+                missingEvidence.Add(enumeration.DiagnosticsCode ?? "STEAM_APPMANIFEST_ENUMERATION_FAILED");
+                continue;
+            }
+
+            foreach (var manifestPath in enumeration.Files)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (request.DeadlineUtc <= _timeProvider.GetUtcNow())
+                {
+                    missingEvidence.Add("STEAM_LIBRARY_REFRESH_DEADLINE_EXPIRED");
+                    break;
+                }
+
+                if (!TryManifestFileAppId(manifestPath, out var fileAppId))
+                {
+                    missingEvidence.Add("STEAM_APPMANIFEST_FILENAME_INVALID");
+                    continue;
+                }
+
+                var manifestRead = _metadataFileSystem.ReadTextFile(manifestPath, MaximumAppManifestBytes);
+                if (!manifestRead.Success || !manifestRead.Exists || manifestRead.Content is null)
+                {
+                    missingEvidence.Add(manifestRead.DiagnosticsCode ?? "STEAM_APPMANIFEST_READ_FAILED");
+                    continue;
+                }
+
+                var parsed = SteamVdfMetadataParser.ParseAppManifest(manifestRead.Content);
+                if (!parsed.Success || parsed.AppId is null)
+                {
+                    missingEvidence.Add(parsed.DiagnosticsCode ?? "STEAM_APPMANIFEST_PARSE_FAILED");
+                    continue;
+                }
+
+                if (!string.Equals(parsed.AppId, fileAppId, StringComparison.Ordinal))
+                {
+                    missingEvidence.Add("STEAM_APPMANIFEST_APPID_MISMATCH");
+                    continue;
+                }
+
+                if (projections.ContainsKey(parsed.AppId))
+                {
+                    missingEvidence.Add("STEAM_APPMANIFEST_DUPLICATE_APPID");
+                    continue;
+                }
+
+                var projection = BuildProjection(
+                    parsed,
+                    manifestPath,
+                    libraryRoot,
+                    observedAt,
+                    discovery.ObservedClientVersion,
+                    missingEvidence);
+                projections.Add(parsed.AppId, projection);
+            }
+        }
+
+        var records = projections.Values
+            .OrderBy(record => uint.Parse(record.ExternalGameIdentity.ExternalId, CultureInfo.InvariantCulture))
+            .ToArray();
+        var partial = missingEvidence.Count > 0;
+        return Result(
+            request,
+            partial ? GameClientLibraryRefreshResultCode.Partial : GameClientLibraryRefreshResultCode.Refreshed,
+            generation,
+            observedAt,
+            records,
+            partial ? "STEAM_LIBRARY_PARTIAL" : "STEAM_LIBRARY_REFRESHED",
+            discovery.ObservedClientVersion,
+            partial ? missingEvidence : null);
+    }
+
+    private IReadOnlyList<string> NormalizeLibraryRoots(
+        string steamRoot,
+        IReadOnlyList<string> candidates,
+        ISet<string> missingEvidence)
+    {
+        var normalized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddLibraryRoot(steamRoot, normalized, missingEvidence, "STEAM_PRIMARY_LIBRARY_INVALID");
+
+        foreach (var candidate in candidates)
+            AddLibraryRoot(candidate, normalized, missingEvidence, "STEAM_LIBRARY_PATH_INVALID");
+
+        return normalized.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private void AddLibraryRoot(
+        string candidate,
+        ISet<string> output,
+        ISet<string> missingEvidence,
+        string invalidCode)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || !Path.IsPathFullyQualified(candidate))
+        {
+            missingEvidence.Add(invalidCode);
+            return;
+        }
+
+        string normalized;
+        try
+        {
+            normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            missingEvidence.Add(invalidCode);
+            return;
+        }
+
+        if (!_metadataFileSystem.DirectoryExists(Path.Combine(normalized, "steamapps")))
+        {
+            missingEvidence.Add("STEAM_LIBRARY_STEAMAPPS_NOT_FOUND");
+            return;
+        }
+
+        output.Add(normalized);
+    }
+
+    private AdapterGameProjection BuildProjection(
+        SteamAppManifestParseResult parsed,
+        string manifestPath,
+        string libraryRoot,
+        DateTimeOffset observedAt,
+        string? clientVersion,
+        ISet<string> missingEvidence)
+    {
+        var identity = new ExternalGameIdentity(
+            GameClientType.Steam,
+            ExternalIdKind,
+            parsed.AppId!).Normalize();
+        var launchIdentity = new AdapterLaunchIdentity(
+            ExternalIdKind,
+            1,
+            parsed.AppId!,
+            observedAt,
+            GameMechanismStatus.SupportedPublic).Normalize();
+
+        var installRoot = ResolveValidatedInstallRoot(libraryRoot, parsed.InstallDirectoryName);
+        GameInstallationEvidence installation;
+        if (installRoot is not null && _metadataFileSystem.DirectoryExists(installRoot))
+        {
+            installation = new GameInstallationEvidence(
+                GameInstallState.InstalledVerifiedEvidence,
+                installRoot,
+                observedAt,
+                observedAt.AddMinutes(5),
+                GameEvidenceFreshness.Fresh,
+                GameEvidenceConfidence.High,
+                GameMechanismStatus.BestEffortLocalEvidence,
+                manifestPath).Normalize();
+        }
+        else
+        {
+            missingEvidence.Add(parsed.InstallDirectoryName is null
+                ? "STEAM_APPMANIFEST_INSTALLDIR_MISSING"
+                : "STEAM_INSTALL_ROOT_NOT_VERIFIED");
+            installation = new GameInstallationEvidence(
+                GameInstallState.Unknown,
+                null,
+                observedAt,
+                observedAt.AddMinutes(5),
+                GameEvidenceFreshness.Fresh,
+                GameEvidenceConfidence.Low,
+                GameMechanismStatus.BestEffortLocalEvidence,
+                manifestPath).Normalize();
+        }
+
+        return new AdapterGameProjection(
+            identity,
+            installation,
+            launchIdentity,
+            Array.Empty<string>(),
+            new GameLibrarySourceProvenance(
+                InstallationMechanismId,
+                AdapterVersion,
+                EvidenceSchemaVersion,
+                clientVersion),
+            parsed.DisplayName).Normalize(GameClientType.Steam);
+    }
+
+    private static string? ResolveValidatedInstallRoot(string libraryRoot, string? installDirectoryName)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectoryName)
+            || Path.IsPathFullyQualified(installDirectoryName)
+            || installDirectoryName.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            return null;
+
+        try
+        {
+            var commonRoot = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(Path.Combine(libraryRoot, "steamapps", "common")));
+            var candidate = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(Path.Combine(commonRoot, installDirectoryName)));
+            var prefix = commonRoot + Path.DirectorySeparatorChar;
+            if (!candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return candidate;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private static bool TryManifestFileAppId(string path, out string appId)
+    {
+        appId = string.Empty;
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        const string prefix = "appmanifest_";
+        if (!fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var raw = fileName[prefix.Length..];
+        if (!uint.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) || parsed == 0)
+            return false;
+
+        appId = parsed.ToString(CultureInfo.InvariantCulture);
+        return true;
     }
 
     private GameClientDiscoveryEvidence Evidence(
@@ -497,11 +913,39 @@ public sealed class SteamClientAdapter : IGameClientAdapter
             observedVersion,
             diagnosticsCode).Normalize(GameClientType.Steam);
 
+    private static GameClientLibraryRefreshResult Result(
+        GameClientLibraryRefreshRequest request,
+        GameClientLibraryRefreshResultCode resultCode,
+        long generation,
+        DateTimeOffset observedAt,
+        IReadOnlyList<AdapterGameProjection> records,
+        string? parserStatus,
+        string? clientVersion = null,
+        IEnumerable<string>? missingEvidence = null)
+    {
+        var missing = missingEvidence?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+        return new GameClientLibraryRefreshResult(
+            request.RefreshId,
+            GameClientType.Steam,
+            resultCode,
+            generation,
+            observedAt,
+            records,
+            clientVersion,
+            parserStatus,
+            resultCode == GameClientLibraryRefreshResultCode.Partial ? missing : null)
+            .Normalize(request);
+    }
+
     private static GameClientAdapterDescriptor CreateDescriptor()
         => new(
             GameClientType.Steam,
             AdapterVersion,
-            ["STEAM_APP_ID"],
+            [ExternalIdKind],
             [
                 new GameClientAdapterCapability(
                     GameClientCapabilityId.ClientDiscovery,
@@ -515,16 +959,19 @@ public sealed class SteamClientAdapter : IGameClientAdapter
                     MinimumWindowsBuild: MinimumSupportedWindowsBuild),
                 new GameClientAdapterCapability(
                     GameClientCapabilityId.LibraryDiscovery,
-                    GameMechanismStatus.Open,
-                    "STEAM_LIBRARY_VDF_V1"),
+                    GameMechanismStatus.VersionSensitive,
+                    LibraryMechanismId,
+                    MinimumWindowsBuild: MinimumSupportedWindowsBuild),
                 new GameClientAdapterCapability(
                     GameClientCapabilityId.InstallationEvidence,
-                    GameMechanismStatus.Open,
-                    "STEAM_APPMANIFEST_INSTALL_EVIDENCE_V1"),
+                    GameMechanismStatus.BestEffortLocalEvidence,
+                    InstallationMechanismId,
+                    MinimumWindowsBuild: MinimumSupportedWindowsBuild),
                 new GameClientAdapterCapability(
                     GameClientCapabilityId.LaunchIdentityResolution,
-                    GameMechanismStatus.Open,
-                    "STEAM_APP_ID_LAUNCH_IDENTITY_V1"),
+                    GameMechanismStatus.SupportedPublic,
+                    LaunchIdentityMechanismId,
+                    MinimumWindowsBuild: MinimumSupportedWindowsBuild),
                 new GameClientAdapterCapability(
                     GameClientCapabilityId.LaunchEligibilityEvidence,
                     GameMechanismStatus.Open,
